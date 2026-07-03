@@ -19,7 +19,7 @@
   import { EditBox, Label, showPopup, eventToHTMLElement, Button } from '@hcengineering/ui'
   import EditBoxPopup from './EditBoxPopup.svelte'
 
-  // export let label: IntlString
+  export let label: IntlString
   export let placeholder: IntlString
   export let value: string
   export let autoFocus: boolean = false
@@ -45,6 +45,7 @@
     {size}
     {justify}
     {width}
+    showTooltip={{ label }}
     on:click={(ev) => {
       if (!shown && !readonly) {
         showPopup(EditBoxPopup, { value }, eventToHTMLElement(ev), (res) => {
@@ -61,7 +62,7 @@
       {#if value}
         <span class="caption-color overflow-label pointer-events-none">{value}</span>
       {:else}
-        <span class="content-dark-color pointer-events-none"><Label label={placeholder} /></span>
+        <span class="content-dark-color overflow-label pointer-events-none"><Label label={placeholder} /></span>
       {/if}
     </svelte:fragment>
   </Button>

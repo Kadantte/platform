@@ -1,6 +1,6 @@
 //
 // Copyright © 2020, 2021 Anticrm Platform Contributors.
-// Copyright © 2021 Hardcore Engineering Inc.
+// Copyright © 2021, 2024 Hardcore Engineering Inc.
 //
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
@@ -14,18 +14,14 @@
 // limitations under the License.
 //
 
-import type { AttachedDoc, Blob, Class, Ref } from '@hcengineering/core'
+import type { AttachedDoc, Blob, BlobMetadata, Class, Doc, Ref } from '@hcengineering/core'
 import type { Asset, Plugin } from '@hcengineering/platform'
 import { IntlString, plugin, Resource } from '@hcengineering/platform'
 import type { Preference } from '@hcengineering/preference'
 import { AnyComponent } from '@hcengineering/ui'
+import { Widget } from '@hcengineering/workbench'
 
 export * from './analytics'
-
-/**
- * @public
- */
-export type BlobMetadata = Record<string, any>
 
 /**
  * @public
@@ -47,6 +43,11 @@ export interface Attachment extends AttachedDoc {
 /**
  * @public
  */
+export interface Embedding extends Attachment {}
+
+/**
+ * @public
+ */
 export type AttachmentMetadata = BlobMetadata
 
 /**
@@ -64,6 +65,15 @@ export interface SavedAttachments extends Preference {
 /**
  * @public
  */
+export interface Drawing extends Doc {
+  parent: Ref<Doc>
+  parentClass: Ref<Class<Doc>>
+  content?: string
+}
+
+/**
+ * @public
+ */
 export const attachmentId = 'attachment' as Plugin
 
 export default plugin(attachmentId, {
@@ -71,6 +81,7 @@ export default plugin(attachmentId, {
     Attachments: '' as AnyComponent,
     Photos: '' as AnyComponent,
     AttachmentsPresenter: '' as AnyComponent,
+    DrawingPresenter: '' as AnyComponent,
     FileBrowser: '' as AnyComponent,
     PDFViewer: '' as AnyComponent
   },
@@ -80,14 +91,20 @@ export default plugin(attachmentId, {
   },
   class: {
     Attachment: '' as Ref<Class<Attachment>>,
+    Embedding: '' as Ref<Class<Embedding>>,
+    Drawing: '' as Ref<Class<Drawing>>,
     Photo: '' as Ref<Class<Photo>>,
     SavedAttachments: '' as Ref<Class<SavedAttachments>>
   },
   helper: {
-    UploadFile: '' as Resource<(file: File) => Promise<Ref<Blob>>>,
+    UploadFile: '' as Resource<(file: File) => Promise<{ uuid: Ref<Blob>, metadata: Record<string, any> }>>,
     DeleteFile: '' as Resource<(id: string) => Promise<void>>
   },
+  ids: {
+    PreviewWidget: '' as Ref<Widget>
+  },
   string: {
+    UploadDropFilesHere: '' as IntlString,
     Files: '' as IntlString,
     NoFiles: '' as IntlString,
     NoParticipants: '' as IntlString,
@@ -106,6 +123,8 @@ export default plugin(attachmentId, {
     FileBrowserTypeFilterPDFs: '' as IntlString,
     DeleteFile: '' as IntlString,
     Attachments: '' as IntlString,
-    FileBrowser: '' as IntlString
+    FileBrowser: '' as IntlString,
+    OpenInWindow: '' as IntlString,
+    Embeddings: '' as IntlString
   }
 })

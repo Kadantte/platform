@@ -13,7 +13,7 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import core, { AttachedData, FindOptions, type Rank, Ref, SortingOrder } from '@hcengineering/core'
+  import core, { AttachedData, Doc, FindOptions, type Rank, Ref, SortingOrder } from '@hcengineering/core'
   import { ObjectPopup, getClient } from '@hcengineering/presentation'
   import { makeRank } from '@hcengineering/task'
   import { Issue, IssueDraft } from '@hcengineering/tracker'
@@ -65,16 +65,30 @@
   }
 
   $: selected = !Array.isArray(value) ? ('attachedTo' in value ? value.attachedTo : undefined) : undefined
-  $: ignoreObjects = !Array.isArray(value) ? ('_id' in value ? [value._id] : []) : undefined
-  $: docQuery = {
-    'parents.parentId': {
-      $nin: [
-        ...new Set(
-          (Array.isArray(value) ? value : [value])
-            .map((issue) => ('_id' in issue ? issue._id : null))
-            .filter((x): x is Ref<Issue> => x !== null)
-        )
-      ]
+  $: ignoreObjects = getIgnoreObjects(value)
+
+  function getIgnoreObjects (issues: Issue | AttachedData<Issue> | Issue[] | IssueDraft): Ref<Issue>[] {
+    if (!Array.isArray(issues)) {
+      const own = '_id' in issues ? issues._id : undefined
+      const childs = 'childInfo' in issues ? issues.childInfo.map((c) => c.childId) : []
+      return own !== undefined ? [own, ...childs] : childs
+    } else {
+      const res = new Set<Ref<Issue>>()
+      for (const issue of issues) {
+        const own = '_id' in issue ? issue._id : undefined
+        const childs = 'childInfo' in issue ? issue.childInfo.map((c) => c.childId) : []
+        if (own !== undefined) {
+          res.add(own)
+          for (const child of childs) {
+            res.add(child)
+          }
+        } else {
+          for (const child of childs) {
+            res.add(child)
+          }
+        }
+      }
+      return [...res]
     }
   }
 </script>
@@ -82,8 +96,8 @@
 <ObjectPopup
   _class={tracker.class.Issue}
   {options}
-  {docQuery}
   {selected}
+  category={tracker.completion.IssueCategory}
   multiSelect={false}
   allowDeselect={true}
   placeholder={tracker.string.SetParent}
@@ -91,7 +105,7 @@
   {ignoreObjects}
   shadows={true}
   {width}
-  searchMode={'fulltext'}
+  searchMode={'spotlight'}
   on:update
   on:close={onClose}
 >
@@ -99,7 +113,7 @@
     <div class="flex-center clear-mins w-full h-9">
       {#if issue?.$lookup?.status}
         <div class="icon mr-4 h-8">
-          <IssueStatusIcon value={issue.$lookup.status} space={issue.space} size="small" />
+          <IssueStatusIcon value={issue.$lookup.status} taskType={issue.kind} space={issue.space} size="small" />
         </div>
       {/if}
       <span class="overflow-label flex-no-shrink mr-3">{issue.identifier}</span>

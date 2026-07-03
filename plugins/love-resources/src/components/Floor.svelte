@@ -13,39 +13,61 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { AccountRole, Ref, getCurrentAccount, hasAccountRole } from '@hcengineering/core'
-  import { Breadcrumb, Header, IconEdit, ModernButton, Scroller } from '@hcengineering/ui'
-  import { Floor, ParticipantInfo, Room } from '@hcengineering/love'
+  import { AccountRole, getCurrentAccount, hasAccountRole, Ref, WithLookup } from '@hcengineering/core'
+  import { Floor, Room } from '@hcengineering/love'
+  import { Component, DropdownLabels, Header, IconEdit, ModernButton } from '@hcengineering/ui'
+  import { Viewlet, ViewletPreference } from '@hcengineering/view'
+  import { ViewletSelector } from '@hcengineering/view-resources'
   import { createEventDispatcher } from 'svelte'
+
   import lovePlg from '../plugin'
-  import { currentRoom, floors, infos } from '../stores'
-  import { calculateFloorSize } from '../utils'
-  import ControlBar from './ControlBar.svelte'
-  import FloorGrid from './FloorGrid.svelte'
-  import RoomPreview from './RoomPreview.svelte'
+  import { floors, selectedFloor } from '../stores'
 
   export let rooms: Room[] = []
   export let floor: Ref<Floor>
 
   const dispatch = createEventDispatcher()
 
-  let floorContainer: HTMLDivElement
+  let viewlet: WithLookup<Viewlet> | undefined
+  let preference: ViewletPreference | undefined
+  let loading = false
 
-  $: selectedFloor = $floors.filter((fl) => fl._id === floor)[0]
-
-  function getInfo (room: Ref<Room>, info: ParticipantInfo[]): ParticipantInfo[] {
-    return info.filter((p) => p.room === room)
-  }
+  let selected = $floors.filter((fl) => fl._id === floor)[0]
+  $: selected = $floors.filter((fl) => fl._id === floor)[0]
 
   const me = getCurrentAccount()
+
   let editable: boolean = false
   $: editable = hasAccountRole(me, AccountRole.Maintainer)
-  $: rows = calculateFloorSize(rooms) - 1
+
+  let items = $floors.map((p) => {
+    return { id: p._id, label: p.name }
+  })
+  $: items = $floors.map((p) => {
+    return { id: p._id, label: p.name }
+  })
+
+  function changeFloor (event: CustomEvent<Ref<Floor>>) {
+    if (event.detail) {
+      selectedFloor.set(event.detail)
+    }
+  }
 </script>
 
 <div class="hulyComponent">
-  <Header allowFullsize adaptive={'disabled'}>
-    <Breadcrumb title={selectedFloor?.name ?? ''} size={'large'} isCurrent />
+  <Header adaptive={'disabled'}>
+    <DropdownLabels
+      {items}
+      selected={selected?._id}
+      size={'large'}
+      kind={'ghost'}
+      enableSearch={false}
+      autoSelect={false}
+      on:selected={changeFloor}
+    />
+    <svelte:fragment slot="beforeTitle">
+      <ViewletSelector bind:viewlet bind:preference bind:loading viewletQuery={{ attachTo: lovePlg.class.Floor }} />
+    </svelte:fragment>
     <svelte:fragment slot="actions">
       {#if editable}
         <ModernButton
@@ -58,15 +80,8 @@
     </svelte:fragment>
   </Header>
   <div class="hulyComponent-content__column content">
-    <Scroller padding={'1rem'} bottomPadding={'4rem'} horizontal>
-      <FloorGrid bind:floorContainer {rows} preview>
-        {#each rooms as room}
-          <RoomPreview {room} info={getInfo(room._id, $infos)} />
-        {/each}
-      </FloorGrid>
-    </Scroller>
+    {#if viewlet?.$lookup?.descriptor?.component}
+      <Component is={viewlet.$lookup.descriptor.component} props={{ floor, rooms }} on:open />
+    {/if}
   </div>
-  {#if $currentRoom}
-    <ControlBar room={$currentRoom} />
-  {/if}
 </div>

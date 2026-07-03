@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-import { type Timestamp } from '@hcengineering/core'
-import type {
-  Asset,
-  IntlString,
-  /* Metadata, Plugin, plugin, */ Resource /*, Service */
-} from '@hcengineering/platform'
-import { /* getContext, */ type ComponentType } from 'svelte'
+import type { AccountRole, Blob, Permission, Ref, Timestamp, TypedSpace } from '@hcengineering/core'
+import type { Asset, IntlString, Resource } from '@hcengineering/platform'
+import { type ComponentType } from 'svelte'
 
 /**
  * Describe a browser URI location parsed to path, query and fragment.
@@ -78,8 +74,12 @@ export interface AnySvelteComponentWithProps {
   props?: Record<string, any>
 }
 
+export type IconComponent = Asset | AnySvelteComponent | ComponentType
+
 export interface Action {
+  id?: string
   label: IntlString
+  labelParams?: Record<string, any>
   icon?: Asset | AnySvelteComponent
   action: (props: any, ev: Event) => Promise<void>
   inline?: boolean
@@ -130,6 +130,7 @@ export interface BreadcrumbItem {
   icon?: Asset | AnySvelteComponent | ComponentType
   iconProps?: any
   iconWidth?: string
+  iconMargin?: string
   withoutIconBackground?: boolean
   label?: IntlString
   title?: string
@@ -149,7 +150,7 @@ export interface RadioItem {
 
 export type ButtonBaseType = 'type-button' | 'type-button-icon'
 
-export type ButtonBaseKind = 'primary' | 'secondary' | 'tertiary' | 'negative'
+export type ButtonBaseKind = 'primary' | 'secondary' | 'tertiary' | 'negative' | 'ghost'
 
 export type ButtonBaseSize = 'large' | 'medium' | 'small' | 'extra-small' | 'min'
 
@@ -169,6 +170,8 @@ export type ButtonKind =
   | 'list-header'
   | 'contrast'
   | 'stepper'
+  | 'attention'
+  | 'warning'
 export type ButtonSize = 'inline' | 'x-small' | 'small' | 'medium' | 'large' | 'x-large'
 export type ButtonShape =
   | 'rectangle'
@@ -230,7 +233,8 @@ export const posAlignment = [
   'centered',
   'center',
   'status',
-  'movable'
+  'movable',
+  'full-centered'
 ] as const
 
 export type PopupPosAlignment = (typeof posAlignment)[number]
@@ -260,7 +264,7 @@ export type IconSize =
   | '2x-large'
   | 'full'
 export interface IconProps {
-  icon?: number
+  icon?: number | number[] | Ref<Blob>
   size?: IconSize
   fill?: string
   filled?: boolean
@@ -303,6 +307,10 @@ export interface LabelAndProps {
   onUpdate?: (result: any) => void
   kind?: 'tooltip' | 'submenu' | 'popup'
   keys?: string[]
+  timeout?: number
+  style?: 'default' | 'modern'
+  noArrow?: boolean
+  textAlign?: 'left' | 'center' | 'right'
 }
 
 export interface ListItem {
@@ -325,10 +333,15 @@ export interface DropdownIntlItem {
   id: string | number
   label: IntlString
   icon?: Asset | AnySvelteComponent | ComponentType
+  iconProps?: Record<string, any>
   params?: Record<string, any>
   description?: IntlString
   paramsDescription?: Record<string, any>
   keys?: string[]
+}
+
+export interface NestedSelectItem extends DropdownIntlItem {
+  children?: NestedSelectItem[]
 }
 
 export interface PopupOptions {
@@ -382,6 +395,7 @@ export interface DeviceOptions {
   sizes: Record<WidthType, boolean>
   minWidth: boolean
   twoRows: boolean
+  firstDayOfWeek: number
   theme?: string
   language?: string
   replacedPanel?: HTMLElement
@@ -455,6 +469,7 @@ export interface CalendarItem {
   date: Timestamp
   dueDate: Timestamp
   day: number
+  blockTime: boolean
   access: 'freeBusyReader' | 'reader' | 'writer' | 'owner'
 }
 
@@ -509,6 +524,21 @@ export interface SelectPopupValueType {
 /**
  * @public
  */
+export interface HeaderButtonAction extends SelectPopupValueType {
+  callback: () => void
+  keyBindingPromise?: Promise<string[] | undefined>
+  keyBinding?: string[] | undefined
+  draft?: boolean
+  accountRole?: AccountRole
+  permissions?: Array<{
+    id: Ref<Permission>
+    space: Ref<TypedSpace>
+  }>
+}
+
+/**
+ * @public
+ */
 export interface TimeZone {
   id: string
   continent: string
@@ -537,4 +567,36 @@ export enum StateType {
   Positive,
   Primary,
   Regular
+}
+
+export interface IHeaderState {
+  headerWidth: number
+  extraWidth: number
+  spaceWidth: number
+  titleWidth: number
+  titleOverflow: boolean
+  extraOverflow: boolean
+}
+
+export interface IPanelState extends IHeaderState {
+  panelWidth: number
+  innerWidth: number
+}
+
+export interface FilterOption {
+  id: string
+  label: IntlString
+}
+
+export interface FilterCategory {
+  id: string
+  label: IntlString
+  options: FilterOption[]
+}
+
+export interface ActiveFilter {
+  categoryId: string
+  optionId: string
+  categoryLabel: IntlString
+  optionLabel: IntlString
 }

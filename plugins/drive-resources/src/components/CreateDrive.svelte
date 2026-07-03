@@ -15,18 +15,18 @@
 <script lang="ts">
   import { deepEqual } from 'fast-equals'
   import { createEventDispatcher } from 'svelte'
-  import { AccountArrayEditor } from '@hcengineering/contact-resources'
+  import { AccountArrayEditor, employeeRefByAccountUuidStore, getAnonymousRefs } from '@hcengineering/contact-resources'
   import core, {
-    Account,
     Data,
-    DocumentUpdate,
     RolesAssignment,
     Ref,
     Role,
     SpaceType,
     generateId,
     getCurrentAccount,
-    WithLookup
+    WithLookup,
+    notEmpty,
+    AccountUuid
   } from '@hcengineering/core'
   import { Drive, DriveEvents } from '@hcengineering/drive'
   import presentation, { Card, getClient, reduceCalls } from '@hcengineering/presentation'
@@ -35,6 +35,7 @@
 
   import driveRes from '../plugin'
   import { Analytics } from '@hcengineering/analytics'
+  import view from '@hcengineering/view'
 
   export let drive: Drive | undefined = undefined
 
@@ -46,14 +47,18 @@
   let description: string = drive?.description ?? ''
   let isPrivate: boolean = drive?.private ?? false
 
-  let members: Ref<Account>[] =
-    drive?.members !== undefined ? hierarchy.clone(drive.members) : [getCurrentAccount()._id]
-  let owners: Ref<Account>[] = drive?.owners !== undefined ? hierarchy.clone(drive.owners) : [getCurrentAccount()._id]
+  let autoJoin = drive?.autoJoin ?? false
+  let restricted: boolean = drive?.restricted ?? false
+  let members: AccountUuid[] =
+    drive?.members !== undefined ? hierarchy.clone(drive.members) : [getCurrentAccount().uuid]
+  let owners: AccountUuid[] = drive?.owners !== undefined ? hierarchy.clone(drive.owners) : [getCurrentAccount().uuid]
   let rolesAssignment: RolesAssignment = {}
 
   let typeId: Ref<SpaceType> | undefined = drive?.type ?? driveRes.spaceType.DefaultDrive
   let spaceType: WithLookup<SpaceType> | undefined
 
+  $: membersPersons = members.map((m) => $employeeRefByAccountUuidStore.get(m)).filter(notEmpty)
+  $: readOnlyGuestOwnerExcludeItems = getAnonymousRefs($employeeRefByAccountUuidStore, owners)
   $: void loadSpaceType(typeId)
   const loadSpaceType = reduceCalls(async (id: typeof typeId): Promise<void> => {
     spaceType =
@@ -99,7 +104,9 @@
       private: isPrivate,
       members,
       owners,
-      archived: false
+      autoJoin,
+      archived: false,
+      restricted
     }
   }
 
@@ -108,41 +115,8 @@
       return
     }
 
-    const data = getDriveData()
-    const update: DocumentUpdate<Drive> = {}
-    if (data.name !== drive?.name) {
-      update.name = data.name
-    }
-    if (data.description !== drive?.description) {
-      update.description = data.description
-    }
-    if (data.private !== drive?.private) {
-      update.private = data.private
-    }
-    if (data.members.length !== drive?.members.length) {
-      update.members = data.members
-    } else {
-      for (const member of data.members) {
-        if (drive.members.findIndex((p) => p === member) === -1) {
-          update.members = data.members
-          break
-        }
-      }
-    }
-    if (data.owners?.length !== drive?.owners?.length) {
-      update.owners = data.owners
-    } else {
-      for (const owner of data.owners ?? []) {
-        if (drive.owners?.findIndex((p) => p === owner) === -1) {
-          update.owners = data.owners
-          break
-        }
-      }
-    }
-
-    if (Object.keys(update).length > 0) {
-      await client.update(drive, update)
-    }
+    const update = getDriveData()
+    await client.diffUpdate(drive, update)
 
     if (!deepEqual(rolesAssignment, getRolesAssignment())) {
       await client.updateMixin(
@@ -183,14 +157,14 @@
 
   $: roles = (spaceType?.$lookup?.roles ?? []) as Role[]
 
-  function handleOwnersChanged (newOwners: Ref<Account>[]): void {
+  function handleOwnersChanged (newOwners: AccountUuid[]): void {
     owners = newOwners
 
     const newMembersSet = new Set([...members, ...newOwners])
     members = Array.from(newMembersSet)
   }
 
-  function handleMembersChanged (newMembers: Ref<Account>[]): void {
+  function handleMembersChanged (newMembers: AccountUuid[]): void {
     // If a member was removed we need to remove it from any roles assignments as well
     const newMembersSet = new Set(newMembers)
     const removedMembersSet = new Set(members.filter((m) => !newMembersSet.has(m)))
@@ -204,7 +178,7 @@
     members = newMembers
   }
 
-  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: Ref<Account>[]): void {
+  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: AccountUuid[]): void {
     if (rolesAssignment === undefined) {
       rolesAssignment = {}
     }
@@ -275,6 +249,7 @@
       </div>
       <AccountArrayEditor
         value={owners}
+        excludeItems={readOnlyGuestOwnerExcludeItems}
         label={core.string.Owners}
         onChange={handleOwnersChanged}
         kind={'regular'}
@@ -304,16 +279,32 @@
       />
     </div>
 
+    <div class="antiGrid-row">
+      <div class="antiGrid-row__header withDesciption">
+        <Label label={core.string.AutoJoin} />
+        <span><Label label={core.string.AutoJoinDescr} /></span>
+      </div>
+      <Toggle id={'space-autoJoin'} bind:on={autoJoin} />
+    </div>
+
+    <div class="antiGrid-row">
+      <div class="antiGrid-row__header withDesciption">
+        <Label label={core.string.RBAC} />
+        <span><Label label={core.string.RBACDescr} /></span>
+      </div>
+      <Toggle id={'space-restricted'} bind:on={restricted} />
+    </div>
+
     {#each roles as role}
       <div class="antiGrid-row">
         <div class="antiGrid-row__header">
-          <Label label={driveRes.string.RoleLabel} params={{ role: role.name }} />
+          <Label label={view.string.RoleLabel} params={{ role: role.name }} />
         </div>
         <AccountArrayEditor
           value={rolesAssignment?.[role._id] ?? []}
           label={core.string.Members}
-          includeItems={members}
-          readonly={members.length === 0}
+          includeItems={membersPersons}
+          readonly={membersPersons.length === 0}
           onChange={(refs) => {
             handleRoleAssignmentChanged(role._id, refs)
           }}

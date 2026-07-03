@@ -14,7 +14,7 @@
 //
 import { createQuery, getClient } from '@hcengineering/presentation'
 import {
-  type Account,
+  type PersonId,
   type Class,
   type Doc,
   type DocumentQuery,
@@ -31,7 +31,6 @@ import activity, { type ActivityMessage, type ActivityReference } from '@hcengin
 import attachment from '@hcengineering/attachment'
 import { combineActivityMessages, sortActivityMessages } from '@hcengineering/activity-resources'
 import notification, { type DocNotifyContext } from '@hcengineering/notification'
-import chunter from '@hcengineering/chunter'
 
 export type LoadMode = 'forward' | 'backward'
 
@@ -40,7 +39,7 @@ export interface MessageMetadata {
   _class: Ref<Class<ActivityMessage>>
   createdOn?: Timestamp
   modifiedOn: Timestamp
-  createdBy?: Ref<Account>
+  createdBy?: PersonId
 }
 
 interface Chunk {
@@ -126,7 +125,8 @@ export class ChannelDataProvider implements IChannelDataProvider {
     _class: Ref<Class<ActivityMessage>>,
     selectedMsgId: Ref<ActivityMessage> | undefined,
     loadAll = false,
-    withRefs = false
+    withRefs = false,
+    private readonly collection: string | undefined = undefined
   ) {
     this.chatId = chatId
     this.msgClass = _class
@@ -197,7 +197,11 @@ export class ChannelDataProvider implements IChannelDataProvider {
 
     this.metadataQuery.query(
       this.msgClass,
-      { attachedTo: this.chatId, space: this.space },
+      {
+        attachedTo: this.chatId,
+        space: this.space,
+        ...(this.collection != null ? { collection: this.collection } : {})
+      },
       (res) => {
         this.updatesDates(res)
         this.metadataStore.set(res)
@@ -211,7 +215,8 @@ export class ChannelDataProvider implements IChannelDataProvider {
   }
 
   async updateNewTimestamp (context?: DocNotifyContext): Promise<void> {
-    this.context = context ?? this.context
+    if (context === undefined) return
+    this.context = context
     const firstNewMsgIndex = await this.getFirstNewMsgIndex()
     const metadata = get(this.metadataStore)
     this.newTimestampStore.set(firstNewMsgIndex !== undefined ? metadata[firstNewMsgIndex]?.createdOn : undefined)
@@ -281,11 +286,12 @@ export class ChannelDataProvider implements IChannelDataProvider {
       {
         attachedTo: this.chatId,
         space: this.space,
+        ...(this.collection != null ? { collection: this.collection } : {}),
         ...query,
         ...(this.tailStart !== undefined ? { createdOn: { $gte: this.tailStart } } : {})
       },
       async (res) => {
-        const result = await combineActivityMessages(res.reverse())
+        const result = combineActivityMessages(res.reverse())
         this.tailStore.set(result)
 
         this.isTailLoaded.set(true)
@@ -302,7 +308,6 @@ export class ChannelDataProvider implements IChannelDataProvider {
     return {
       _id: {
         attachments: attachment.class.Attachment,
-        inlineButtons: chunter.class.InlineButton,
         reactions: activity.class.Reaction
       }
     }
@@ -330,12 +335,12 @@ export class ChannelDataProvider implements IChannelDataProvider {
     const client = getClient()
     const skipIds = this.getChunkSkipIds(loadAfter)
 
-    const messages = await client.findAll(
+    let messages: ActivityMessage[] = await client.findAll(
       this.msgClass,
       {
         attachedTo: this.chatId,
         space: this.space,
-        _id: { $nin: skipIds },
+        ...(this.collection != null ? { collection: this.collection } : {}),
         createdOn: equal
           ? isBackward
             ? { $lte: loadAfter }
@@ -351,6 +356,8 @@ export class ChannelDataProvider implements IChannelDataProvider {
       }
     )
 
+    messages = messages.filter(({ _id }) => !skipIds.includes(_id))
+
     if (messages.length === 0) {
       return
     }
@@ -361,7 +368,7 @@ export class ChannelDataProvider implements IChannelDataProvider {
     return {
       from: from.createdOn ?? from.modifiedOn,
       to: to.createdOn ?? to.modifiedOn,
-      data: isBackward ? await combineActivityMessages(messages.reverse()) : await combineActivityMessages(messages)
+      data: isBackward ? combineActivityMessages(messages.reverse()) : combineActivityMessages(messages)
     }
   }
 
@@ -541,8 +548,6 @@ export class ChannelDataProvider implements IChannelDataProvider {
       return -1
     }
 
-    const me = getCurrentAccount()._id
-
     let newTimestamp = 0
 
     if (lastViewedTimestamp !== undefined && firstNotification !== undefined) {
@@ -552,7 +557,7 @@ export class ChannelDataProvider implements IChannelDataProvider {
     }
 
     return metadata.findIndex((message) => {
-      if (message.createdBy === me) {
+      if (message.createdBy !== undefined && getCurrentAccount().socialIds.includes(message.createdBy)) {
         return false
       }
 

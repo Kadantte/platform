@@ -39,6 +39,7 @@
     "Description": "Описание",
 
     "CopyDocumentUrl": "Копировать URL-адрес документа в буфер обмена",
+    "DocumentUrlCopied": "Скопировано!",
 
     "ViewMode": "Просмотр",
     "EditMode": "Редактирование",
@@ -50,14 +51,14 @@
 
     "Lock": "Запретить изменения",
     "Unlock": "Разрешить изменения",
-    "Locked": "Защищино от изменений",
+    "Locked": "Защищено от изменений",
 
     "ConfigLabel": "Документы",
     "ConfigDescription": "Расширение по работе с текстовыми документами",
 
     "Icon": "Иконка",
     "Color": "Цвет",
-    "RoleLabel": "Роль: {role}",
-    "Embeddings": "Вложения"
+    "ForbidCreateTeamspacePermission": "Запретить создание пространства",
+    "ForbidCreateTeamspacePermissionDescription": "Запрещает пользователям создавать новые пространства"
   }
 }

@@ -13,103 +13,207 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { type Blob, type Ref } from '@hcengineering/core'
+  import { Analytics } from '@hcengineering/analytics'
+  import { BlobMetadata, SortingOrder, type Blob, type Ref } from '@hcengineering/core'
   import { getEmbeddedLabel } from '@hcengineering/platform'
-  import { Button, Dialog, tooltip } from '@hcengineering/ui'
+  import {
+    Button,
+    Modal,
+    IconHistory,
+    IconScribble,
+    showPopup,
+    tooltip,
+    ButtonIcon,
+    IconMaximize,
+    IconMinimize,
+    IconClose
+  } from '@hcengineering/ui'
   import { createEventDispatcher, onMount } from 'svelte'
-
-  import presentation from '../plugin'
-
-  import { getFileUrl } from '../file'
-  import { BlobMetadata } from '../types'
 
   import ActionContext from './ActionContext.svelte'
   import FilePreview from './FilePreview.svelte'
-  import Download from './icons/Download.svelte'
+  import DownloadFileButton from './DownloadFileButton.svelte'
+  import ObjectPopup from './ObjectPopup.svelte'
+  import { ComponentExtensions } from '../index'
+  import presentation from '../plugin'
+  import FileTypeIcon from './FileTypeIcon.svelte'
 
   export let file: Ref<Blob> | undefined
   export let name: string
   export let contentType: string
   export let metadata: BlobMetadata | undefined
-  export let props: Record<string, any> = {}
+  export let props: Record<string, any> & {
+    drawings?: any[]
+    drawingAvailable?: boolean
+    drawingEditable?: boolean
+    loadDrawings?: () => Promise<any>
+    createDrawing?: (data: any) => Promise<any>
+  } = {}
 
   export let fullSize = false
   export let showIcon = true
 
+  let drawingLoading = false
+  let createDrawing: (data: any) => Promise<any>
+
   const dispatch = createEventDispatcher()
 
-  let download: HTMLAnchorElement
+  $: void loadDrawings(file)
+
+  async function loadDrawings (file: Ref<Blob> | undefined): Promise<void> {
+    if (props.drawingAvailable === true) {
+      if (props.loadDrawings !== undefined) {
+        drawingLoading = true
+        props
+          .loadDrawings()
+          .then((result) => {
+            drawingLoading = false
+            props.drawings = result
+          })
+          .catch((error) => {
+            drawingLoading = false
+            Analytics.handleError(error)
+          })
+      }
+    }
+  }
 
   onMount(() => {
-    if (fullSize) {
-      dispatch('fullsize')
+    if (props.drawingAvailable === true) {
+      if (props.createDrawing !== undefined) {
+        createDrawing = props.createDrawing
+        props.createDrawing = async (data: any): Promise<any> => {
+          const newDrawing = await createDrawing(data)
+          if (props.drawings !== undefined) {
+            props.drawings = [newDrawing, ...props.drawings]
+          } else {
+            props.drawings = [newDrawing]
+          }
+          return newDrawing
+        }
+      }
     }
   })
 
-  function iconLabel (name: string): string {
-    const parts = `${name}`.split('.')
-    const ext = parts[parts.length - 1]
-    return ext.substring(0, 4).toUpperCase()
+  function toggleDrawingEdit (): void {
+    props.drawingEditable = !(props.drawingEditable === true)
   }
 
-  $: srcRef = file !== undefined ? getFileUrl(file, name) : undefined
+  function selectCurrentDrawing (ev: MouseEvent): void {
+    if (props.drawings === undefined || props.drawings.length === 0) {
+      // no current means no history
+      return
+    }
+    showPopup(
+      ObjectPopup,
+      {
+        _class: props.drawings[0]._class,
+        selected: props.drawings[0]._id,
+        docQuery: {
+          parent: props.drawings[0].parent
+        },
+        options: {
+          sort: {
+            createdOn: SortingOrder.Descending
+          }
+        },
+        searchMode: 'disabled',
+        type: 'presenter',
+        width: 'auto'
+      },
+      ev.target as HTMLElement,
+      async (result) => {
+        if (result !== undefined) {
+          props.drawings = [result]
+        }
+      }
+    )
+  }
 </script>
 
 <ActionContext context={{ mode: 'browser' }} />
-<Dialog
-  isFullSize
+<Modal
+  type={'type-component'}
+  padding={'0.5rem'}
+  bottomPadding={'0'}
   on:fullsize
   on:close={() => {
     dispatch('close')
   }}
 >
+  <svelte:fragment slot="beforeTitle">
+    <ButtonIcon
+      icon={IconClose}
+      kind={'tertiary'}
+      size={'small'}
+      noPrint
+      on:click={() => {
+        dispatch('close')
+      }}
+    />
+    <div class="hulyHeader-divider short no-line no-print" />
+    <ButtonIcon
+      icon={!fullSize ? IconMaximize : IconMinimize}
+      kind={'tertiary'}
+      size={'small'}
+      noPrint
+      on:click={() => {
+        fullSize = !fullSize
+        dispatch('fullsize', fullSize)
+      }}
+    />
+    <div class="hulyHeader-divider short no-print" />
+  </svelte:fragment>
+
   <svelte:fragment slot="title">
     <div class="antiTitle icon-wrapper">
       {#if showIcon}
         <div class="wrapped-icon">
-          <div class="flex-center icon">
-            {iconLabel(name)}
-          </div>
+          <FileTypeIcon {name} />
         </div>
       {/if}
       <span class="wrapped-title" use:tooltip={{ label: getEmbeddedLabel(name) }}>{name}</span>
     </div>
   </svelte:fragment>
 
-  <svelte:fragment slot="utils">
-    {#await srcRef then src}
-      {#if src !== ''}
-        <a class="no-line" href={src} download={name} bind:this={download}>
-          <Button
-            icon={Download}
-            kind={'ghost'}
-            on:click={() => {
-              download.click()
-            }}
-            showTooltip={{ label: presentation.string.Download }}
-          />
-        </a>
+  <svelte:fragment slot="actions">
+    {#if props.drawingAvailable === true}
+      {#if props.drawings !== undefined && props.drawings.length > 0}
+        <Button
+          icon={IconHistory}
+          kind="icon"
+          disabled={drawingLoading || props.drawingEditable === true}
+          showTooltip={{ label: presentation.string.DrawingHistory }}
+          on:click={selectCurrentDrawing}
+        />
       {/if}
-    {/await}
+      <Button
+        icon={IconScribble}
+        kind="icon"
+        disabled={drawingLoading}
+        selected={props.drawingEditable === true}
+        showTooltip={{ label: presentation.string.StartDrawing }}
+        on:click={toggleDrawingEdit}
+      />
+      <div class="buttons-divider" />
+    {/if}
+    <DownloadFileButton
+      {name}
+      {file}
+      tooltip={props.drawingAvailable === true ? presentation.string.DownloadOriginal : undefined}
+    />
+    <ComponentExtensions
+      extension={presentation.extension.FilePreviewPopupActions}
+      props={{
+        file,
+        name,
+        contentType,
+        metadata
+      }}
+    />
   </svelte:fragment>
 
   {#if file}
     <FilePreview {file} {contentType} {name} {metadata} {props} fit />
   {/if}
-</Dialog>
-
-<style lang="scss">
-  .icon {
-    position: relative;
-    flex-shrink: 0;
-    width: 2rem;
-    height: 2rem;
-    font-weight: 500;
-    font-size: 0.625rem;
-    color: var(--primary-button-color);
-    background-color: var(--primary-button-default);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 0.5rem;
-    cursor: pointer;
-  }
-</style>
+</Modal>

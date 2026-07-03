@@ -14,10 +14,9 @@
 -->
 <script lang="ts">
   import { CalendarMode } from '@hcengineering/calendar-resources'
-  import { Employee, PersonAccount } from '@hcengineering/contact'
-  import contact from '@hcengineering/contact-resources/src/plugin'
-  import { DocumentQuery, Ref, getCurrentAccount } from '@hcengineering/core'
-  import { Department, DepartmentMember, Request, RequestType, Staff, fromTzDate } from '@hcengineering/hr'
+  import { Employee, getCurrentEmployee } from '@hcengineering/contact'
+  import { DocumentQuery, Ref } from '@hcengineering/core'
+  import { Department, PublicHoliday, Request, RequestType, Staff, fromTzDate } from '@hcengineering/hr'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import tracker, { Issue } from '@hcengineering/tracker'
   import { Label } from '@hcengineering/ui'
@@ -31,6 +30,7 @@
 
   export let department: Ref<Department>
   export let descendants: Map<Ref<Department>, Department[]>
+  export let ancestors: Map<Ref<Department>, Ref<Department>[]>
   export let departmentById: Map<Ref<Department>, Department>
   export let currentDate: Date = new Date()
   export let mode: CalendarMode
@@ -56,7 +56,7 @@
   const lq = createQuery()
   const typeQuery = createQuery()
   const staffQ = createQuery()
-  const currentEmployee = (getCurrentAccount() as PersonAccount).person
+  const currentEmployee = getCurrentEmployee()
 
   let staff: Staff[] = []
   let requests: Request[] = []
@@ -147,7 +147,7 @@
   }
 
   function isEditable (department: Department): boolean {
-    return department.teamLead === currentEmployee || department.managers.includes(currentEmployee as Ref<Employee>)
+    return department.teamLead === currentEmployee || department.managers.includes(currentEmployee)
   }
 
   function checkDepartmentEditable (
@@ -179,7 +179,7 @@
     departmentStaff: Staff[],
     descendants: Map<Ref<Department>, Department[]>
   ) {
-    editableList = [currentEmployee as Ref<Employee>]
+    editableList = [currentEmployee]
     checkDepartmentEditable(departmentById, hr.ids.Head, departmentStaff, descendants)
     editableList = editableList
   }
@@ -233,7 +233,7 @@
       }
     }
   )
-  let holidays = new Map<Ref<Department>, Date[]>()
+  let holidaysMap = new Map<Ref<Department>, Date[]>()
   const holidaysQuery = createQuery()
   $: holidaysQuery.query(
     hr.class.PublicHoliday,
@@ -242,31 +242,33 @@
       'date.year': currentDate.getFullYear()
     },
     (res) => {
-      const group = groupBy(res, 'department')
-      holidays = new Map()
-      for (const groupKey in group) {
-        holidays.set(
-          groupKey as Ref<Department>,
-          group[groupKey].map((holiday) => new Date(fromTzDate(holiday.date)))
-        )
-      }
+      holidaysMap = toHolidaysMap(res)
     }
   )
+
+  function toHolidaysMap (holidays: PublicHoliday[]): Map<Ref<Department>, Date[]> {
+    const group = groupBy(holidays, 'department')
+    const result = new Map()
+    for (const groupKey in group) {
+      // ensure unique holiday dates
+      const dates = new Set<number>()
+      for (const holiday of group[groupKey]) {
+        dates.add(fromTzDate(holiday.date))
+      }
+      result.set(
+        groupKey as Ref<Department>,
+        Array.from(dates).map((date) => new Date(date))
+      )
+    }
+    return result
+  }
 
   async function getHolidays (month: Date): Promise<Map<Ref<Department>, Date[]>> {
     const result = await client.findAll(hr.class.PublicHoliday, {
       'date.month': month.getMonth(),
       'date.year': month.getFullYear()
     })
-    const group = groupBy(result, 'department')
-    const rMap = new Map()
-    for (const groupKey in group) {
-      rMap.set(
-        groupKey,
-        group[groupKey].map((holiday) => new Date(fromTzDate(holiday.date)))
-      )
-    }
-    return rMap
+    return toHolidaysMap(result)
   }
 
   const client = getClient()
@@ -274,28 +276,46 @@
   async function getDepartmentsForEmployee (departmentStaff: Staff[]): Promise<Map<Ref<Staff>, Department[]>> {
     const map = new Map<Ref<Staff>, Department[]>()
     if (departmentStaff && departmentStaff.length > 0) {
-      const ids = departmentStaff.map((staff) => staff._id)
-      const staffs = await client.findAll(contact.class.PersonAccount, { person: { $in: ids } })
+      const staffIds = departmentStaff.map((staff) => staff._id)
       const departments = await client.findAll(hr.class.Department, {
-        members: { $in: staffs.map((staff) => staff._id as Ref<DepartmentMember>) }
+        members: { $in: staffIds }
       })
-      staffs.forEach((staff) => {
-        const filteredDepartments = departments.filter((department) => department.members.includes(staff._id))
-        map.set(staff.person as Ref<Staff>, filteredDepartments as Department[])
+      staffIds.forEach((id) => {
+        const filteredDepartments = departments.filter((department) => department.members.includes(id))
+        map.set(id, filteredDepartments as Department[])
       })
     }
     return map
   }
   let staffDepartmentMap = new Map()
-  $: getDepartmentsForEmployee(departmentStaff).then((res) => {
+  $: void getDepartmentsForEmployee(departmentStaff).then((res) => {
     staffDepartmentMap = res
   })
+
+  function getDepartmentHolidays (department: Ref<Department>): Date[] {
+    const parents = ancestors.get(department) ?? []
+
+    const result = []
+
+    // get own holidays
+    const holidays = holidaysMap.get(department) ?? []
+    result.push(...holidays)
+
+    // get ancestor holidays
+    for (const parent of parents) {
+      const parentHolidays = holidaysMap.get(parent) ?? []
+      result.push(...parentHolidays)
+    }
+    return result
+  }
 </script>
 
 {#if staffDepartmentMap.size > 0}
   {#if mode === CalendarMode.Year}
-    <YearView {departmentStaff} {employeeRequests} {types} {currentDate} {holidays} {staffDepartmentMap} />
+    <YearView {departmentStaff} {employeeRequests} {types} {currentDate} {holidaysMap} {staffDepartmentMap} />
   {:else if mode === CalendarMode.Month}
+    {@const holidays = getDepartmentHolidays(department)}
+
     {#if display === 'chart'}
       <MonthView
         {departmentStaff}
@@ -305,6 +325,7 @@
         {editableList}
         {currentDate}
         {holidays}
+        {holidaysMap}
         {department}
         {departmentById}
         {staffDepartmentMap}
@@ -316,7 +337,7 @@
         {types}
         {currentDate}
         {timeReports}
-        {holidays}
+        {holidaysMap}
         {staffDepartmentMap}
         {getHolidays}
         {preference}

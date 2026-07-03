@@ -264,6 +264,7 @@
     "SevenHoursLength": "Seven Hours",
     "EightHoursLength": "Eight Hours",
     "HourLabel": "h",
+    "MinuteLabel": "m",
     "Saved": "Saved...",
     "CreatedIssue": "Created issue",
     "CreatedSubIssue": "Created sub-issue",
@@ -280,13 +281,16 @@
     "IssueNotificationChangedProperty": "{senderName} changed {property} to \"{newValue}\"",
     "IssueNotificationMessage": "{senderName}: {message}",
     "PreviousAssigned": "Previously assigned",
-    "IssueAssigneedToYou": "Assigned to you",
+    "IssueAssignedToYou": "Assigned to you",
     "RelatedIssueTargetDescription": "Related issue project target for Class or Space",
     "MapRelatedIssues": "Configure related issue default projects",
     "DefaultIssueStatus": "Default issue status",
     "IssueStatus": "Status",
     "Extensions": "Extensions",
-    "RoleLabel": "Role: {role}"
+    "UnsetParentIssue": "Unset parent issue",
+    "ForbidCreateProjectPermission": "Forbid create project",
+    "ForbidCreateProjectPermissionDescription": "Forbid users creating new projects",
+    "AllowCreatingIssues": "Allow creating issues"
   },
   "status": {}
 }

@@ -89,7 +89,7 @@
     "AllChannels": "All channels",
     "AllContacts": "All contacts",
     "NewChannel": "New channel",
-    "DescriptionOptional": "Description (optional)",
+    "TopicOptional": "Topic (optional)",
     "Visibility": "Visibility",
     "Public": "Public",
     "Private": "Private",
@@ -129,6 +129,10 @@
     "Translating": "Translating...",
     "StartConversation": "Start conversation",
     "ViewingThreadFromArchivedChannel": "You are viewing a thread from an archived channel",
-    "ViewingArchivedChannel": "You are viewing an archived channel"
+    "ViewingArchivedChannel": "You are viewing an archived channel",
+    "OpenChatInSidebar": "Open chat in sidebar",
+    "ResolveThread": "Resolve",
+    "NoThreadsYet": "There are no threads yet.",
+    "SummarizeMessages": "Summarize discussion"
   }
 }

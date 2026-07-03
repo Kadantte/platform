@@ -23,8 +23,9 @@ import DocNotifyContextPresenter from './components/DocNotifyContextPresenter.sv
 import CollaboratorsChanged from './components/activity/CollaboratorsChanged.svelte'
 import ActivityInboxNotificationPresenter from './components/inbox/ActivityInboxNotificationPresenter.svelte'
 import CommonInboxNotificationPresenter from './components/inbox/CommonInboxNotificationPresenter.svelte'
+import MentionInboxNotificationPresenter from './components/inbox/MentionInboxNotificationPresenter.svelte'
 import NotificationCollaboratorsChanged from './components/NotificationCollaboratorsChanged.svelte'
-import ReactionNotificationPresenter from './components/ReactionNotificationPresenter.svelte'
+import CollaboratorEditor from './components/CollaboratorEditor.svelte'
 import GeneralPreferencesGroup from './components/settings/GeneralPreferencesGroup.svelte'
 import {
   unsubscribe,
@@ -44,7 +45,8 @@ import {
   unreadAll,
   checkPermission,
   unarchiveContextNotifications,
-  isNotificationAllowed
+  isNotificationAllowed,
+  locationDataResolver
 } from './utils'
 
 import { InboxNotificationsClientImpl } from './inboxNotificationsClient'
@@ -64,9 +66,10 @@ export default async (): Promise<Resources> => ({
     DocNotifyContextPresenter,
     ActivityInboxNotificationPresenter,
     CommonInboxNotificationPresenter,
+    MentionInboxNotificationPresenter,
     NotificationCollaboratorsChanged,
-    ReactionNotificationPresenter,
-    GeneralPreferencesGroup
+    GeneralPreferencesGroup,
+    CollaboratorEditor
   },
   function: {
     // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -77,7 +80,8 @@ export default async (): Promise<Resources> => ({
     CanUnReadNotifyContext: canUnReadNotifyContext,
     HasInboxNotifications: hasInboxNotifications,
     CheckPushPermission: checkPermission,
-    IsNotificationAllowed: isNotificationAllowed
+    IsNotificationAllowed: isNotificationAllowed,
+    LocationDataResolver: locationDataResolver
   },
   actionImpl: {
     Unsubscribe: unsubscribe,

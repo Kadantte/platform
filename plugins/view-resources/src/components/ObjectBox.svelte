@@ -27,13 +27,13 @@
     LabelAndProps,
     getEventPositionElement,
     getFocusManager,
-    showPanel,
     showPopup
   } from '@hcengineering/ui'
   import view from '@hcengineering/view'
   import { createEventDispatcher } from 'svelte'
   import ObjectBoxPopup from './ObjectBoxPopup.svelte'
   import ObjectPresenter from './ObjectPresenter.svelte'
+  import { openDoc } from '../utils'
 
   export let _class: Ref<Class<Doc>>
   export let excluded: Array<Ref<Doc>> | undefined = undefined
@@ -148,7 +148,7 @@
     <Button
       {focusIndex}
       width={width ?? 'min-content'}
-      icon={icon ?? value === undefined ? placeholderIcon : undefined}
+      icon={(icon ?? value === undefined) ? placeholderIcon : undefined}
       iconProps={{ size: kind === 'link' || kind === 'regular' ? 'small' : size }}
       {size}
       {kind}
@@ -181,7 +181,7 @@
             size={'small'}
             action={() => {
               if (selected) {
-                showPanel(view.component.EditDoc, selected._id, Hierarchy.mixinOrClass(selected), 'content')
+                void openDoc(client.getHierarchy(), selected)
               }
             }}
           />

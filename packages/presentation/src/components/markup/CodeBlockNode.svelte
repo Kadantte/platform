@@ -16,17 +16,24 @@
   import diffview from '@hcengineering/diffview'
   import { MarkupNode } from '@hcengineering/text'
   import { Component } from '@hcengineering/ui'
+  import type { SvelteComponent } from 'svelte'
 
   export let node: MarkupNode
   export let preview = false
 
+  const is = diffview.component.Highlight
+
   $: language = node.attrs?.language
   $: content = node.content ?? []
   $: value = content.map((node) => node.text).join('/n')
+  $: margin = preview ? '0' : null
+
+  $: props = { value, language }
+  let innerRef: SvelteComponent | undefined
 </script>
 
 {#if node}
-  <pre class="proseCodeBlock" style:margin={preview ? '0' : null}><code
-      ><Component is={diffview.component.Highlight} props={{ value, language }} /></code
+  <pre class="proseCodeBlock" style:margin><code
+      ><Component {is} {props} showLoading={false} bind:innerRef />{#if !innerRef}{value}{/if}</code
     ></pre>
 {/if}

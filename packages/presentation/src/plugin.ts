@@ -19,22 +19,28 @@ import {
   type Client,
   type Doc,
   type DocumentQuery,
+  type DomainParams,
+  type DomainRequestOptions,
+  type DomainResult,
   type FindOptions,
   type FindResult,
   type Mixin,
+  type OperationDomain,
   type Ref,
   type SearchOptions,
   type SearchQuery,
   type SearchResult,
   type Tx,
   type TxResult,
-  type WithLookup
+  type WithLookup,
+  type WorkspaceDataId,
+  type WorkspaceUuid
 } from '@hcengineering/core'
 import type { Asset, IntlString, Metadata, Plugin, StatusCode } from '@hcengineering/platform'
 import { plugin } from '@hcengineering/platform'
-import { type ComponentExtensionId } from '@hcengineering/ui'
+import { type FileStorage } from '@hcengineering/storage-client'
+import { type ComponentExtensionId } from '@hcengineering/ui/src/types'
 import { type PresentationMiddlewareFactory } from './pipeline'
-import type { PreviewConfig } from './preview'
 import {
   type ComponentPointExtension,
   type DocCreateExtension,
@@ -43,6 +49,8 @@ import {
   type InstantTransactions,
   type ObjectSearchCategory
 } from './types'
+
+export type { FileStorage } from '@hcengineering/storage-client'
 
 /**
  * @public
@@ -66,6 +74,13 @@ export interface ClientHook {
     query: DocumentQuery<T>,
     options?: FindOptions<T>
   ) => Promise<WithLookup<T> | undefined>
+
+  domainRequest: <T>(
+    client: Client,
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ) => Promise<DomainResult<T>>
 
   tx: (client: Client, tx: Tx) => Promise<TxResult>
 
@@ -91,6 +106,7 @@ export default plugin(presentationId, {
     Save: '' as IntlString,
     Saved: '' as IntlString,
     Download: '' as IntlString,
+    DownloadOriginal: '' as IntlString,
     Delete: '' as IntlString,
     Close: '' as IntlString,
     NotSelected: '' as IntlString,
@@ -116,30 +132,64 @@ export default plugin(presentationId, {
     MakePrivateDescription: '' as IntlString,
     OpenInANewTab: '' as IntlString,
     Created: '' as IntlString,
+    Selected: '' as IntlString,
     NoResults: '' as IntlString,
     Next: '' as IntlString,
     FailedToPreview: '' as IntlString,
     ContentType: '' as IntlString,
-    ContentTypeNotSupported: '' as IntlString
+    ContentTypeNotSupported: '' as IntlString,
+    StartDrawing: '' as IntlString,
+    DrawingHistory: '' as IntlString,
+    ColorAdd: '' as IntlString,
+    ColorRemove: '' as IntlString,
+    ColorReset: '' as IntlString,
+    Copy: '' as IntlString,
+    DocumentUrlCopied: '' as IntlString,
+    CopyLink: '' as IntlString,
+    UnableToFollowMention: '' as IntlString,
+    AccessDenied: '' as IntlString,
+    Undo: '' as IntlString,
+    Redo: '' as IntlString,
+    ClearCanvas: '' as IntlString,
+    PenTool: '' as IntlString,
+    EraserTool: '' as IntlString,
+    PanTool: '' as IntlString,
+    TextTool: '' as IntlString,
+    LineTool: '' as IntlString,
+    RectangleTool: '' as IntlString,
+    EllipseTool: '' as IntlString,
+    PaletteManagementMenu: '' as IntlString,
+    BetaVersion: '' as IntlString
   },
   extension: {
-    FilePreviewExtension: '' as ComponentExtensionId
+    FilePreviewExtension: '' as ComponentExtensionId,
+    FilePreviewPopupActions: '' as ComponentExtensionId
   },
   metadata: {
     ModelVersion: '' as Metadata<string>,
     FrontVersion: '' as Metadata<string>,
     Draft: '' as Metadata<Record<string, any>>,
     UploadURL: '' as Metadata<string>,
-    FilesURL: '' as Metadata<string>,
+    DatalakeUrl: '' as Metadata<string>,
     CollaboratorUrl: '' as Metadata<string>,
     Token: '' as Metadata<string>,
     Endpoint: '' as Metadata<string>,
-    Workspace: '' as Metadata<string>,
-    WorkspaceId: '' as Metadata<string>,
+    WorkspaceUuid: '' as Metadata<WorkspaceUuid>,
+    WorkspaceName: '' as Metadata<string>,
+    WorkspaceDataId: '' as Metadata<WorkspaceDataId>,
     FrontUrl: '' as Asset,
-    PreviewConfig: '' as Metadata<PreviewConfig | undefined>,
+    LinkPreviewUrl: '' as Metadata<string>,
+    FileStorage: '' as Metadata<FileStorage>,
     ClientHook: '' as Metadata<ClientHook>,
-    SessionId: '' as Metadata<string>
+    SessionId: '' as Metadata<string>,
+    StatsUrl: '' as Metadata<string>,
+    MailUrl: '' as Metadata<string>,
+    DisabledFeatures: '' as Metadata<Set<string>>,
+    PreviewUrl: '' as Metadata<string>,
+    PulseUrl: '' as Metadata<string>,
+    HulylakeUrl: '' as Metadata<string>,
+    PaymentUrl: '' as Metadata<string>,
+    SignupUrl: '' as Metadata<string>
   },
   status: {
     FileTooLarge: '' as StatusCode

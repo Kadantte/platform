@@ -13,18 +13,25 @@
 // limitations under the License.
 //
 
+import { type Ref } from '@hcengineering/core'
 import type { IntlString } from '@hcengineering/platform'
 import { mergeIds } from '@hcengineering/platform'
 import setting, { settingId } from '@hcengineering/setting'
-import { type AnyComponent } from '@hcengineering/ui'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
+import { type Widget } from '@hcengineering/workbench'
 
 export default mergeIds(settingId, setting, {
+  ids: {
+    SettingsWidget: '' as Ref<Widget>
+  },
   component: {
     EditEnum: '' as AnyComponent,
     ManageSpaceTypes: '' as AnyComponent,
     ManageSpaceTypesTools: '' as AnyComponent,
     ManageSpaceTypeContent: '' as AnyComponent,
-    Spaces: '' as AnyComponent
+    Spaces: '' as AnyComponent,
+    AddSocialId: '' as AnyComponent,
+    GuestPermissionsSettings: '' as AnyComponent
   },
   string: {
     IntegrationDisabled: '' as IntlString,
@@ -63,9 +70,14 @@ export default mergeIds(settingId, setting, {
     LeaveDescr: '' as IntlString,
     Select: '' as IntlString,
     AddOwner: '' as IntlString,
+    ReadonlyGuest: '' as IntlString,
     User: '' as IntlString,
     Maintainer: '' as IntlString,
+    Guest: '' as IntlString,
     Owner: '' as IntlString,
+    MinValue: '' as IntlString,
+    MaxValue: '' as IntlString,
+    IntegerOnly: '' as IntlString,
     OwnerFirstName: '' as IntlString,
     OwnerLastName: '' as IntlString,
     Role: '' as IntlString,
@@ -107,6 +119,55 @@ export default mergeIds(settingId, setting, {
     DeleteSpaceType: '' as IntlString,
     DeleteSpaceTypeConfirm: '' as IntlString,
     WorkspaceName: '' as IntlString,
-    Workspace: '' as IntlString
+    Workspace: '' as IntlString,
+    Calendar: '' as IntlString,
+    StartOfTheWeek: '' as IntlString,
+    SystemSetupString: '' as IntlString,
+    DefaultString: '' as IntlString,
+    WorkspaceNamePattern: '' as IntlString,
+    DisablePermissions: '' as IntlString,
+    EnablePermissions: '' as IntlString,
+    DisablePermissionsConfirmation: '' as IntlString,
+    EnablePermissionsConfirmation: '' as IntlString,
+    BetaWarning: '' as IntlString,
+    DangerZone: '' as IntlString,
+    AccessControl: '' as IntlString,
+    GuestAccess: '' as IntlString,
+    GuestAccessDescription: '' as IntlString,
+    GuestSignUpDescription: '' as IntlString,
+    GuestChannelsDescription: '' as IntlString,
+    GuestChannelsArrayLabel: '' as IntlString,
+    GuestSelectSpaces: '' as IntlString,
+    GuestAutoJoinAvailableSpaces: '' as IntlString,
+    GuestAutoJoinAvailableSpacesHint: '' as IntlString,
+    GuestAnonymousVisibleSpaces: '' as IntlString,
+    GuestAnonymousVisibleSpacesHint: '' as IntlString,
+    ApiAccess: '' as IntlString,
+    ApiToken: '' as IntlString,
+    GenerateApiToken: '' as IntlString,
+    ImportDocumentPermission: '' as IntlString,
+    ImportDocumentDescription: '' as IntlString,
+    SelectUsers: '' as IntlString,
+    ManageIdentities: '' as IntlString,
+    AddNew: '' as IntlString,
+    Release: '' as IntlString,
+    ReleaseSocialId: '' as IntlString,
+    ReleaseSocialIdConfirm: '' as IntlString,
+    ReleasePrimarySocialId: '' as IntlString,
+    ReleasePrimarySocialIdConfirm: '' as IntlString,
+    Login: '' as IntlString,
+    Primary: '' as IntlString,
+    IdentifierExists: '' as IntlString,
+    Reset: '' as IntlString,
+    Restricted: '' as IntlString,
+    RestrictedAttributeWarning: '' as IntlString,
+    PasswordAgingRule: '' as IntlString,
+    PasswordAgingRuleDescription: '' as IntlString,
+    ShowInTitle: '' as IntlString,
+    SpaceMembersOnly: '' as IntlString,
+    LastOwnerLeaveTitle: '' as IntlString,
+    LastOwnerLeaveMessage: '' as IntlString,
+    OverrideAttribute: '' as IntlString,
+    Required: '' as IntlString
   }
 })

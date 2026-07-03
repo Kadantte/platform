@@ -1,14 +1,86 @@
+//
+// Copyright © 2025 Hardcore Engineering Inc.
+//
+// Licensed under the Eclipse Public License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License. You may
+// obtain a copy of the License at https://www.eclipse.org/legal/epl-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
 import log from 'electron-log'
 import love from '@hcengineering/love'
 import { setCustomCreateScreenTracks } from '@hcengineering/love-resources'
 import { showPopup } from '@hcengineering/ui'
 import { Track, LocalTrack, LocalAudioTrack, LocalVideoTrack, ParticipantEvent, TrackInvalidError, ScreenShareCaptureOptions, DeviceUnsupportedError, ScreenSharePresets } from 'livekit-client'
+import { ipcMainExposed } from './typesUtils'
 
-import { IPCMainExposed } from './types'
+export function defineGetDisplayMedia (): void {
+  if (navigator?.mediaDevices === undefined) {
+    console.warn('mediaDevices API not available')
+    return
+  }
+
+  if (navigator.mediaDevices.getDisplayMedia === undefined) {
+    throw new DeviceUnsupportedError('getDisplayMedia not supported')
+  }
+
+  navigator.mediaDevices.getDisplayMedia = async (opts?: DisplayMediaStreamOptions): Promise<MediaStream> => {
+    if (opts === undefined) {
+      throw new Error('opts must be provided')
+    }
+
+    const ipcMain = ipcMainExposed()
+    const sources = await ipcMain.getScreenSources()
+
+    const hasAccess = await ipcMain.getScreenAccess()
+    if (!hasAccess) {
+      log.error('No screen access granted')
+      throw new Error('No screen access granted')
+    }
+
+    return await new Promise<MediaStream>((resolve, reject) => {
+      let wasSelected = false
+
+      showPopup(
+        love.component.SelectScreenSourcePopup,
+        {
+          sources
+        },
+        'top',
+        () => {
+          if (!wasSelected) {
+            reject(new Error('No source selected'))
+          }
+        },
+        (val) => {
+          if (val != null) {
+            wasSelected = true
+            opts.video = {
+              mandatory: {
+                ...(typeof opts.video === 'boolean' ? {} : opts.video),
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: val
+              }
+            } as any
+            void window.navigator.mediaDevices.getUserMedia(opts).then((stream) => {
+              resolve(stream)
+            })
+          }
+        }
+      )
+    })
+  }
+}
 
 export function defineScreenShare (): void {
   setCustomCreateScreenTracks(async function electronCreateScreenTracks (options?: ScreenShareCaptureOptions) {
-    const ipcMain = (window as any).electron as IPCMainExposed
+    const ipcMain = ipcMainExposed()
     const sources = await ipcMain.getScreenSources()
 
     const hasAccess = await ipcMain.getScreenAccess()
@@ -21,7 +93,7 @@ export function defineScreenShare (): void {
       throw new DeviceUnsupportedError('getDisplayMedia not supported')
     }
 
-    return await new Promise((resolve, reject) => {
+    return await new Promise<Array<LocalTrack>>((resolve, reject) => {
       let wasSelected = false
 
       showPopup(

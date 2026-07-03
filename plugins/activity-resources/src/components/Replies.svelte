@@ -14,8 +14,8 @@
 -->
 <script lang="ts">
   import { Person } from '@hcengineering/contact'
-  import { personByIdStore, Avatar } from '@hcengineering/contact-resources'
-  import { Doc, IdMap, Ref, WithLookup } from '@hcengineering/core'
+  import { Avatar, getPersonByPersonRefStore } from '@hcengineering/contact-resources'
+  import { Doc, IdMap, notEmpty, Ref, WithLookup } from '@hcengineering/core'
   import { Label, TimeSince } from '@hcengineering/ui'
   import activity, { ActivityMessage } from '@hcengineering/activity'
   import notification, {
@@ -29,6 +29,7 @@
 
   export let object: ActivityMessage
   export let embedded = false
+  export let onReply: ((message: ActivityMessage) => void) | undefined = undefined
 
   const client = getClient()
   const maxDisplayPersons = 5
@@ -48,7 +49,8 @@
   $: notificationsByContextStore = inboxClient?.inboxNotificationsByContext
 
   $: hasNew = hasNewReplies(object, $contextByDocStore, $notificationsByContextStore)
-  $: updateQuery(persons, $personByIdStore)
+  $: personByRefStore = getPersonByPersonRefStore(Array.from(persons))
+  $: updateQuery(persons, $personByRefStore)
 
   function hasNewReplies (
     message: ActivityMessage,
@@ -62,9 +64,12 @@
     }
 
     return (inboxNotificationsByContext?.get(context._id) ?? [])
-      .filter((notification) => {
-        const activityNotifications = notification as ActivityInboxNotification
-        return activityNotifications.attachedToClass !== activity.class.DocUpdateMessage
+      .filter((it) => {
+        const activityNotifications = it as ActivityInboxNotification
+        return (
+          activityNotifications.attachedToClass !== activity.class.DocUpdateMessage &&
+          it._class !== notification.class.ReactionInboxNotification
+        )
       })
       .some(({ isViewed }) => !isViewed)
   }
@@ -72,7 +77,7 @@
   function updateQuery (personIds: Set<Ref<Person>>, personById: IdMap<Person>): void {
     displayPersons = Array.from(personIds)
       .map((id) => personById.get(id))
-      .filter((person): person is Person => person !== undefined)
+      .filter(notEmpty)
       .slice(0, maxDisplayPersons - 1)
   }
 
@@ -81,6 +86,10 @@
   async function handleReply (e: MouseEvent): Promise<void> {
     e.stopPropagation()
     e.preventDefault()
+
+    if (onReply) {
+      onReply(object)
+    }
 
     if (replyProvider) {
       const fn = await getResource(replyProvider.function)

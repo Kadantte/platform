@@ -13,121 +13,130 @@
 // limitations under the License.
 //
 
-import { concatLink, type Blob, type Ref } from '@hcengineering/core'
-import { PlatformError, Severity, Status, getMetadata } from '@hcengineering/platform'
+import { type Blob as PlatformBlob, type Ref, type WorkspaceUuid } from '@hcengineering/core'
+import { getMetadata } from '@hcengineering/platform'
+import { type FileStorage, createFileStorage as createStorageClient } from '@hcengineering/storage-client'
 import { v4 as uuid } from 'uuid'
 
 import plugin from './plugin'
+import { getFileMetadata } from './filetypes'
 
-interface FileUploadError {
-  key: string
-  error: string
+export function getCurrentWorkspaceUuid (): WorkspaceUuid {
+  const workspaceUuid = getMetadata(plugin.metadata.WorkspaceUuid) ?? ''
+  return workspaceUuid as WorkspaceUuid
 }
 
-interface FileUploadSuccess {
-  key: string
-  id: string
+function getToken (): string {
+  return getMetadata(plugin.metadata.Token) ?? ''
 }
 
-type FileUploadResult = FileUploadSuccess | FileUploadError
-
-const defaultUploadUrl = '/files'
-const defaultFilesUrl = '/files/:workspace/:filename?file=:blobId&workspace=:workspace'
-
-function getFilesUrl (): string {
-  const filesUrl = getMetadata(plugin.metadata.FilesURL) ?? defaultFilesUrl
-  const frontUrl = getMetadata(plugin.metadata.FrontUrl) ?? window.location.origin
-
-  return filesUrl.includes('://') ? filesUrl : concatLink(frontUrl, filesUrl)
-}
-
-export function getCurrentWorkspaceId (): string {
-  return getMetadata(plugin.metadata.WorkspaceId) ?? ''
-}
-
-/**
- * @public
- */
+/** @public */
 export function generateFileId (): string {
   return uuid()
 }
 
-/**
- * @public
- */
-export function getUploadUrl (): string {
-  const template = getMetadata(plugin.metadata.UploadURL) ?? defaultUploadUrl
-
-  return template.replaceAll(':workspace', encodeURIComponent(getCurrentWorkspaceId()))
+/** @public */
+export function createFileStorage (uploadUrl: string, datalakeUrl?: string, hulylakeUrl?: string): FileStorage {
+  return createStorageClient({ uploadUrl, datalakeUrl, hulylakeUrl })
 }
 
-/**
- * @public
- */
+/** @public */
+export function getFileStorage (): FileStorage {
+  const storage = getMetadata(plugin.metadata.FileStorage)
+  if (storage === undefined) {
+    throw new Error('Missing file storage metadata')
+  }
+
+  return storage
+}
+
+/** @public */
 export function getFileUrl (file: string, filename?: string): string {
   if (file.includes('://')) {
     return file
   }
 
-  const template = getFilesUrl()
-  return template
-    .replaceAll(':filename', encodeURIComponent(filename ?? file))
-    .replaceAll(':workspace', encodeURIComponent(getCurrentWorkspaceId()))
-    .replaceAll(':blobId', encodeURIComponent(file))
+  const workspace = getCurrentWorkspaceUuid()
+
+  const storage = getFileStorage()
+  return storage.getFileUrl(workspace, file, filename)
 }
 
 /**
+ * Error thrown by registered upload guards (see {@link setUploadGuard}) when the
+ * current workspace is not allowed to upload new files (e.g. plan limit reached
+ * and grace period expired). Caller code should handle this distinct from generic
+ * upload failures and surface a user-friendly message + upgrade CTA.
+ *
  * @public
  */
-export async function uploadFile (file: File): Promise<Ref<Blob>> {
-  const uploadUrl = getUploadUrl()
-
-  const id = generateFileId()
-  const data = new FormData()
-  data.append('file', file, id)
-
-  const resp = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: 'Bearer ' + (getMetadata(plugin.metadata.Token) as string)
-    },
-    body: data
-  })
-
-  if (resp.status !== 200) {
-    if (resp.status === 413) {
-      throw new PlatformError(new Status(Severity.ERROR, plugin.status.FileTooLarge, {}))
-    } else {
-      throw Error(`Failed to upload file: ${resp.statusText}`)
-    }
+export class UploadRestrictedError extends Error {
+  constructor (
+    public readonly reason: string,
+    message?: string
+  ) {
+    super(message ?? reason)
+    this.name = 'UploadRestrictedError'
   }
-
-  const result = (await resp.json()) as FileUploadResult[]
-  if (result.length !== 1) {
-    throw Error('Bad upload response')
-  }
-
-  if ('error' in result[0]) {
-    throw Error(`Failed to upload file: ${result[0].error}`)
-  }
-
-  return id as Ref<Blob>
 }
 
+/** @public */
+export type UploadGuard = (file: File) => Promise<void> | void
+
+let uploadGuard: UploadGuard | undefined
+
 /**
+ * Register a synchronous/async guard called before every {@link uploadFile}.
+ * Throw an {@link UploadRestrictedError} from the guard to block the upload.
+ * Pass `undefined` to clear the guard.
+ *
+ * The guard lives in `presentation` to keep upload restriction concerns out of
+ * every individual call site, and to avoid a dependency from `presentation` to
+ * higher-level plugins (billing-resources) — DI inversion via a setter.
+ *
  * @public
  */
-export async function deleteFile (id: string): Promise<void> {
-  const fileUrl = getFileUrl(id)
+export function setUploadGuard (guard: UploadGuard | undefined): void {
+  uploadGuard = guard
+}
 
-  const resp = await fetch(fileUrl, {
-    method: 'DELETE',
-    headers: {
-      Authorization: 'Bearer ' + (getMetadata(plugin.metadata.Token) as string)
-    }
-  })
+/** @public */
+export async function uploadFile (
+  file: File,
+  uuid?: Ref<PlatformBlob>
+): Promise<{ uuid: Ref<PlatformBlob>, metadata: Record<string, any> }> {
+  if (uploadGuard !== undefined) {
+    await uploadGuard(file)
+  }
 
-  if (resp.status !== 200) {
-    throw new Error('Failed to delete file')
+  uuid ??= generateFileId() as Ref<PlatformBlob>
+
+  const token = getToken()
+  const workspace = getCurrentWorkspaceUuid()
+
+  const storage = getFileStorage()
+  await storage.uploadFile(token, workspace, uuid, file)
+
+  const metadata = (await getFileMetadata(file, uuid)) ?? {}
+
+  return { uuid, metadata }
+}
+
+/** @public */
+export async function deleteFile (file: string): Promise<void> {
+  const token = getToken()
+  const workspace = getCurrentWorkspaceUuid()
+
+  const storage = getFileStorage()
+  await storage.deleteFile(token, workspace, file)
+}
+
+export async function getJsonOrEmpty<T = any> (file: string, name: string): Promise<T | undefined> {
+  try {
+    const fileUrl = getFileUrl(file, name)
+    const resp = await fetch(fileUrl)
+    return (await resp.json()) as T
+  } catch {
+    return undefined
   }
 }

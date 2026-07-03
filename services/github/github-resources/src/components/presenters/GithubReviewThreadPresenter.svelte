@@ -3,12 +3,12 @@
 //
 -->
 <script lang="ts">
-  import core, { Account, Ref, WithLookup, getCurrentAccount } from '@hcengineering/core'
+  import core, { Ref, WithLookup, getCurrentAccount } from '@hcengineering/core'
   import { GithubPullRequest, GithubReviewComment, GithubReviewThread } from '@hcengineering/github'
 
   import { ActivityMessageHeader, ActivityMessageTemplate } from '@hcengineering/activity-resources'
-  import { Person, PersonAccount } from '@hcengineering/contact'
-  import { EmployeePresenter, personAccountByIdStore, personByIdStore } from '@hcengineering/contact-resources'
+  import { Person } from '@hcengineering/contact'
+  import { EmployeePresenter, getPersonByPersonId, getPersonByPersonIdCb } from '@hcengineering/contact-resources'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { ReferenceInput } from '@hcengineering/text-editor-resources'
@@ -26,8 +26,15 @@
   export let embedded: boolean = false
   export let onClick: (() => void) | undefined = undefined
 
-  $: personAccount = $personAccountByIdStore.get((value?.createdBy ?? value?.modifiedBy) as Ref<PersonAccount>)
-  $: person = $personByIdStore.get(personAccount?.person as Ref<Person>)
+  $: personId = value?.createdBy ?? value?.modifiedBy
+  let person: Person | undefined
+  $: if (personId !== undefined) {
+    getPersonByPersonIdCb(personId, (p) => {
+      person = p ?? undefined
+    })
+  } else {
+    person = undefined
+  }
 
   const commentsQuery = createQuery()
 
@@ -71,12 +78,13 @@
     if (value.isResolved) {
       await getClient().update(value, { isResolved: false, resolvedBy: null })
     } else {
-      await getClient().update(value, { isResolved: true, resolvedBy: getCurrentAccount()._id })
+      await getClient().update(value, { isResolved: true, resolvedBy: getCurrentAccount().primarySocialId })
     }
   }
 
-  const toRefPersonAccount = (account: Ref<Account>): Ref<PersonAccount> => account as Ref<PersonAccount>
-  const toRefPerson = (account?: Ref<Person>): Ref<Person> => account as Ref<Person>
+  function onDiffExpand (nextExpanded: boolean): void {
+    expanded = nextExpanded
+  }
 </script>
 
 <div
@@ -105,7 +113,7 @@
         label={getEmbeddedLabel('reviewed')}
       />
     </svelte:fragment>
-    <svelte:fragment slot="content">
+    <svelte:fragment slot="content" let:readonly>
       <div class="file-content">
         {#if comments.length > 0}
           <Component
@@ -115,9 +123,7 @@
               fileName: value.path,
               expandable: value.isResolved,
               expanded,
-              onExpand: (value) => {
-                expanded = value
-              }
+              onExpand: onDiffExpand
             }}
           />
         {/if}
@@ -127,7 +133,11 @@
               <ReviewCommentPresenter {comment} />
             {/each}
           </div>
-          <ReferenceInput showSend={true} showHeader showActions on:message={onMessage} />
+          {#if !readonly}
+            <div class="ml-4 mr-4">
+              <ReferenceInput showSend={true} showHeader showActions on:message={onMessage} />
+            </div>
+          {/if}
           <div class="p-2 flex-row-center flex-grow">
             {#if githubConfiguration.ResolveThreadSupported}
               <Button
@@ -138,25 +148,25 @@
               />
             {/if}
             {#if value.isResolved && value.resolvedBy != null}
-              {@const resolveAccount = $personAccountByIdStore.get(toRefPersonAccount(value.resolvedBy))}
-              {@const resolvePerson = $personByIdStore.get(toRefPerson(resolveAccount?.person))}
-              {#if resolvePerson !== undefined}
-                <div class="flex-row-center ml-4">
-                  <Label label={getEmbeddedLabel('resolved by')} />
+              {#await getPersonByPersonId(value.resolvedBy) then resolvePerson}
+                {#if resolvePerson !== undefined}
+                  <div class="flex-row-center ml-4">
+                    <Label label={getEmbeddedLabel('resolved by')} />
 
-                  <div class="content ml-2 clear-mins">
-                    <div class="header clear-mins">
-                      {#if resolvePerson}
-                        <EmployeePresenter value={resolvePerson} shouldShowAvatar={true} />
-                      {:else}
-                        <div class="strong">
-                          <Label label={core.string.System} />
-                        </div>
-                      {/if}
+                    <div class="content ml-2 clear-mins">
+                      <div class="header clear-mins">
+                        {#if resolvePerson}
+                          <EmployeePresenter value={resolvePerson} shouldShowAvatar={true} />
+                        {:else}
+                          <div class="strong">
+                            <Label label={core.string.System} />
+                          </div>
+                        {/if}
+                      </div>
                     </div>
                   </div>
-                </div>
-              {/if}
+                {/if}
+              {/await}
             {/if}
           </div>
         {/if}

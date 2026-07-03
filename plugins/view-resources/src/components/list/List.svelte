@@ -23,13 +23,14 @@
     Space,
     mergeQueries
   } from '@hcengineering/core'
-  import { IntlString, getResource } from '@hcengineering/platform'
+  import { IntlString } from '@hcengineering/platform'
   import { createQuery, getClient, reduceCalls } from '@hcengineering/presentation'
   import { AnyComponent, AnySvelteComponent } from '@hcengineering/ui'
-  import { BuildModelKey, ViewOptionModel, ViewOptions, ViewQueryOption, Viewlet } from '@hcengineering/view'
+  import { BuildModelKey, ViewOptionModel, ViewOptions, Viewlet } from '@hcengineering/view'
   import { createEventDispatcher } from 'svelte'
   import { SelectionFocusProvider } from '../../selection'
   import { buildConfigLookup } from '../../utils'
+  import { getResultOptions, getResultQuery } from '../../viewOptions'
   import ListCategories from './ListCategories.svelte'
 
   export let _class: Ref<Class<Doc>>
@@ -52,6 +53,8 @@
   export let selection: number | undefined = undefined
   export let compactMode: boolean = false
   export let listProvider: SelectionFocusProvider
+  export let singleCategoryLimit: number | undefined = undefined
+  export let readonly: boolean = false
 
   const limiter = new RateLimiter(10)
 
@@ -68,12 +71,22 @@
   const docsQuerySlow = createQuery()
 
   $: lookup = buildConfigLookup(client.getHierarchy(), _class, config, options?.lookup)
-  $: resultOptions = { ...options, lookup, ...(orderBy !== undefined ? { sort: { [orderBy[0]]: orderBy[1] } } : {}) }
+  $: configOptions = options
+  $: resultOptions = {
+    ...configOptions,
+    ...(Object.keys(lookup).length > 0 ? { lookup } : {}),
+    ...(orderBy !== undefined ? { sort: { [orderBy[0]]: orderBy[1] } } : {})
+  }
+
+  const updateOptions = reduceCalls(async function (options: FindOptions<Doc> | undefined, viewOptions: ViewOptions) {
+    configOptions = await getResultOptions(options, viewOptionsConfig, viewOptions)
+  })
+  $: void updateOptions(options, viewOptions)
 
   let resultQuery: DocumentQuery<Doc> = query
 
   const update = reduceCalls(async function (query: DocumentQuery<Doc>, viewOptions: ViewOptions) {
-    const p = await getResultQuery(query, viewOptionsConfig, viewOptions)
+    const p = await getResultQuery(hierarchy, query, viewOptionsConfig, viewOptions)
     resultQuery = mergeQueries(p, query)
   })
   $: void update(query, viewOptions)
@@ -98,13 +111,12 @@
     queryNoLookup,
     (res) => {
       fastDocs = res
-      // console.log('query, res', queryNoLookup, res)
       fastQueryIds = new Set(res.map((it) => it._id))
     },
     { ...categoryQueryOptions, limit: 1000 }
   )
 
-  $: if (fastDocs.length === 1000) {
+  $: if (fastDocs.length === 1000 && queryNoLookup.$search == null) {
     docsQuerySlow.query(
       _class,
       queryNoLookup,
@@ -113,6 +125,8 @@
       },
       categoryQueryOptions
     )
+  } else {
+    slowDocs = []
   }
 
   $: docs = [...fastDocs, ...slowDocs.filter((it) => !fastQueryIds.has(it._id))]
@@ -161,27 +175,6 @@
 
   $: dispatch('content', docs)
 
-  async function getResultQuery (
-    query: DocumentQuery<Doc>,
-    viewOptions: ViewOptionModel[] | undefined,
-    viewOptionsStore: ViewOptions
-  ): Promise<DocumentQuery<Doc>> {
-    if (viewOptions === undefined) return query
-    let result: DocumentQuery<Doc> = hierarchy.clone(query)
-    for (const viewOption of viewOptions) {
-      if (viewOption.actionTarget !== 'query') continue
-      const queryOption = viewOption as ViewQueryOption
-      const f = await getResource(queryOption.action)
-      const resultP = f(viewOptionsStore[queryOption.key] ?? queryOption.defaultValue, result)
-      if (resultP instanceof Promise) {
-        result = await resultP
-      } else {
-        result = resultP
-      }
-    }
-    return result
-  }
-
   function uncheckAll (): void {
     dispatch('check', { docs, value: false })
     selectedObjectIds = []
@@ -226,6 +219,7 @@
     {createItemDialogProps}
     {createItemLabel}
     {createItemEvent}
+    {singleCategoryLimit}
     on:check
     on:uncheckAll={uncheckAll}
     on:row-focus
@@ -247,6 +241,7 @@
     on:collapsed
     {resultQuery}
     {resultOptions}
+    {readonly}
   />
 </div>
 
@@ -258,6 +253,6 @@
     width: 100%;
     height: max-content;
     min-width: auto;
-    min-height: auto;
+    min-height: 0;
   }
 </style>

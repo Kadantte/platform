@@ -16,9 +16,7 @@
   import { onDestroy } from 'svelte'
   import { CalendarMode } from '@hcengineering/calendar-resources'
   import calendar from '@hcengineering/calendar-resources/src/plugin'
-  import { Employee, PersonAccount } from '@hcengineering/contact'
-  import { employeeByIdStore } from '@hcengineering/contact-resources'
-  import { DocumentQuery, Ref, getCurrentAccount } from '@hcengineering/core'
+  import { DocumentQuery, Ref } from '@hcengineering/core'
   import { Department, Staff } from '@hcengineering/hr'
   import { createQuery } from '@hcengineering/presentation'
   import { getEmbeddedLabel } from '@hcengineering/platform'
@@ -34,13 +32,14 @@
     Breadcrumb,
     Switcher,
     defineSeparators,
-    workbenchSeparators,
+    twoPanelsSeparators,
     deviceOptionsStore as deviceInfo,
     tableToCSV,
     showPopup
   } from '@hcengineering/ui'
-  import view, { Viewlet, ViewletPreference } from '@hcengineering/view'
+  import view, { Viewlet, ViewletPreference, type ViewOptions } from '@hcengineering/view'
   import { ViewletSelector, ViewletSettingButton } from '@hcengineering/view-resources'
+  import { getCurrentEmployee } from '@hcengineering/contact'
 
   import hr from '../plugin'
 
@@ -48,14 +47,14 @@
   import Sidebar from './sidebar/Sidebar.svelte'
   import ExportPopup from './schedule/ExportPopup.svelte'
 
-  const accountEmployee = $employeeByIdStore.get((getCurrentAccount() as PersonAccount).person as Ref<Employee>)
+  const me = getCurrentEmployee()
   let accountStaff: Staff | undefined
 
   const accountStaffQ = createQuery()
 
   let department = accountStaff !== undefined ? accountStaff.department : hr.ids.Head
-  $: if (accountEmployee !== undefined) {
-    accountStaffQ.query(hr.mixin.Staff, { _id: accountEmployee._id as Ref<Staff> }, (res) => {
+  $: if (me !== undefined) {
+    accountStaffQ.query(hr.mixin.Staff, { _id: me as Ref<Staff> }, (res) => {
       accountStaff = res[0]
       department = accountStaff !== undefined ? accountStaff.department : hr.ids.Head
     })
@@ -66,12 +65,16 @@
   let search = ''
   let resultQuery: DocumentQuery<Staff> = {}
 
-  function updateResultQuery (search: string): void {
-    resultQuery = search === '' ? {} : { name: { $like: '%' + search + '%' } }
+  function updateResultQuery (search: string, viewOptions: ViewOptions | undefined): void {
+    const q: DocumentQuery<Staff> = search === '' ? {} : { name: { $like: '%' + search + '%' } }
+    resultQuery = viewOptions?.hideInactive !== false ? { ...q, active: true } : q
   }
+
+  $: updateResultQuery(search, viewOptions)
 
   const query = createQuery()
 
+  let ancestors: Map<Ref<Department>, Ref<Department>[]> = new Map<Ref<Department>, Ref<Department>[]>()
   let descendants: Map<Ref<Department>, Department[]> = new Map<Ref<Department>, Department[]>()
   let departments: Map<Ref<Department>, Department> = new Map<Ref<Department>, Department>()
 
@@ -81,21 +84,45 @@
   query.query(hr.class.Department, {}, (res) => {
     departments.clear()
     descendants.clear()
+    ancestors.clear()
+
+    // build descendants and departments
     for (const doc of res) {
-      if (doc.parent !== undefined) {
+      if (doc.parent !== undefined && doc._id !== hr.ids.Head) {
         const current = descendants.get(doc.parent) ?? []
         current.push(doc)
         descendants.set(doc.parent, current)
       }
       departments.set(doc._id, doc)
     }
+
+    // build ancestors: for each department, walk up to root
+    const byId = new Map<Ref<Department>, Ref<Department>>()
+    for (const doc of res) {
+      byId.set(doc._id, doc.parent ?? hr.ids.Head)
+    }
+
+    for (const doc of res) {
+      const list: Ref<Department>[] = []
+      let parent: Ref<Department> | undefined = doc._id
+      while (parent !== undefined && parent !== hr.ids.Head) {
+        parent = byId.get(parent)
+        if (parent !== undefined) {
+          list.push(parent)
+        }
+      }
+      ancestors.set(doc._id, list)
+    }
+
     departments = departments
     descendants = descendants
+    ancestors = ancestors
   })
 
   function inc (val: number): void {
     switch (mode) {
       case CalendarMode.Month: {
+        currentDate.setDate(1)
         currentDate.setMonth(currentDate.getMonth() + val)
         break
       }
@@ -131,6 +158,7 @@
   ]
 
   let viewlet: Viewlet | undefined
+  let viewOptions: ViewOptions | undefined
   let preference: ViewletPreference | undefined
   let loading = false
 
@@ -180,7 +208,7 @@
   $: $deviceInfo.replacedPanel = replacedPanel
   onDestroy(() => ($deviceInfo.replacedPanel = undefined))
 
-  defineSeparators('workbench', workbenchSeparators)
+  defineSeparators('schedule', twoPanelsSeparators)
 </script>
 
 <div class="hulyPanels-container">
@@ -194,9 +222,8 @@
       }}
     />
     <Separator
-      name={'workbench'}
+      name={'schedule'}
       float={$deviceInfo.navigator.float}
-      disabledWhen={['panel-aside']}
       index={0}
       color={'transparent'}
       separatorSize={0}
@@ -221,29 +248,21 @@
               if (result.detail !== undefined) display = result.detail.id
             }}
           />
-          {#if display === 'stats'}
-            <ViewletSelector
-              hidden
-              bind:viewlet
-              bind:preference
-              bind:loading
-              viewletQuery={{ _id: hr.viewlet.StaffStats }}
-            />
-            <ViewletSettingButton bind:viewlet />
-          {/if}
+          <ViewletSelector
+            hidden
+            bind:viewlet
+            bind:preference
+            bind:loading
+            viewletQuery={{ _id: hr.viewlet.StaffStats }}
+          />
+          <ViewletSettingButton bind:viewOptions bind:viewlet />
         {/if}
       </svelte:fragment>
 
       <Breadcrumb icon={hr.icon.HR} label={hr.string.Schedule} size={'large'} isCurrent />
 
       <svelte:fragment slot="search">
-        <SearchInput
-          bind:value={search}
-          collapsed
-          on:change={() => {
-            updateResultQuery(search)
-          }}
-        />
+        <SearchInput bind:value={search} collapsed />
       </svelte:fragment>
       <svelte:fragment slot="actions">
         {#if mode === CalendarMode.Month && display === 'stats'}
@@ -304,6 +323,7 @@
     <ScheduleView
       {department}
       {descendants}
+      {ancestors}
       departmentById={departments}
       staffQuery={resultQuery}
       {currentDate}

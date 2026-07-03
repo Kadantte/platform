@@ -27,12 +27,13 @@
   export let size: ButtonSize = 'large'
   export let allowDeselect: boolean = false
   export let readonly: boolean = false
+  export let width: string | undefined = undefined
 
   let items: DropdownTextItem[] = []
 
   const query = createQuery()
 
-  query.query(
+  $: query.query(
     core.class.Enum,
     {
       _id: type.of
@@ -55,8 +56,8 @@
   justify={'left'}
   {size}
   {kind}
-  width={'100%'}
-  {allowDeselect}
+  {width}
+  allowDeselect
   disabled={readonly}
   autoSelect={false}
   on:selected={(e) => {

@@ -14,37 +14,32 @@
 //
 
 import {
-  AccountRole,
   DOMAIN_BENCHMARK,
   DOMAIN_BLOB,
   DOMAIN_CONFIGURATION,
-  DOMAIN_DOC_INDEX_STATE,
   DOMAIN_MIGRATION,
   DOMAIN_SPACE,
   DOMAIN_STATUS,
   DOMAIN_TRANSIENT,
-  DOMAIN_TX,
-  systemAccountEmail,
-  type AttachedDoc,
-  type Class,
-  type Doc,
-  type IndexingConfiguration,
-  type TxCollectionCUD
+  DOMAIN_TX
 } from '@hcengineering/core'
 import { type Builder } from '@hcengineering/model'
 import { TBenchmarkDoc } from './benchmark'
 import core from './component'
 import {
   TArrOf,
+  TAssociation,
   TAttachedDoc,
   TAttribute,
   TBlob,
   TClass,
+  TClassCollaborators,
+  TCollaborator,
   TCollection,
   TConfiguration,
   TConfigurationElement,
+  TCustomSequence,
   TDoc,
-  TDocIndexState,
   TDomainIndexConfiguration,
   TEnum,
   TEnumOf,
@@ -56,28 +51,37 @@ import {
   TObj,
   TPluginConfiguration,
   TRefTo,
+  TRelation,
+  TRelationMetadata,
+  TSequence,
+  TTransientConfiguration,
   TType,
+  TTypeAccountUuid,
   TTypeAny,
   TTypeBlob,
   TTypeBoolean,
   TTypeCollaborativeDoc,
-  TTypeCollaborativeDocVersion,
   TTypeDate,
   TTypeFileSize,
   TTypeHyperlink,
+  TTypeIdentifier,
   TTypeIntlString,
   TTypeMarkup,
   TTypeNumber,
+  TTypePersonId,
   TTypeRank,
   TTypeRecord,
   TTypeRelatedDocument,
   TTypeString,
   TTypeTimestamp,
-  TVersion
+  TVersion,
+  TVersionableClass
 } from './core'
 import { definePermissions } from './permissions'
 import {
-  TAccount,
+  TAttributePermission,
+  TModulePermissionGroup,
+  TClassPermission,
   TPermission,
   TRole,
   TSpace,
@@ -89,21 +93,22 @@ import {
 import { defineSpaceType } from './spaceType'
 import { TDomainStatusPlaceholder, TStatus, TStatusCategory } from './status'
 import { TUserStatus } from './transient'
-import {
-  TTx,
-  TTxApplyIf,
-  TTxCollectionCUD,
-  TTxCreateDoc,
-  TTxCUD,
-  TTxMixin,
-  TTxRemoveDoc,
-  TTxUpdateDoc,
-  TTxWorkspaceEvent
-} from './tx'
+import { TTx, TTxApplyIf, TTxCreateDoc, TTxCUD, TTxMixin, TTxRemoveDoc, TTxUpdateDoc, TTxWorkspaceEvent } from './tx'
 
 export { coreId, DOMAIN_SPACE } from '@hcengineering/core'
 export * from './core'
-export { coreOperation } from './migration'
+export {
+  coreOperation,
+  getAccountsFromTxes,
+  getAccountUuidByOldAccount,
+  getAccountUuidBySocialKey,
+  getSocialIdBySocialKey,
+  getSocialIdFromOldAccount,
+  getSocialKeyByOldAccount,
+  getSocialKeyByOldEmail,
+  getUniqueAccounts,
+  getUniqueAccountsFromOldAccounts
+} from './migration'
 export * from './security'
 export * from './status'
 export * from './tx'
@@ -120,7 +125,6 @@ export function createModel (builder: Builder): void {
     TTxCUD,
     TTxCreateDoc,
     TAttachedDoc,
-    TTxCollectionCUD,
     TTxMixin,
     TTxUpdateDoc,
     TTxRemoveDoc,
@@ -133,19 +137,23 @@ export function createModel (builder: Builder): void {
     TSpaceTypeDescriptor,
     TRole,
     TPermission,
-    TAccount,
+    TModulePermissionGroup,
+    TAttributePermission,
+    TClassPermission,
     TAttribute,
     TType,
     TEnumOf,
     TTypeMarkup,
+    TTypePersonId,
+    TTypeAccountUuid,
     TTypeCollaborativeDoc,
-    TTypeCollaborativeDocVersion,
     TArrOf,
     TRefTo,
     TTypeDate,
     TTypeFileSize,
     TTypeTimestamp,
     TTypeNumber,
+    TTypeIdentifier,
     TTypeBoolean,
     TTypeString,
     TTypeRank,
@@ -160,38 +168,28 @@ export function createModel (builder: Builder): void {
     TEnum,
     TTypeAny,
     TTypeRelatedDocument,
-    TDocIndexState,
     TFullTextSearchContext,
     TConfiguration,
     TConfigurationElement,
     TIndexConfiguration,
     TStatus,
+    TSequence,
+    TCustomSequence,
     TDomainStatusPlaceholder,
     TStatusCategory,
     TMigrationState,
     TBlob,
+    TRelation,
+    TRelationMetadata,
+    TAssociation,
     TDomainIndexConfiguration,
-    TBenchmarkDoc
+    TBenchmarkDoc,
+    TTransientConfiguration,
+    TClassCollaborators,
+    TCollaborator,
+    TVersionableClass
   )
 
-  builder.createDoc(
-    core.class.Account,
-    core.space.Model,
-    {
-      email: systemAccountEmail,
-      role: AccountRole.Owner
-    },
-    core.account.System
-  )
-
-  builder.mixin<Class<TxCollectionCUD<Doc, AttachedDoc>>, IndexingConfiguration<TxCollectionCUD<Doc, AttachedDoc>>>(
-    core.class.TxCollectionCUD,
-    core.class.Class,
-    core.mixin.IndexConfiguration,
-    {
-      indexes: ['tx.objectId', 'tx.operations.attachedTo']
-    }
-  )
   builder.createDoc(core.class.DomainIndexConfiguration, core.space.Model, {
     domain: DOMAIN_TX,
     disabled: [
@@ -287,30 +285,23 @@ export function createModel (builder: Builder): void {
     ]
   })
 
-  builder.createDoc(core.class.DomainIndexConfiguration, core.space.Model, {
-    domain: DOMAIN_DOC_INDEX_STATE,
-    indexes: [
-      {
-        keys: { needIndex: 1 }
-      }
-    ],
-    disabled: [
-      { attachedToClass: 1 },
-      { stages: 1 },
-      { generationId: 1 },
-      { space: 1 },
-      { _class: 1 },
-      { modifiedBy: 1 },
-      { createdBy: 1 },
-      { createdBy: -1 },
-      { createdOn: -1 }
-    ]
-  })
-
-  builder.mixin(core.class.Space, core.class.Class, core.mixin.FullTextSearchContext, {
-    childProcessingAllowed: false
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: core.class.Space
   })
 
   definePermissions(builder)
   defineSpaceType(builder)
+
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: core.class.MigrationState,
+    forceIndex: false
+  })
+  builder.mixin(core.class.Configuration, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
+  })
+  builder.mixin(core.class.MigrationState, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
+  })
 }

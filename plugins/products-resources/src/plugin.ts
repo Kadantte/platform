@@ -16,8 +16,8 @@
 import products, { productsId } from '@hcengineering/products'
 import { type Ref, type Space } from '@hcengineering/core'
 import { type IntlString, type Resource, mergeIds } from '@hcengineering/platform'
-import { type ObjectSearchCategory, type ObjectSearchFactory } from '@hcengineering/presentation'
-import { type AnyComponent } from '@hcengineering/ui'
+import { type ObjectSearchCategory, type ObjectSearchFactory } from '@hcengineering/presentation/src/types'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
 import { type KeyFilter } from '@hcengineering/view'
 
 export default mergeIds(productsId, products, {
@@ -55,11 +55,11 @@ export default mergeIds(productsId, products, {
     Color: '' as IntlString,
     Major: '' as IntlString,
     Minor: '' as IntlString,
+    Patch: '' as IntlString,
     Codename: '' as IntlString,
     Private: '' as IntlString,
     Public: '' as IntlString,
     Members: '' as IntlString,
-    RoleLabel: '' as IntlString,
     ProductVersionStateActive: '' as IntlString,
     ProductVersionStateReleased: '' as IntlString,
     ChangeControl: '' as IntlString,

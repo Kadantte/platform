@@ -3,9 +3,9 @@
 //
 
 import { setMetadata } from '@hcengineering/platform'
-import { storageConfigFromEnv } from '@hcengineering/server'
 import serverClient from '@hcengineering/server-client'
 import { loadBrandingMap } from '@hcengineering/server-core'
+import { storageConfigFromEnv } from '@hcengineering/server-storage'
 import serverToken from '@hcengineering/server-token'
 
 import config from './config'
@@ -13,6 +13,7 @@ import { createServer, listen } from './server'
 
 const setupMetadata = (): void => {
   setMetadata(serverToken.metadata.Secret, config.Secret)
+  setMetadata(serverToken.metadata.Service, 'sign')
   setMetadata(serverClient.metadata.Endpoint, config.AccountsUrl)
   setMetadata(serverClient.metadata.UserAgent, config.ServiceID)
 }
@@ -20,7 +21,7 @@ const setupMetadata = (): void => {
 export const main = async (): Promise<void> => {
   setupMetadata()
   const storageConfig = storageConfigFromEnv()
-  const server = listen(createServer(config.DbURL, storageConfig, loadBrandingMap(config.BrandingPath)), config.Port)
+  const server = listen(createServer(storageConfig, loadBrandingMap(config.BrandingPath)), config.Port)
 
   const shutdown = (): void => {
     server.close(() => process.exit())

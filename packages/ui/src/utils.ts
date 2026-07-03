@@ -64,7 +64,7 @@ export function checkMobile (): boolean {
  * @public
  */
 export function isSafari (): boolean {
-  return navigator.userAgent.toLowerCase().includes('safari/')
+  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent.toLowerCase())
 }
 
 /**
@@ -92,7 +92,7 @@ export function humanReadableFileSize (size: number, base: 2 | 10 = 10, fraction
 
   const pow = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(kb))
   const val = (1.0 * size) / Math.pow(kb, pow)
-  return `${val.toFixed(2)} ${units[pow]}`
+  return `${val.toFixed(fractionDigits)} ${units[pow]}`
 }
 
 /**
@@ -103,7 +103,8 @@ export function addNotification (
   subTitle: string,
   component: AnyComponent | AnySvelteComponent,
   params?: Record<string, any>,
-  severity: NotificationSeverity = NotificationSeverity.Success
+  severity: NotificationSeverity = NotificationSeverity.Success,
+  group?: string
 ): void {
   const closeTimeout = parseInt(localStorage.getItem('#platform.notification.timeout') ?? '10000')
   const notification: Notification = {
@@ -111,6 +112,7 @@ export function addNotification (
     title,
     subTitle,
     severity,
+    group,
     position: NotificationPosition.BottomLeft,
     component,
     closeTimeout,
@@ -212,8 +214,12 @@ export function replaceURLs (text: string): string {
  * @returns {string} string with parsed URL
  */
 export function parseURL (text: string): string {
-  const matches = autolinker.parse(text, { urls: true })
-  return matches.length > 0 ? matches[0].getAnchorHref() : ''
+  try {
+    const matches = autolinker.parse(text ?? '', { urls: true })
+    return matches.length > 0 ? matches[0].getAnchorHref() : ''
+  } catch (err: any) {
+    return ''
+  }
 }
 
 /**
@@ -296,6 +302,23 @@ export class ThrottledCaller {
   }
 }
 
+/**
+ * @public
+ */
+export class DebouncedCaller {
+  timeout?: any
+  constructor (readonly delay: number = 50) {}
+  call (op: () => void): void {
+    if (this.timeout !== undefined) {
+      clearTimeout(this.timeout)
+    }
+    this.timeout = setTimeout(() => {
+      op()
+      this.timeout = undefined
+    }, this.delay)
+  }
+}
+
 export const testing = (localStorage.getItem('#platform.testing.enabled') ?? 'false') === 'true'
 
 export const rootBarExtensions = writable<
@@ -306,6 +329,7 @@ Array<
     id: string
     component: AnyComponent | AnySvelteComponent
     props?: Record<string, any>
+    order: number
   }
 ]
 >
@@ -323,7 +347,7 @@ export async function formatDuration (duration: number, language: string): Promi
     text += await translate(ui.string.HoursShort, { value: hours }, language)
   }
   const minutes = Math.floor((duration % HOUR) / MINUTE)
-  if (minutes > 0) {
+  if (minutes >= 0) {
     text += ' '
     text += await translate(ui.string.MinutesShort, { value: minutes }, language)
   }
@@ -331,14 +355,23 @@ export async function formatDuration (duration: number, language: string): Promi
   return text
 }
 
-export function pushRootBarComponent (pos: 'left' | 'right', component: AnyComponent): void {
+export function formatNumberCompact (num: number, maximumFractionDigits = 2): string {
+  const locale = new Intl.NumberFormat().resolvedOptions().locale
+  return new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    maximumFractionDigits
+  }).format(num)
+}
+
+export function pushRootBarComponent (pos: 'left' | 'right', component: AnyComponent, order?: number): void {
   rootBarExtensions.update((cur) => {
     if (cur.find((p) => p[1].component === component) === undefined) {
       cur.push([
         pos,
         {
           id: component,
-          component
+          component,
+          order: order ?? 1000
         }
       ])
     }
@@ -349,6 +382,32 @@ export function removeRootBarComponent (id: string): void {
   rootBarExtensions.update((cur) => {
     return cur.filter((p) => p[1].id !== id)
   })
+}
+
+export const navFooterExtensions = writable<
+Array<{
+  id: string
+  component: AnyComponent | AnySvelteComponent
+  props?: Record<string, any>
+  order: number
+}>
+>([])
+
+export function pushNavFooterComponent (component: AnyComponent, order?: number): void {
+  navFooterExtensions.update((cur) => {
+    if (cur.find((p) => p.component === component) === undefined) {
+      cur.push({
+        id: component,
+        component,
+        order: order ?? 1000
+      })
+    }
+    return cur
+  })
+}
+
+export function removeNavFooterComponent (id: string): void {
+  navFooterExtensions.update((cur) => cur.filter((p) => p.id !== id))
 }
 
 export function pushRootBarProgressComponent (
@@ -369,6 +428,7 @@ export function pushRootBarProgressComponent (
         {
           id,
           component: RootStatusComponent,
+          order: 10,
           props: {
             label,
             onProgress,

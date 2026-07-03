@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { WithLookup } from '@hcengineering/core'
-  import { translate } from '@hcengineering/platform'
+  import { translateCB } from '@hcengineering/platform'
   import { Component } from '@hcengineering/tracker'
   import { Icon, themeStore } from '@hcengineering/ui'
   import view from '@hcengineering/view'
@@ -35,20 +35,16 @@
   $: if (value !== undefined) {
     label = value.label
   } else {
-    translate(tracker.string.NoComponent, {}, $themeStore.language)
-      .then((r) => {
-        label = r
-      })
-      .catch((err) => {
-        console.error(err)
-      })
+    translateCB(tracker.string.NoComponent, {}, $themeStore.language, (r) => {
+      label = r
+    })
   }
   $: disabled = disabled || value === undefined
 </script>
 
 <div class="flex-row-center">
   {#if inline}
-    <ObjectMention object={value} {disabled} {noUnderline} {accent} {onClick} />
+    <ObjectMention object={value} {disabled} {onClick} />
   {:else}
     <DocNavLink object={value} {onClick} {disabled} {noUnderline} {accent} component={view.component.EditDoc}>
       <span class="flex-presenter flex-row-center" class:list={kind === 'list'}>

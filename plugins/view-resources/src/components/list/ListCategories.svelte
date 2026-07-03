@@ -72,7 +72,7 @@
   export let level: number
   export let initIndex = 0
   export let newObjectProps: (doc: Doc | undefined) => Record<string, any> | undefined
-  export let viewOptionsConfig: ViewOptionModel[] | undefined
+  export let viewOptionsConfig: ViewOptionModel[] | undefined = undefined
   export let dragItem: {
     doc?: Doc
     revert?: () => void
@@ -86,6 +86,8 @@
   export let resultOptions: FindOptions<Doc>
   export let limiter: RateLimiter
   export let listProvider: SelectionFocusProvider
+  export let singleCategoryLimit: number | undefined = undefined
+  export let readonly: boolean = false
 
   $: groupByKey = viewOptions.groupBy[level] ?? noCategory
   let categories: CategoryType[] = []
@@ -228,18 +230,22 @@
           if (listListCategory?.[0] == null) {
             return
           }
-          const obj = listListCategory[0].getLimited()[0]
-          listListCategory[0].expand()
-          select(0, obj)
+          const obj = listListCategory[0]?.getLimited()?.[0]
+          if (obj !== undefined) {
+            listListCategory[0]?.expand()
+            select(0, obj)
+          }
           return
         } else {
           if (listListCategory?.[0] == null) {
             return
           }
-          const g = listListCategory[categories.length - 1].getLimited()
-          listListCategory[categories.length - 1].expand()
-          const obj = g[g.length - 1]
-          select(0, obj)
+          const g = listListCategory[categories.length - 1]?.getLimited() ?? []
+          if (g.length > 0) {
+            listListCategory[categories.length - 1].expand()
+            const obj = g[g.length - 1]
+            select(0, obj)
+          }
           return
         }
       } else {
@@ -297,17 +303,21 @@
         if (dir === undefined || dir === 'vertical') {
           if (statePos - 1 < 0 && objState >= 0) {
             if (objState !== 0) {
-              const pstateObjs = listListCategory[objState - 1].getLimited()
-              dispatch('select', pstateObjs[pstateObjs.length - 1])
+              const pstateObjs = listListCategory[objState - 1]?.getLimited()
+              if (pstateObjs !== undefined) {
+                dispatch('select', pstateObjs[pstateObjs.length - 1])
+              }
             } else {
               dispatch('select-prev', stateObjs[statePos])
             }
           } else {
             const obj = stateObjs[statePos - 1]
             if (obj !== undefined) {
-              const focusDoc = listListCategory[objState]?.getLimited().find((it) => it._id === obj._id) ?? obj
-              if (!noScroll) scrollInto(objState, focusDoc)
-              dispatch('row-focus', focusDoc)
+              const focusDoc = listListCategory[objState]?.getLimited()?.find((it) => it._id === obj._id) ?? obj
+              if (focusDoc !== undefined) {
+                if (!noScroll) scrollInto(objState, focusDoc)
+                dispatch('row-focus', focusDoc)
+              }
             }
           }
           return
@@ -315,7 +325,7 @@
       }
       if (offset === 1) {
         if (dir === undefined || dir === 'vertical') {
-          const limited = listListCategory[objState].getLimited()
+          const limited = listListCategory[objState]?.getLimited() ?? []
           if (statePos + 1 >= limited.length && objState < categories.length) {
             if (objState + 1 !== categories.length) {
               const pstateObjs = getGroupByValues(groupByDocs, categories[objState + 1])
@@ -326,18 +336,22 @@
           } else {
             const obj = stateObjs[statePos + 1]
             if (obj !== undefined) {
-              const focusDoc = listListCategory[objState]?.getLimited().find((it) => it._id === obj._id) ?? obj
-              if (!noScroll) scrollInto(objState, focusDoc)
-              dispatch('row-focus', focusDoc)
+              const focusDoc = listListCategory[objState]?.getLimited()?.find((it) => it._id === obj._id) ?? obj
+              if (focusDoc !== undefined) {
+                if (!noScroll) scrollInto(objState, focusDoc)
+                dispatch('row-focus', focusDoc)
+              }
             }
           }
           return
         }
       }
       if (offset === 0) {
-        const focusDoc = listListCategory[objState]?.getLimited().find((it) => it._id === obj._id) ?? obj
-        if (!noScroll) scrollInto(objState, focusDoc)
-        dispatch('row-focus', focusDoc)
+        const focusDoc = listListCategory[objState]?.getLimited()?.find((it) => it._id === obj._id) ?? obj
+        if (focusDoc !== undefined) {
+          if (!noScroll) scrollInto(objState, focusDoc)
+          dispatch('row-focus', focusDoc)
+        }
       }
     } else {
       listCategory[objState]?.select(offset, of, dir, noScroll)
@@ -364,7 +378,7 @@
             : resultQuery[groupByKey]?.$in?.length !== 0
               ? undefined
               : []
-          : category
+          : (category ?? null)
     }
   }
 </script>
@@ -388,6 +402,7 @@
     {configurationsVersion}
     {itemModels}
     {_class}
+    {singleCategoryLimit}
     parentCategories={categories.length}
     groupPersistKey={`${groupPersistKey}_${level}_${typeof category === 'object' ? category.name : category}`}
     singleCat={level === 0 && categories.length === 1}
@@ -406,6 +421,7 @@
     {resultQuery}
     {resultOptions}
     {limiter}
+    {readonly}
     {listProvider}
     on:check
     on:uncheckAll
@@ -467,6 +483,7 @@
         {resultQuery}
         {resultOptions}
         {limiter}
+        {readonly}
         {listProvider}
         bind:dragItem
         on:dragItem

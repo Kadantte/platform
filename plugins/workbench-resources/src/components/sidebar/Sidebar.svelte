@@ -14,16 +14,23 @@
 -->
 <script lang="ts">
   import { createQuery, getClient } from '@hcengineering/presentation'
-  import { WidgetPreference } from '@hcengineering/workbench'
+  import { panelstore } from '@hcengineering/ui'
+  import { Widget, WidgetPreference } from '@hcengineering/workbench'
 
   import workbench from '../../plugin'
   import { sidebarStore, SidebarVariant } from '../../sidebar'
-  import SidebarMini from './SidebarMini.svelte'
   import SidebarExpanded from './SidebarExpanded.svelte'
+  import SidebarMini from './SidebarMini.svelte'
+  import { isAllowedToRole } from '../../utils'
+  import { getCurrentAccount } from '@hcengineering/core'
 
+  const account = getCurrentAccount()
   const client = getClient()
 
-  const widgets = client.getModel().findAllSync(workbench.class.Widget, {})
+  const widgets = client
+    .getModel()
+    .findAllSync<Widget>(workbench.class.Widget, {})
+    .filter((it) => isAllowedToRole(it.accessLevel, account))
   const preferencesQuery = createQuery()
 
   let preferences: WidgetPreference[] = []
@@ -31,13 +38,12 @@
     preferences = res
   })
 
-  $: widgetId = $sidebarStore.widget
-  $: widget = widgets.find((it) => it._id === widgetId)
-  $: size = $sidebarStore.variant === SidebarVariant.MINI ? 'mini' : widget?.size
+  $: mini = $sidebarStore.variant === SidebarVariant.MINI
+  $: if ((!mini || mini) && $panelstore.panel?.refit !== undefined) $panelstore.panel.refit()
 </script>
 
-<div class="antiPanel-component antiComponent root size-{size}" id="sidebar">
-  {#if $sidebarStore.variant === SidebarVariant.MINI}
+<div id="sidebar" class="antiPanel-application vertical sidebar-container" class:mini={mini || $sidebarStore.float}>
+  {#if mini}
     <SidebarMini {widgets} {preferences} />
   {:else if $sidebarStore.variant === SidebarVariant.EXPANDED}
     <SidebarExpanded {widgets} {preferences} />
@@ -45,26 +51,30 @@
 </div>
 
 <style lang="scss">
-  .root {
-    position: relative;
-    background-color: var(--theme-panel-color);
+  .sidebar-container {
+    overflow: hidden;
+    flex-direction: row;
+    min-width: 25rem;
+    border-radius: 0 var(--medium-BorderRadius) var(--medium-BorderRadius) 0;
+    border-bottom: 1px solid transparent; // adjust the side panel body height to match the main panel
 
-    &.size-mini {
-      width: 3.5rem !important;
-      min-width: 3.5rem !important;
-      max-width: 3.5rem !important;
+    &.mini {
+      justify-content: flex-end;
+      width: calc(3.5rem + 1px) !important;
+      min-width: calc(3.5rem + 1px) !important;
+      max-width: calc(3.5rem + 1px) !important;
     }
-
-    &.size-small {
-      width: 10rem !important;
-      min-width: 10rem !important;
-      max-width: 10rem !important;
+  }
+  @media (max-width: 1024px) {
+    .sidebar-container {
+      width: 100%;
+      border-left-color: transparent;
     }
-
-    &.size-medium {
-      width: 20rem !important;
-      min-width: 20rem !important;
-      max-width: 20rem !important;
+  }
+  @media (max-width: 480px) {
+    :global(.mobile-theme) .sidebar-container {
+      border-right: none;
+      border-bottom-right-radius: 0 !important;
     }
   }
 </style>

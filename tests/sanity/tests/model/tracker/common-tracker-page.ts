@@ -53,7 +53,7 @@ export class CommonTrackerPage extends CalendarPage {
   submitDatePopup = (): Locator => this.page.locator('div.date-popup-container button[type="submit"]')
 
   trackerApplicationButton = (): Locator => this.page.locator('[id="app-tracker\\:string\\:TrackerApplication"]')
-  componentsLink = (): Locator => this.page.locator('text=Components')
+  componentsLink = (): Locator => this.page.locator('.antiPanel-navigator').locator('text=Components')
   createComponentButton = (): Locator => this.page.getByRole('button', { name: 'Component', exact: true })
   componentNameInput = (): Locator => this.page.locator('[placeholder="Component\\ name"]')
   createComponentConfirmButton = (): Locator => this.page.locator('button:has-text("Create component")')
@@ -115,7 +115,6 @@ export class CommonTrackerPage extends CalendarPage {
   }
 
   async navigateToComponents (PlatformURI: string): Promise<void> {
-    await this.trackerApplicationButton().click()
     await this.componentsLink().first().click()
     await expect(this.page).toHaveURL(
       `${PlatformURI}/workbench/sanity-ws/tracker/tracker%3Aproject%3ADefaultProject/components`
@@ -182,7 +181,7 @@ export class CommonTrackerPage extends CalendarPage {
   }
 
   async openLinkFromActivitiesByText (linkText: string): Promise<void> {
-    await this.linkInActivity().filter({ hasText: linkText }).click()
+    await this.linkInActivity().filter({ hasText: linkText }).first().click()
   }
 
   async addCommentWithImage (comment: string, fileName: string): Promise<void> {

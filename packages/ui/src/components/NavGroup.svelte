@@ -50,11 +50,12 @@
   export let visible: boolean = false
   export let highlighted: boolean = false
   export let selected: boolean = false
-  export let type: 'default' | 'nested' | 'nested-selectable' = 'default'
+  export let type: 'default' | 'nested' | 'nested-selectable' | 'selectable-header' = 'default'
   export let noDivider: boolean = false
   export let showMenu: boolean = false
   export let shouldTooltip: boolean = false
   export let forciblyСollapsed: boolean = false
+  export let draggable: boolean = false
   export let actions: Action[] = []
   export let _id: Ref<Doc> | string | undefined = undefined
 
@@ -63,9 +64,18 @@
   $: id = `navGroup-${categoryName}`
   let pressed: boolean = false
 
-  const toggle = (): void => {
-    if ((!selected || empty) && type === 'nested-selectable') dispatch('click')
+  const handleClick = (e: MouseEvent): void => {
+    if (type === 'selectable-header') dispatch('click')
+    else if ((!selected || empty) && type === 'nested-selectable') dispatch('click')
     else if (!empty) {
+      toggle(e)
+    }
+  }
+
+  function toggle (e: MouseEvent): void {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!empty) {
       isOpen = !isOpen
       dispatch('toggle', isOpen)
     }
@@ -87,7 +97,9 @@
 <div
   class="hulyNavGroup-container"
   class:nested={type === 'nested' || type === 'nested-selectable'}
-  class:selectable={type === 'nested-selectable'}
+  class:selectable={type === 'nested-selectable' || type === 'selectable-header'}
+  class:selectableHeader={type === 'selectable-header'}
+  class:noIcon={!icon}
   class:noDivider
 >
   <button
@@ -96,10 +108,15 @@
     class:highlighted
     class:selected
     class:showMenu={showMenu || pressed}
-    on:click={toggle}
+    on:click={handleClick}
+    {draggable}
+    on:dragstart
+    on:dragover
+    on:dragend
+    on:drop
   >
     {#if isFold && !empty}
-      <button class="hulyNavGroup-header__chevron" class:collapsed={!isOpen}>
+      <button class="hulyNavGroup-header__chevron" class:collapsed={!isOpen} on:click={toggle}>
         <IconDown size={'small'} />
       </button>
     {/if}
@@ -136,6 +153,11 @@
           />
         {/if}
         <slot name="tools" />
+      </div>
+    {/if}
+    {#if $$slots.actions}
+      <div class="hulyNavGroup-header__actions">
+        <slot name="actions" />
       </div>
     {/if}
     {#if selected && type === 'nested-selectable'}

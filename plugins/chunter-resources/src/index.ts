@@ -52,6 +52,10 @@ import ThreadView from './components/threads/ThreadView.svelte'
 import ThreadViewPanel from './components/threads/ThreadViewPanel.svelte'
 import ChatWidget from './components/ChatWidget.svelte'
 import ChatWidgetTab from './components/ChatWidgetTab.svelte'
+import WorkbenchTabExtension from './components/WorkbenchTabExtension.svelte'
+import DirectMessageButton from './components/DirectMessageButton.svelte'
+import EmployeePresenter from './components/ChunterEmployeePresenter.svelte'
+import InlineCommentThread from './components/inline-comment/InlineCommentThread.svelte'
 
 import {
   chunterSpaceLinkFragmentProvider,
@@ -59,6 +63,7 @@ import {
   getMessageLink,
   getMessageLocation,
   getThreadLink,
+  locationDataResolver,
   openChannelInSidebar,
   openChannelInSidebarAction,
   openThreadInSidebar,
@@ -79,9 +84,12 @@ import {
   translateMessage,
   showOriginalMessage,
   canTranslateMessage,
-  startConversationAction
+  startConversationAction,
+  summarizeMessages,
+  canSummarizeMessages
 } from './utils'
 
+export { default as ChannelEmbeddedContent } from './components/ChannelEmbeddedContent.svelte'
 export { default as ChatMessageInput } from './components/chat-message/ChatMessageInput.svelte'
 export { default as ChatMessagePopup } from './components/chat-message/ChatMessagePopup.svelte'
 export { default as ChatMessagesPresenter } from './components/chat-message/ChatMessagesPresenter.svelte'
@@ -178,7 +186,11 @@ export default async (): Promise<Resources> => ({
     ChatMessagePreview,
     JoinChannelNotificationPresenter,
     ChatWidget,
-    ChatWidgetTab
+    ChatWidgetTab,
+    WorkbenchTabExtension,
+    DirectMessageButton,
+    EmployeePresenter,
+    InlineCommentThread
   },
   activity: {
     ChannelCreatedMessage,
@@ -203,7 +215,9 @@ export default async (): Promise<Resources> => ({
     CloseChatWidgetTab: closeChatWidgetTab,
     OpenChannelInSidebar: openChannelInSidebar,
     CanTranslateMessage: canTranslateMessage,
-    OpenThreadInSidebar: openThreadInSidebar
+    CanSummarizeMessages: canSummarizeMessages,
+    OpenThreadInSidebar: openThreadInSidebar,
+    LocationDataResolver: locationDataResolver
   },
   actionImpl: {
     ArchiveChannel,
@@ -215,6 +229,7 @@ export default async (): Promise<Resources> => ({
     ReplyToThread: replyToThread,
     OpenInSidebar: openChannelInSidebarAction,
     TranslateMessage: translateMessage,
+    SummarizeMessages: summarizeMessages,
     ShowOriginalMessage: showOriginalMessage,
     StartConversation: startConversationAction
   }

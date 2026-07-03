@@ -16,10 +16,13 @@
 
 import { type Resources } from '@hcengineering/platform'
 import { getEventPopupPositionElement, type PopupAlignment } from '@hcengineering/ui'
+import { canCopyLink } from '@hcengineering/view'
 import { actionImpl } from './actionImpl'
 import ActionsPopup from './components/ActionsPopup.svelte'
 import ArrayEditor from './components/ArrayEditor.svelte'
+import AssociationPresenter from './components/AssociationPresenter.svelte'
 import AttachedDocPanel from './components/AttachedDocPanel.svelte'
+import BaseDocPresenter from './components/BaseDocPresenter.svelte'
 import BooleanEditor from './components/BooleanEditor.svelte'
 import BooleanPresenter from './components/BooleanPresenter.svelte'
 import BooleanTruePresenter from './components/BooleanTruePresenter.svelte'
@@ -31,6 +34,7 @@ import CollaborativeHTMLEditor from './components/CollaborativeHTMLEditor.svelte
 import ColorsPopup from './components/ColorsPopup.svelte'
 import DateEditor from './components/DateEditor.svelte'
 import DatePresenter from './components/DatePresenter.svelte'
+import DateTimePresenter from './components/DateTimePresenter.svelte'
 import DocAttributeBar from './components/DocAttributeBar.svelte'
 import DocNavLink from './components/DocNavLink.svelte'
 import DocReferencePresenter from './components/DocReferencePresenter.svelte'
@@ -57,6 +61,10 @@ import NumberPresenter from './components/NumberPresenter.svelte'
 import ObjectIcon from './components/ObjectIcon.svelte'
 import ObjectMention from './components/ObjectMention.svelte'
 import ObjectPresenter from './components/ObjectPresenter.svelte'
+import PersonArrayEditor from './components/PersonArrayEditor.svelte'
+import PersonIdPresenter from './components/PersonIdPresenter.svelte'
+import IdPresenter from './components/IdPresenter.svelte'
+import ReadOnlyNotification from './components/ReadOnlyNotification.svelte'
 import RolePresenter from './components/RolePresenter.svelte'
 import SearchSelector from './components/SearchSelector.svelte'
 import SpaceHeader from './components/SpaceHeader.svelte'
@@ -68,38 +76,47 @@ import StringPresenter from './components/StringPresenter.svelte'
 import Table from './components/Table.svelte'
 import TableBrowser from './components/TableBrowser.svelte'
 import TimestampPresenter from './components/TimestampPresenter.svelte'
+import TreeView from './components/TreeView.svelte'
 import UpDownNavigator from './components/UpDownNavigator.svelte'
 import ValueSelector from './components/ValueSelector.svelte'
 import ViewletContentView from './components/ViewletContentView.svelte'
-import ViewletSettingButton from './components/ViewletSettingButton.svelte'
 import ViewletPanelHeader from './components/ViewletPanelHeader.svelte'
+import ViewletSettingButton from './components/ViewletSettingButton.svelte'
 import ArrayFilter from './components/filter/ArrayFilter.svelte'
 import DateFilter from './components/filter/DateFilter.svelte'
 import DateFilterPresenter from './components/filter/DateFilterPresenter.svelte'
 import FilterBar from './components/filter/FilterBar.svelte'
 import FilterTypePopup from './components/filter/FilterTypePopup.svelte'
 import ObjectFilter from './components/filter/ObjectFilter.svelte'
+import PersonIdFilter from './components/filter/PersonIdFilter.svelte'
+import PersonIdFilterValuePresenter from './components/filter/PersonIdFilterValuePresenter.svelte'
 import StringFilter from './components/filter/StringFilter.svelte'
 import StringFilterPresenter from './components/filter/StringFilterPresenter.svelte'
 import TimestampFilter from './components/filter/TimestampFilter.svelte'
 import ValueFilter from './components/filter/ValueFilter.svelte'
+import FoldersBrowser from './components/folders/FoldersBrowser.svelte'
 import GithubPresenter from './components/linkPresenters/GithubPresenter.svelte'
 import YoutubePresenter from './components/linkPresenters/YoutubePresenter.svelte'
 import DividerPresenter from './components/list/DividerPresenter.svelte'
 import GrowPresenter from './components/list/GrowPresenter.svelte'
 import ListView from './components/list/ListView.svelte'
+import SortableDocList from './components/list/SortableDocList.svelte'
 import SortableList from './components/list/SortableList.svelte'
 import SortableListItem from './components/list/SortableListItem.svelte'
+import MasterDetailBrowser from './components/masterDetail/MasterDetailBrowser.svelte'
+import MasterDetailView from './components/masterDetail/MasterDetailView.svelte'
 import TreeElement from './components/navigator/TreeElement.svelte'
 import TreeItem from './components/navigator/TreeItem.svelte'
 import TreeNode from './components/navigator/TreeNode.svelte'
+import AddRelationPopup from './components/relation/AddRelationPopup.svelte'
 import StatusPresenter from './components/status/StatusPresenter.svelte'
 import StatusRefPresenter from './components/status/StatusRefPresenter.svelte'
 import AudioViewer from './components/viewer/AudioViewer.svelte'
 import ImageViewer from './components/viewer/ImageViewer.svelte'
-import VideoViewer from './components/viewer/VideoViewer.svelte'
 import PDFViewer from './components/viewer/PDFViewer.svelte'
 import TextViewer from './components/viewer/TextViewer.svelte'
+import VideoViewer from './components/viewer/VideoViewer.svelte'
+import RelationshipTableBrowser from './components/RelationshipTableBrowser.svelte'
 
 import { blobImageMetadata, blobVideoMetadata } from './blob'
 
@@ -126,9 +143,10 @@ import {
   valueNinResult
 } from './filter'
 
-import { IndexedDocumentPreview } from '@hcengineering/presentation'
-import { AggregationMiddleware, AnalyticsMiddleware } from './middleware'
-import { showEmptyGroups } from './viewOptions'
+import ForbiddenNotification from './components/ForbiddenNotification.svelte'
+import { AggregationMiddleware, AnalyticsMiddleware, ReadOnlyAccessMiddleware } from './middleware'
+import { getLink, openDocFromRef } from './utils'
+import { hideArchived, showEmptyGroups } from './viewOptions'
 import {
   canArchiveSpace,
   canDeleteObject,
@@ -138,7 +156,6 @@ import {
   canLeaveSpace,
   isClipboardAvailable
 } from './visibilityTester'
-export { canArchiveSpace, canDeleteObject, canDeleteSpace, canEditSpace } from './visibilityTester'
 export { getActions, getContextActions, invokeAction, showMenu } from './actions'
 export { default as ActionButton } from './components/ActionButton.svelte'
 export { default as ActionHandler } from './components/ActionHandler.svelte'
@@ -155,24 +172,35 @@ export { default as ObjectBoxPopup } from './components/ObjectBoxPopup.svelte'
 export { default as ObjectPresenter } from './components/ObjectPresenter.svelte'
 export { default as ObjectSearchBox } from './components/ObjectSearchBox.svelte'
 export { default as ParentsNavigator } from './components/ParentsNavigator.svelte'
+export { default as PersonIdPresenter } from './components/PersonIdPresenter.svelte'
+export { default as RelationsEditor } from './components/RelationsEditor.svelte'
 export { default as SpaceTypeSelector } from './components/SpaceTypeSelector.svelte'
 export { default as TableBrowser } from './components/TableBrowser.svelte'
 export { default as ValueSelector } from './components/ValueSelector.svelte'
+export { default as ViewOptions } from './components/ViewOptions.svelte'
+export { default as ViewletClassSettings } from './components/ViewletClassSettings.svelte'
 export { default as ViewletSelector } from './components/ViewletSelector.svelte'
 export { default as ViewletsSettingButton } from './components/ViewletsSettingButton.svelte'
 export { default as FilterButton } from './components/filter/FilterButton.svelte'
 export { default as FilterRemovedNotification } from './components/filter/FilterRemovedNotification.svelte'
-export { default as SourcePresenter } from './components/inference/SourcePresenter.svelte'
+export { default as PersonIdFilter } from './components/filter/PersonIdFilter.svelte'
+export { default as PersonIdFilterValuePresenter } from './components/filter/PersonIdFilterValuePresenter.svelte'
+export { default as FoldersBrowser } from './components/folders/FoldersBrowser.svelte'
 export { default as List } from './components/list/List.svelte'
+export { default as ListView } from './components/list/ListView.svelte'
 export { default as NavLink } from './components/navigator/NavLink.svelte'
 export { default as StatusPresenter } from './components/status/StatusPresenter.svelte'
 export { default as StatusRefPresenter } from './components/status/StatusRefPresenter.svelte'
+export { canArchiveSpace, canDeleteObject, canDeleteSpace, canEditSpace } from './visibilityTester'
 
 export * from './filter'
+export * from './icons'
 export * from './middleware'
+export * from './objectIterator'
 export * from './selection'
 export * from './status'
 export * from './utils'
+export * from './permissions'
 export {
   buildModel,
   getActiveViewletId,
@@ -188,7 +216,13 @@ export {
   type LoadingProps
 } from './utils'
 export * from './viewOptions'
+export * from './viewletContextStore'
+export { getViewletSpecialActions } from './viewletUtils'
+export { copyMarkdown } from './actionImpl'
+export { default as SimpleNotification } from './components/SimpleNotification.svelte'
+export type { BuildMarkdownTableMetadata } from '@hcengineering/view'
 export {
+  ArrayEditor,
   BooleanEditor,
   BooleanPresenter,
   ClassAttributeBar,
@@ -211,6 +245,7 @@ export {
   NumberPresenter,
   ObjectIcon,
   ObjectMention,
+  SortableDocList,
   SortableList,
   SortableListItem,
   SpaceHeader,
@@ -224,8 +259,8 @@ export {
   TreeNode,
   UpDownNavigator,
   ViewletContentView,
-  ViewletSettingButton,
-  ViewletPanelHeader
+  ViewletPanelHeader,
+  ViewletSettingButton
 }
 
 function PositionElementAlignment (e?: Event): PopupAlignment | undefined {
@@ -235,6 +270,7 @@ function PositionElementAlignment (e?: Event): PopupAlignment | undefined {
 export default async (): Promise<Resources> => ({
   actionImpl,
   component: {
+    AddRelationPopup,
     ArrayFilter,
     ArrayEditor,
     ClassPresenter,
@@ -246,6 +282,7 @@ export default async (): Promise<Resources> => ({
     TimestampFilter,
     TableBrowser,
     SpacePresenter,
+    IdPresenter,
     StringEditor,
     StringPresenter,
     HyperlinkPresenter,
@@ -258,6 +295,7 @@ export default async (): Promise<Resources> => ({
     TimestampPresenter,
     DateEditor,
     DatePresenter,
+    DateTimePresenter,
     RolePresenter,
     ObjectPresenter,
     EditDoc,
@@ -281,7 +319,6 @@ export default async (): Promise<Resources> => ({
     ListView,
     GrowPresenter,
     DividerPresenter,
-    IndexedDocumentPreview,
     SpaceRefPresenter,
     SpaceTypeSelector,
     EnumArrayEditor,
@@ -289,6 +326,10 @@ export default async (): Promise<Resources> => ({
     FileSizePresenter,
     StatusPresenter,
     StatusRefPresenter,
+    PersonArrayEditor,
+    PersonIdPresenter,
+    PersonIdFilter,
+    PersonIdFilterValuePresenter,
     DateFilterPresenter,
     StringFilterPresenter,
     AttachedDocPanel,
@@ -298,7 +339,16 @@ export default async (): Promise<Resources> => ({
     ImageViewer,
     VideoViewer,
     PDFViewer,
-    TextViewer
+    TextViewer,
+    FoldersBrowser,
+    BaseDocPresenter,
+    MasterDetailView,
+    AssociationPresenter,
+    TreeView,
+    MasterDetailBrowser,
+    ReadOnlyNotification,
+    ForbiddenNotification,
+    RelationshipTableBrowser
   },
   popup: {
     PositionElementAlignment
@@ -315,6 +365,7 @@ export default async (): Promise<Resources> => ({
     FilterContainsResult: containsResult,
     FilterNestedMatchResult: nestedMatchResult,
     FilterNestedDontMatchResult: nestedDontMatchResult,
+    HideArchived: hideArchived,
     ShowEmptyGroups: showEmptyGroups,
     FilterDateOutdated: dateOutdated,
     FilterDateToday: dateToday,
@@ -329,6 +380,8 @@ export default async (): Promise<Resources> => ({
     CreateDocMiddleware: AggregationMiddleware.create,
     // eslint-disable-next-line @typescript-eslint/unbound-method
     AnalyticsMiddleware: AnalyticsMiddleware.create,
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    ReadOnlyAccessMiddleware: ReadOnlyAccessMiddleware.create,
     CanDeleteObject: canDeleteObject,
     CanEditSpace: canEditSpace,
     CanArchiveSpace: canArchiveSpace,
@@ -337,6 +390,9 @@ export default async (): Promise<Resources> => ({
     CanLeaveSpace: canLeaveSpace,
     IsClipboardAvailable: isClipboardAvailable,
     BlobImageMetadata: blobImageMetadata,
-    BlobVideoMetadata: blobVideoMetadata
+    BlobVideoMetadata: blobVideoMetadata,
+    OpenDocument: openDocFromRef,
+    CanCopyLink: canCopyLink,
+    GetLink: getLink
   }
 })

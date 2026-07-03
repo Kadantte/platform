@@ -15,24 +15,19 @@
 //
 -->
 <script lang="ts">
-  import { type Space, type Class, type CollaborativeDoc, type Doc, type Ref } from '@hcengineering/core'
+  import { type Doc } from '@hcengineering/core'
   import { IntlString } from '@hcengineering/platform'
-  import { AnySvelteComponent, IconSize, registerFocus } from '@hcengineering/ui'
-  import { AnyExtension, FocusPosition } from '@tiptap/core'
+  import { KeyedAttribute } from '@hcengineering/presentation'
   import textEditor, { CollaborationUser, TextEditorCommandHandler } from '@hcengineering/text-editor'
+  import { AnySvelteComponent, IconSize, registerFocus } from '@hcengineering/ui'
+  import { FocusPosition } from '@tiptap/core'
 
+  import { EditorKitOptions } from '../kits/editor-kit'
   import CollaborativeTextEditor from './CollaborativeTextEditor.svelte'
   import { FileAttachFunction } from './extension/types'
-  import { EditorKitOptions } from '../kits/editor-kit'
 
-  export let collaborativeDoc: CollaborativeDoc
-  export let initialCollaborativeDoc: CollaborativeDoc | undefined = undefined
-  export let field: string
-
-  export let objectClass: Ref<Class<Doc>> | undefined = undefined
-  export let objectId: Ref<Doc> | undefined = undefined
-  export let objectSpace: Ref<Space> | undefined = undefined
-  export let objectAttr: string | undefined = undefined
+  export let object: Doc
+  export let attribute: KeyedAttribute
 
   export let user: CollaborationUser
   export let userComponent: AnySvelteComponent | undefined = undefined
@@ -44,14 +39,12 @@
 
   export let overflow: 'auto' | 'none' = 'auto'
   export let editorAttributes: Record<string, string> = {}
-  export let onExtensions: () => AnyExtension[] = () => []
+  export let spellcheck: boolean = true
   export let boundary: HTMLElement | undefined = undefined
 
   export let attachFile: FileAttachFunction | undefined = undefined
-  export let canShowPopups = true
   export let kitOptions: Partial<EditorKitOptions> = {}
-
-  let element: HTMLElement
+  export let requestSideSpace: ((width: number) => void) | undefined = undefined
 
   let collaborativeEditor: CollaborativeTextEditor
 
@@ -71,7 +64,7 @@
   const { idx, focusManager } = registerFocus(focusIndex, {
     focus: () => {
       focus()
-      return element !== null
+      return true
     },
     isFocus: () => isFocused(),
     canBlur: () => false
@@ -90,13 +83,8 @@
 <div class="root">
   <CollaborativeTextEditor
     bind:this={collaborativeEditor}
-    {collaborativeDoc}
-    {initialCollaborativeDoc}
-    {field}
-    {objectClass}
-    {objectId}
-    {objectSpace}
-    {objectAttr}
+    {object}
+    {attribute}
     {user}
     {userComponent}
     {readonly}
@@ -105,14 +93,14 @@
     {overflow}
     {boundary}
     {attachFile}
-    extensions={[...onExtensions()]}
-    {canShowPopups}
     {editorAttributes}
+    {spellcheck}
     {kitOptions}
+    {requestSideSpace}
     on:editor
     on:update
-    on:open-document
     on:blur
+    on:loaded
     on:focus={handleFocus}
   />
 </div>

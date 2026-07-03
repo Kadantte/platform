@@ -17,9 +17,10 @@
   import { Photo } from '@hcengineering/attachment'
   import { Class, Doc, Ref, Space, type WithLookup } from '@hcengineering/core'
   import { setPlatformStatus, unknownError } from '@hcengineering/platform'
-  import { FilePreviewPopup, createQuery, getBlobRef, getClient, uploadFile } from '@hcengineering/presentation'
-  import { Button, IconAdd, Label, Spinner, showPopup } from '@hcengineering/ui'
+  import { createQuery, getBlobRef, getClient, uploadFile } from '@hcengineering/presentation'
+  import { Button, IconAdd, Label, Spinner } from '@hcengineering/ui'
   import attachment from '../plugin'
+  import { showAttachmentPreviewPopup } from '../utils'
   import UploadDuo from './icons/UploadDuo.svelte'
 
   export let objectId: Ref<Doc>
@@ -46,13 +47,14 @@
     if (!file.type.startsWith('image/')) return
     loading++
     try {
-      const uuid = await uploadFile(file)
+      const { uuid, metadata } = await uploadFile(file)
       await client.addCollection(attachment.class.Photo, space, objectId, _class, 'attachments', {
         name: file.name,
         file: uuid,
         type: file.type,
         size: file.size,
-        lastModified: file.lastModified
+        lastModified: file.lastModified,
+        metadata
       })
     } catch (err: any) {
       await setPlatformStatus(unknownError(err))
@@ -90,11 +92,7 @@
     const el: HTMLElement = ev.currentTarget as HTMLElement
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
     if (item !== undefined) {
-      showPopup(
-        FilePreviewPopup,
-        { file: item.file, name: item.name, contentType: item.type, metadata: item.metadata },
-        item.type.startsWith('image/') ? 'centered' : 'float'
-      )
+      showAttachmentPreviewPopup(item)
     } else {
       inputFile.click()
     }

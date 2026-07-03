@@ -14,13 +14,14 @@
 -->
 <script lang="ts">
   import { type Ref, type WithLookup } from '@hcengineering/core'
+  import { checkMyPermission, permissionsStore } from '@hcengineering/contact-resources'
   import { createFileVersion, type File as DriveFile, type FileVersion } from '@hcengineering/drive'
   import { Panel } from '@hcengineering/panel'
   import { createQuery, getClient, getFileUrl } from '@hcengineering/presentation'
   import { Button, IconMoreH } from '@hcengineering/ui'
-  import { showFilesUploadPopup } from '@hcengineering/uploader'
+  import { FileUploadCallbackParams, showFilesUploadPopup } from '@hcengineering/uploader'
   import view from '@hcengineering/view'
-  import { showMenu } from '@hcengineering/view-resources'
+  import { canChangeDoc, showMenu } from '@hcengineering/view-resources'
 
   import EditFile from './EditFile.svelte'
   import FileAside from './FileAside.svelte'
@@ -58,6 +59,7 @@
       }
     }
   )
+  $: canUploadVersion = object !== undefined && canChangeDoc(drive.class.File, object.space, $permissionsStore)
 
   function handleDownloadFile (): void {
     if (object != null && download != null) {
@@ -66,28 +68,34 @@
   }
 
   function handleUploadFile (): void {
-    if (object != null) {
+    if (object != null && canUploadVersion) {
+      const target = { objectId: object._id, objectClass: object._class }
       void showFilesUploadPopup(
-        { objectId: object._id, objectClass: object._class },
         {
-          maxNumberOfFiles: 1,
-          hideProgress: true
+          onFileUploaded,
+          showProgress: {
+            target: { objectId: object._id, objectClass: object._class }
+          },
+          target
         },
-        {},
-        async (uuid, name, file, path, metadata) => {
-          const data = {
-            file: uuid,
-            name,
-            size: file.size,
-            type: file.type,
-            lastModified: file instanceof File ? file.lastModified : Date.now(),
-            metadata
-          }
-
-          await createFileVersion(client, _id, data)
+        {
+          itemsCount: 'single'
         }
       )
     }
+  }
+
+  async function onFileUploaded ({ uuid, name, file, metadata }: FileUploadCallbackParams): Promise<void> {
+    const data = {
+      file: uuid,
+      title: name,
+      size: file.size,
+      type: file.type,
+      lastModified: file instanceof File ? file.lastModified : Date.now(),
+      metadata
+    }
+
+    await createFileVersion(client, _id, data)
   }
 </script>
 
@@ -108,7 +116,7 @@
     </svelte:fragment>
 
     <svelte:fragment slot="utils">
-      <a class="no-line" href={getFileUrl(version.file, object.name)} download={object.name} bind:this={download}>
+      <a class="no-line" href={getFileUrl(version.file, object.title)} download={object.title} bind:this={download}>
         <Button
           icon={IconDownload}
           iconProps={{ size: 'medium' }}
@@ -117,13 +125,15 @@
           on:click={handleDownloadFile}
         />
       </a>
-      <Button
-        icon={IconUpload}
-        iconProps={{ size: 'medium' }}
-        kind={'icon'}
-        showTooltip={{ label: drive.string.Upload }}
-        on:click={handleUploadFile}
-      />
+      {#if canUploadVersion}
+        <Button
+          icon={IconUpload}
+          iconProps={{ size: 'medium' }}
+          kind={'icon'}
+          showTooltip={{ label: drive.string.Upload }}
+          on:click={handleUploadFile}
+        />
+      {/if}
       <Button
         icon={IconMoreH}
         iconProps={{ size: 'medium' }}

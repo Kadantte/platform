@@ -8,9 +8,10 @@ import { NewIssue } from './types'
 const retryOptions = { intervals: [1000, 1500, 2500], timeout: 60000 }
 export class IssuesPage extends CommonTrackerPage {
   modelSelectorAll = (): Locator => this.page.locator('label[data-id="tab-all"]')
-  issues = (): Locator => this.page.locator('text="Issues"')
+  issues = (): Locator => this.page.locator('.antiPanel-navigator').locator('text="Issues"')
   subIssues = (): Locator => this.page.locator('button:has-text("Add sub-issue")')
-  newIssue = (): Locator => this.page.locator('#new-issue')
+  newIssue = (): Locator => this.page.locator('#tracker-string-NewIssue')
+  draftIssue = (): Locator => this.page.locator('#tracker-string-ResumeDraft')
   modelSelectorActive = (): Locator => this.page.locator('label[data-id="tab-active"]')
   modelSelectorBacklog = (): Locator => this.page.locator('label[data-id="tab-backlog"]')
   buttonCreateNewIssue = (): Locator => this.page.locator('button > div', { hasText: 'New issue' })
@@ -50,7 +51,7 @@ export class IssuesPage extends CommonTrackerPage {
 
   textPopupCreateNewIssueFile = (): Locator => this.page.locator('div[class*="attachments"] > div[class*="attachment"]')
   buttonCreateIssue = (): Locator => this.page.locator('button > span', { hasText: 'Create issue' })
-  inputSearchIcon = (): Locator => this.page.locator('.searchInput-icon')
+  inputSearchIcon = (): Locator => this.page.locator('.searchInput-wrapper')
   inputSearch = (): Locator => this.page.locator('input[placeholder="Search"]')
   linkSidebarAll = (): Locator => this.page.locator('a[href$="all-issues"]')
   linkSidebarMyIssue = (): Locator => this.page.locator('a[href$="my-issues"]')
@@ -109,7 +110,7 @@ export class IssuesPage extends CommonTrackerPage {
   doneHeaderKanban = (): Locator => this.page.locator('.header :text-is("Done")').first()
   canceledHeaderKanban = (): Locator => this.page.locator('.header :text-is("Canceled")').first()
 
-  myIssuesButton = (): Locator => this.page.locator('text="My issues"')
+  myIssuesButton = (): Locator => this.page.locator('.antiPanel-navigator').locator('text="My issues"')
   assignedTab = (): Locator => this.page.locator('[data-id="tab-assigned"]')
   createdTab = (): Locator => this.page.locator('[data-id="tab-created"]')
   subscribedTab = (): Locator => this.page.locator('[data-id="tab-subscribed"]')
@@ -121,6 +122,11 @@ export class IssuesPage extends CommonTrackerPage {
       .locator('button')
 
   selectPopup = (): Locator => this.page.locator('.selectPopup >> button:has-text("Appleseed John")')
+
+  closePopup = async (): Promise<void> => {
+    await this.page.locator('.selectPopup').press('Escape')
+  }
+
   notificationTimeoutSetting = (timeout: string): Promise<void> => {
     return this.page.evaluate((timeout) => {
       localStorage.setItem('#platform.notification.timeout', timeout)
@@ -140,7 +146,7 @@ export class IssuesPage extends CommonTrackerPage {
   timeSpentReports = (): Locator => this.page.getByText('Time spent reports', { exact: true })
   addTimeReport = (): Locator => this.page.locator('text="Add time report"')
   issueName = (name: string): Locator => this.page.locator(`text="${name}"`)
-  issuesButton = (): Locator => this.page.locator('text="Issues"')
+  issuesButton = (): Locator => this.page.locator('.antiPanel-navigator').locator('text="Issues"')
   viewButton = (): Locator => this.page.locator('button[data-id="btn-viewOptions"]')
   orderingButton = (): Locator => this.page.locator('.ordering button')
   modifiedDateMenuItem = (): Locator => this.page.locator('button.menu-item', { hasText: 'Modified date' })
@@ -151,7 +157,7 @@ export class IssuesPage extends CommonTrackerPage {
 
   estimationSpan = (): Locator => this.page.locator('.estimation-container >> span').first()
   okButton = (): Locator => this.page.getByRole('button', { name: 'Ok', exact: true })
-  newIssueButton = (): Locator => this.page.locator('#new-issue')
+  newIssueButton = (): Locator => this.page.locator('#tracker-string-NewIssue')
   issueNameInput = (): Locator => this.page.locator('#issue-name >> input')
   issueDescriptionInput = (): Locator => this.page.locator('#issue-description >> [contenteditable]')
   statusEditor = (): Locator => this.page.locator('#status-editor')
@@ -162,7 +168,9 @@ export class IssuesPage extends CommonTrackerPage {
   appleseedJohnButton = (): Locator => this.page.locator('button.menu-item:has-text("Appleseed John")')
   estimationEditor = (): Locator => this.page.locator('#estimation-editor')
   dueDateButton = (): Locator => this.page.locator('button:has-text("Due date")')
-  specificDay = (day: string): Locator => this.page.locator(`.date-popup-container div.day >> text=${day}`).first()
+  specificDay = (day: string): Locator =>
+    this.page.locator(`.date-popup-container div.day:not(.wrongMonth) >> text=${day}`).first()
+
   inputTextPlaceholder = (): Locator => this.page.getByPlaceholder('Type text...')
   confirmInput = (): Locator => this.page.locator('.selectPopup button')
 
@@ -223,6 +231,10 @@ export class IssuesPage extends CommonTrackerPage {
 
   async clickOnNewIssue (): Promise<void> {
     await this.newIssue().click()
+  }
+
+  async clickOnDraftIssue (): Promise<void> {
+    await this.draftIssue().click()
   }
 
   async navigateToMyIssues (): Promise<void> {

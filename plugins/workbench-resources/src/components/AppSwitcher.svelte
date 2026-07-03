@@ -13,12 +13,13 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import core, { getCurrentAccount, type Ref } from '@hcengineering/core'
+  import core, { AccountRole, getCurrentAccount, type Ref } from '@hcengineering/core'
   import type { Application } from '@hcengineering/workbench'
   import { createQuery } from '@hcengineering/presentation'
   import workbench from '@hcengineering/workbench'
-  import { hideApplication, isAppAllowed, showApplication } from '../utils'
+  import { hideApplication, isAllowedToRole, showApplication } from '../utils'
   import { Loading, IconCheck, Label, Icon } from '@hcengineering/ui'
+  import { getMetadata } from '@hcengineering/platform'
   // import Drag from './icons/Drag.svelte'
 
   export let apps: Application[] = []
@@ -69,8 +70,22 @@
   const me = getCurrentAccount()
 
   const filteredApps = apps.filter(
-    (it) => !hiddenAppsIds.includes(it._id) && isAppAllowed(it, me) && it.position !== 'top'
+    (it) =>
+      !hiddenAppsIds.includes(it._id) &&
+      isAllowedToRole(it.accessLevel, me) &&
+      it.position !== 'top' &&
+      !isExcludedApp(it.alias)
   )
+
+  function isExcludedApp (alias: string): boolean {
+    const me = getCurrentAccount()
+
+    if (me.role === AccountRole.ReadOnlyGuest || me.role === AccountRole.Guest) {
+      return (getMetadata(workbench.metadata.ExcludedApplicationsForAnonymous) ?? []).includes(alias)
+    } else {
+      return false
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -84,6 +99,7 @@
             bind:this={btns[i]}
             class="ap-menuItem withIcon flex-row-center flex-grow"
             class:hover={btns[i] === activeElement}
+            data-id={`app-switcher-row-${app.alias}`}
             on:click={() => {
               if (hiddenAppsIds.includes(app._id)) showApplication(app)
               else hideApplication(app)

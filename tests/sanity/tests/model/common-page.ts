@@ -8,17 +8,19 @@ export class CommonPage {
     this.page = page
   }
 
+  appHeader = (): Locator => this.page.locator('.hulyNavPanel-header')
   selectPopupInput = (): Locator => this.page.locator('div.selectPopup input')
   selectPopupInputSearch = (): Locator => this.page.locator('div.popup input.search')
   selectPopupListItem = (name: string): Locator => this.page.locator('div.selectPopup div.list-item', { hasText: name })
   selectPopupListItemFirst = (): Locator => this.page.locator('div.selectPopup div.list-item')
+  selectPopupApMenuItem = (hasText: string): Locator => this.page.locator('div.popup button.ap-menuItem', { hasText })
   selectPopupAddButton = (): Locator => this.page.locator('div.selectPopup button[data-id="btnAdd"]')
   selectPopupButton = (): Locator => this.page.locator('div.selectPopup button')
   selectPopupExpandButton = (): Locator => this.page.locator('div.selectPopup button[data-id="btnExpand"]')
   popupSpanLabel = (point: string): Locator =>
     this.page.locator(`div[class$="opup"] span[class*="label"]:has-text("${point}")`)
 
-  readonly inputSearchIcon = (): Locator => this.page.locator('.searchInput-icon')
+  readonly inputSearchIcon = (): Locator => this.page.locator('.searchInput-wrapper')
 
   selectPopupSpanLines = (item: string): Locator =>
     this.page.locator('div.selectPopup span[class^="lines"]', { hasText: item })
@@ -39,8 +41,15 @@ export class CommonPage {
   popupSubmitButton = (): Locator => this.page.locator('div.popup button[type="submit"]')
   historyBoxButtonFirst = (): Locator => this.page.locator('div.history-box button:first-child')
   inboxNotyButton = (): Locator => this.page.locator('button[id$="Inbox"] > div.noty')
-  mentionPopupListItem = (mentionName: string): Locator =>
-    this.page.locator('form.mentionPoup div.list-item', { hasText: mentionName })
+  mentionPopupListItem = (mentionName: string, categoryName?: string): Locator => {
+    if (categoryName !== undefined && categoryName !== '') {
+      return this.page.locator(`form.mentionPoup div.list-item:below(:text("${categoryName}"))`, {
+        hasText: mentionName
+      })
+    } else {
+      return this.page.locator('form.mentionPoup div.list-item', { hasText: mentionName })
+    }
+  }
 
   hulyPopupRowButton = (name: string): Locator =>
     this.page.locator('div.hulyPopup-container button.hulyPopup-row', { hasText: name })
@@ -89,6 +98,13 @@ export class CommonPage {
     this.page.locator('div.date-popup-container div.input:last-child span.digit:nth-child(5)')
 
   submitButton = (): Locator => this.page.locator('div.date-popup-container button[type="submit"]')
+  buttonBreadcrumb = (hasText?: string): Locator => this.page.locator('button.hulyBreadcrumb-container', { hasText })
+  appsShowMenuButton = (): Locator => this.page.locator('[id="app-workbench\\:string\\:ShowMenu"]')
+
+  async openNavigator (): Promise<void> {
+    const needOpenNavigator = await this.appsShowMenuButton().isVisible()
+    if (needOpenNavigator) await this.appsShowMenuButton().click()
+  }
 
   async selectMenuItem (page: Page, name: string, fullWordFilter: boolean = false): Promise<void> {
     if (name !== 'first') {
@@ -133,6 +149,7 @@ export class CommonPage {
 
   async pressYesDeletePopup (page: Page): Promise<void> {
     await this.viewStringDeleteObjectButtonPrimary().click()
+    await expect(this.viewStringDeleteObjectButtonPrimary()).not.toBeVisible({ timeout: 1000 })
   }
 
   async addNewTagPopup (page: Page, title: string, description: string): Promise<void> {
@@ -186,12 +203,16 @@ export class CommonPage {
     await expect(this.infoSpan()).not.toBeAttached()
   }
 
-  async selectMention (mentionName: string): Promise<void> {
-    await this.mentionPopupListItem(mentionName).click()
+  async selectMention (mentionName: string, categoryName?: string): Promise<void> {
+    await this.mentionPopupListItem(mentionName, categoryName).first().click()
   }
 
   async selectListItem (name: string): Promise<void> {
     await this.selectPopupListItem(name).click({ delay: 100 })
+  }
+
+  async selectPopupAp (name: string): Promise<void> {
+    await this.selectPopupApMenuItem(name).click({ delay: 100 })
   }
 
   async selectPopupItem (name: string): Promise<void> {

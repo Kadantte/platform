@@ -15,13 +15,13 @@
 
 import { Class, Ref } from '@hcengineering/core'
 import type { Asset, IntlString, Plugin, Resource } from '@hcengineering/platform'
-import { plugin } from '@hcengineering/platform'
+import { plugin, Metadata } from '@hcengineering/platform'
 import { SupportClientFactory, SupportConversation, SupportSystem } from './types'
 
 export * from './types'
 export { deleteSupportConversation, updateSupportConversation } from './utils'
 
-export const supportLink = 'https://join.slack.com/t/hulycommunity/shared_invite/zt-2cyrevz8g-AGqEDZNsujbn4wHOWd7myg'
+export const supportLink = 'https://link.huly.io/slack'
 export const reportBugLink = 'https://github.com/hcengineering/platform/issues/new'
 export const docsLink = 'http://docs.huly.io/'
 export const privacyPolicyLink = 'https://v1.huly.io/legal/privacy/'
@@ -41,6 +41,12 @@ export default plugin(supportId, {
   },
   icon: {
     Support: '' as Asset
+  },
+  metadata: {
+    SupportLink: '' as Metadata<string>,
+    ReportBugLink: '' as Metadata<string>,
+    DocsLink: '' as Metadata<string>,
+    PrivacyPolicyLink: '' as Metadata<string>
   },
   string: {
     ContactUs: '' as IntlString,

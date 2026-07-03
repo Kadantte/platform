@@ -22,9 +22,10 @@ import {
   TypeMarkup,
   TypeRef,
   TypeString,
-  UX
+  UX,
+  Hidden
 } from '@hcengineering/model'
-import core, { TAttachedDoc, TClass, TDoc, TSpace } from '@hcengineering/model-core'
+import core, { TClass, TDoc, TSpace } from '@hcengineering/model-core'
 import type {
   Channel,
   ChatMessage,
@@ -32,27 +33,24 @@ import type {
   ChatSyncInfo,
   ChunterSpace,
   DirectMessage,
-  InlineButton,
-  InlineButtonAction,
   ObjectChatPanel,
-  ThreadMessage,
-  TypingInfo
+  ThreadMessage
 } from '@hcengineering/chunter'
 import {
   type Class,
   type Doc,
   type Domain,
   DOMAIN_MODEL,
-  DOMAIN_TRANSIENT,
   IndexKind,
   type Ref,
+  type Space,
   type Timestamp
 } from '@hcengineering/core'
 import contact, { type ChannelProvider as SocialChannelProvider, type Person } from '@hcengineering/contact'
 import activity, { type ActivityMessage } from '@hcengineering/activity'
 import { TActivityMessage } from '@hcengineering/model-activity'
 import attachment from '@hcengineering/model-attachment'
-import type { IntlString, Resource } from '@hcengineering/platform'
+import type { IntlString } from '@hcengineering/platform'
 import type { DocNotifyContext } from '@hcengineering/notification'
 
 import chunter from './plugin'
@@ -63,6 +61,15 @@ export const DOMAIN_CHUNTER = 'chunter' as Domain
 export class TChunterSpace extends TSpace implements ChunterSpace {
   @Prop(PropCollection(activity.class.ActivityMessage), chunter.string.Messages)
     messages?: number
+
+  @Hidden()
+    __migratedToCard?: {
+    card: Ref<Doc>
+    space: Ref<Space>
+  }
+
+  @Hidden()
+    __migratedUntil?: Timestamp
 }
 
 @Model(chunter.class.Channel, chunter.class.ChunterSpace)
@@ -91,9 +98,6 @@ export class TChatMessage extends TActivityMessage implements ChatMessage {
 
   @Prop(TypeRef(contact.class.ChannelProvider), core.string.Object)
     provider?: Ref<SocialChannelProvider>
-
-  @Prop(PropCollection(chunter.class.InlineButton), core.string.Object)
-    inlineButtons?: number
 }
 
 @Model(chunter.class.ThreadMessage, chunter.class.ChatMessage)
@@ -132,6 +136,7 @@ export class TChatMessageViewlet extends TDoc implements ChatMessageViewlet {
 
 @Mixin(chunter.mixin.ObjectChatPanel, core.class.Class)
 export class TObjectChatPanel extends TClass implements ObjectChatPanel {
+  openByDefault?: boolean
   ignoreKeys!: string[]
 }
 
@@ -140,20 +145,4 @@ export class TChatSyncInfo extends TDoc implements ChatSyncInfo {
   user!: Ref<Person>
   hidden!: Ref<DocNotifyContext>[]
   timestamp!: Timestamp
-}
-
-@Model(chunter.class.InlineButton, core.class.Doc, DOMAIN_CHUNTER)
-export class TInlineButton extends TAttachedDoc implements InlineButton {
-  name!: string
-  titleIntl?: IntlString
-  title?: string
-  action!: Resource<InlineButtonAction>
-}
-
-@Model(chunter.class.TypingInfo, core.class.Doc, DOMAIN_TRANSIENT)
-export class TTypingInfo extends TDoc implements TypingInfo {
-  objectId!: Ref<Doc>
-  objectClass!: Ref<Class<Doc>>
-  person!: Ref<Person>
-  lastTyping!: Timestamp
 }

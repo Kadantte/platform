@@ -17,15 +17,22 @@
 
   import NodeMarks from './NodeMarks.svelte'
   import NodeContent from './NodeContent.svelte'
+  import { ParsedTextWithEmojis } from '@hcengineering/emoji'
 
   export let node: MarkupNode
+  export let singleTextNode = false
   export let preview = false
+  export let parseEmojisFunction: ((text: string) => ParsedTextWithEmojis) | undefined = undefined
 </script>
 
 {#if node}
   {@const marks = node.marks ?? []}
 
-  <NodeMarks {marks}>
-    <NodeContent {node} {preview} />
-  </NodeMarks>
+  {#if marks.length > 0}
+    <NodeMarks {marks}>
+      <NodeContent {parseEmojisFunction} {node} {preview} />
+    </NodeMarks>
+  {:else}
+    <NodeContent {parseEmojisFunction} {node} {singleTextNode} {preview} />
+  {/if}
 {/if}

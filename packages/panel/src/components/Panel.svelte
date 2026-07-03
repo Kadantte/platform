@@ -18,10 +18,11 @@
   import { Writable, writable } from 'svelte/store'
 
   import activity from '@hcengineering/activity'
-  import { Doc } from '@hcengineering/core'
+  import { AccountRole, Doc, getCurrentAccount } from '@hcengineering/core'
   import {
     Component,
     deviceOptionsStore as deviceInfo,
+    printModeStore,
     Panel,
     Scroller,
     resizeObserver,
@@ -29,6 +30,7 @@
   } from '@hcengineering/ui'
   import type { ButtonItem } from '@hcengineering/ui'
   import { getResource } from '@hcengineering/platform'
+  import presence from '@hcengineering/presence'
 
   export let title: string | undefined = undefined
   export let withoutActivity: boolean = false
@@ -41,11 +43,13 @@
   export let isSub: boolean = true
   export let isAside: boolean = true
   export let isUtils: boolean = true
+  export let isPresence: boolean = true
   export let isCustomAttr: boolean = true
   export let floatAside: boolean = false
   export let allowClose: boolean = true
   export let embedded: boolean = false
   export let useMaxWidth: boolean | undefined = undefined
+  export let sideContentSpace: number = 0
   export let isFullSize: boolean = false
   export let contentClasses: string | undefined = undefined
   export let content: HTMLElement | undefined | null = undefined
@@ -60,6 +64,11 @@
   export let hideActions: boolean = false
   export let hideExtra: boolean = false
   export let overflowExtra: boolean = false
+
+  const account = getCurrentAccount()
+  $: isGuest = account.role === AccountRole.DocGuest
+
+  $: showActivity = !withoutActivity && !isGuest
 
   export function getAside (): string | boolean {
     return panel.getAside()
@@ -106,7 +115,7 @@
   afterUpdate(async () => {
     const fn = await getResource(activity.function.ShouldScrollToActivity)
 
-    if (!withoutActivity && fn?.()) {
+    if (showActivity && fn?.()) {
       return
     }
 
@@ -114,6 +123,8 @@
       startScrollHeightCheck()
     }
   })
+
+  $: max = useMaxWidth === true || $printModeStore
 </script>
 
 <Panel
@@ -145,6 +156,12 @@
     dispatch('select', result.detail)
   }}
 >
+  <Component is={presence.component.Presence} props={{ object }} />
+
+  <svelte:fragment slot="beforeTitle">
+    <slot name="beforeTitle" />
+  </svelte:fragment>
+
   <svelte:fragment slot="title">
     {#if !withoutTitle}
       {#if $$slots.title}
@@ -155,9 +172,20 @@
     {/if}
   </svelte:fragment>
 
+  <svelte:fragment slot="presence">
+    {#if isPresence}
+      <Component is={presence.component.PresenceAvatars} props={{ object, size: 'x-small', limit: 5 }} />
+    {/if}
+  </svelte:fragment>
+
   <svelte:fragment slot="pre-utils">
     <slot name="pre-utils" />
   </svelte:fragment>
+
+  <svelte:fragment slot="panel-footer">
+    <slot name="panel-footer" />
+  </svelte:fragment>
+
   <svelte:fragment slot="utils">
     {#if isUtils && $$slots.utils}
       <slot name="utils" />
@@ -225,9 +253,9 @@
   </svelte:fragment>
 
   {#if $deviceInfo.isMobile}
-    <div bind:this={content} class="popupPanel-body__mobile-content clear-mins" class:max={useMaxWidth}>
+    <div bind:this={content} class="popupPanel-body__mobile-content clear-mins" class:max>
       <slot />
-      {#if !withoutActivity}
+      {#if showActivity}
         {#key object._id}
           <Component
             is={activity.component.Activity}
@@ -240,10 +268,12 @@
     <div
       bind:this={content}
       class={contentClasses ?? 'popupPanel-body__main-content py-8 clear-mins'}
-      class:max={useMaxWidth}
+      class:max
+      class:side-content-space={sideContentSpace > 0}
+      style:--side-content-space={`${sideContentSpace}px`}
     >
       <slot />
-      {#if !withoutActivity}
+      {#if showActivity}
         {#key object._id}
           <Component
             is={activity.component.Activity}
@@ -269,13 +299,15 @@
     >
       <div
         class={contentClasses ?? 'popupPanel-body__main-content py-8'}
-        class:max={useMaxWidth}
+        class:max
+        class:side-content-space={sideContentSpace > 0}
+        style:--side-content-space={`${sideContentSpace}px`}
         use:resizeObserver={(element) => {
           activityRef?.onContainerResized?.(element)
         }}
       >
         <slot />
-        {#if !withoutActivity}
+        {#if showActivity}
           {#key object._id}
             <Component
               is={activity.component.Activity}

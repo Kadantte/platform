@@ -1,8 +1,9 @@
 import notification from '@hcengineering/notification'
-import core from '@hcengineering/core'
+import core, { type ClassCollaborators } from '@hcengineering/core'
 import { type Builder } from '@hcengineering/model'
 
 import activity from './plugin'
+import { type ActivityMessage, type DocUpdateMessage } from '@hcengineering/activity'
 
 export function buildNotifications (builder: Builder): void {
   builder.createDoc(
@@ -41,12 +42,16 @@ export function buildNotifications (builder: Builder): void {
     enabledTypes: [activity.ids.AddReactionNotification]
   })
 
-  builder.mixin(activity.class.ActivityMessage, core.class.Class, notification.mixin.ClassCollaborators, {
-    fields: ['createdBy', 'repliedPersons']
+  builder.createDoc<ClassCollaborators<ActivityMessage>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: activity.class.ActivityMessage,
+    fields: ['createdBy', 'repliedPersons'],
+    provideAttachedSecurity: true
   })
 
-  builder.mixin(activity.class.DocUpdateMessage, core.class.Class, notification.mixin.ClassCollaborators, {
-    fields: ['createdBy', 'repliedPersons']
+  builder.createDoc<ClassCollaborators<DocUpdateMessage>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: activity.class.DocUpdateMessage,
+    fields: ['createdBy', 'repliedPersons'],
+    provideAttachedSecurity: true
   })
 
   builder.mixin(activity.class.ActivityMessage, core.class.Class, notification.mixin.NotificationContextPresenter, {

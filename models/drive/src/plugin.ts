@@ -13,13 +13,13 @@
 // limitations under the License.
 //
 
-import type { Doc, Ref } from '@hcengineering/core'
+import type { Client, Doc, Ref } from '@hcengineering/core'
 import {} from '@hcengineering/core'
 import { driveId } from '@hcengineering/drive'
 import drive from '@hcengineering/drive-resources/src/plugin'
 import { type ObjectSearchCategory, type ObjectSearchFactory } from '@hcengineering/model-presentation'
 import { type IntlString, type Resource, mergeIds } from '@hcengineering/platform'
-import { type AnyComponent, type Location } from '@hcengineering/ui'
+import { type AnyComponent, type Location } from '@hcengineering/ui/src/types'
 import {
   type Action,
   type ActionCategory,
@@ -53,8 +53,17 @@ export default mergeIds(driveId, drive, {
     DriveLinkProvider: '' as Resource<(doc: Doc, props: Record<string, any>) => Promise<Location>>,
     FolderLinkProvider: '' as Resource<(doc: Doc, props: Record<string, any>) => Promise<Location>>,
     FileLinkProvider: '' as Resource<(doc: Doc, props: Record<string, any>) => Promise<Location>>,
+    CanCreateFolder: '' as Resource<ViewActionAvailabilityFunction>,
+    CanUpdateFile: '' as Resource<ViewActionAvailabilityFunction>,
+    CanUpdateFolder: '' as Resource<ViewActionAvailabilityFunction>,
+    CanDeleteFile: '' as Resource<ViewActionAvailabilityFunction>,
+    CanDeleteFolder: '' as Resource<ViewActionAvailabilityFunction>,
     CanRenameFile: '' as Resource<ViewActionAvailabilityFunction>,
-    CanRenameFolder: '' as Resource<ViewActionAvailabilityFunction>
+    CanRenameFolder: '' as Resource<ViewActionAvailabilityFunction>,
+    CanUpdateFileVersion: '' as Resource<ViewActionAvailabilityFunction>,
+    CanDeleteFileVersion: '' as Resource<ViewActionAvailabilityFunction>,
+    FileTitleProvider: '' as Resource<(client: Client, ref: Ref<Doc>, doc?: Doc) => Promise<string>>,
+    FolderTitleProvider: '' as Resource<(client: Client, ref: Ref<Doc>, doc?: Doc) => Promise<string>>
   },
   completion: {
     FileQuery: '' as Resource<ObjectSearchFactory>,
@@ -76,8 +85,11 @@ export default mergeIds(driveId, drive, {
     CreateRootFolder: '' as Ref<Action>,
     EditDrive: '' as Ref<Action>,
     DownloadFile: '' as Ref<Action>,
+    DeleteFile: '' as Ref<Action>,
+    DeleteFolder: '' as Ref<Action>,
     RenameFile: '' as Ref<Action>,
     RenameFolder: '' as Ref<Action>,
+    DeleteFileVersion: '' as Ref<Action>,
     RestoreFileVersion: '' as Ref<Action>
   },
   actionImpl: {
@@ -88,6 +100,10 @@ export default mergeIds(driveId, drive, {
     RenameFile: '' as ViewAction,
     RenameFolder: '' as ViewAction,
     RestoreFileVersion: '' as ViewAction
+  },
+  ids: {
+    ModulePermissionGroup: '' as Ref<Doc>,
+    ModulePermissionGroupReadOnlyGuest: '' as Ref<Doc>
   },
   string: {
     Grid: '' as IntlString,

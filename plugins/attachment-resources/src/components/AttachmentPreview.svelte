@@ -14,73 +14,68 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import type { Attachment } from '@hcengineering/attachment'
-  import { FilePreviewPopup } from '@hcengineering/presentation'
-  import { closeTooltip, showPopup } from '@hcengineering/ui'
+  import { Attachment } from '@hcengineering/attachment'
+  import { BlobType, WithLookup } from '@hcengineering/core'
   import { ListSelectionProvider } from '@hcengineering/view-resources'
   import { createEventDispatcher } from 'svelte'
-
-  import type { WithLookup } from '@hcengineering/core'
   import { AttachmentImageSize } from '../types'
-  import { getType } from '../utils'
+  import { getType, isAttachment, showAttachmentPreviewPopup } from '../utils'
   import AttachmentActions from './AttachmentActions.svelte'
   import AttachmentImagePreview from './AttachmentImagePreview.svelte'
   import AttachmentPresenter from './AttachmentPresenter.svelte'
   import AttachmentVideoPreview from './AttachmentVideoPreview.svelte'
   import AudioPlayer from './AudioPlayer.svelte'
 
-  export let value: WithLookup<Attachment>
+  export let value: WithLookup<Attachment> | BlobType
   export let isSaved: boolean = false
   export let listProvider: ListSelectionProvider | undefined = undefined
   export let imageSize: AttachmentImageSize = 'auto'
   export let removable: boolean = false
-  export let videoPreload = true
+  export let videoPreload = false
 
   const dispatch = createEventDispatcher()
+
+  let hovered = false
 
   $: type = getType(value.type)
 </script>
 
-{#if type === 'image'}
+{#if type === 'video'}
+  <div class="content buttonContainer flex-center" class:hovered>
+    <AttachmentVideoPreview {value} preload={videoPreload} />
+    <div class="actions">
+      <AttachmentActions bind:hovered attachment={value} {isSaved} {removable} />
+    </div>
+  </div>
+{:else if value.metadata?.thumbnail !== undefined || type === 'image'}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
     class="content flex-center buttonContainer cursor-pointer"
+    class:hovered
     on:click={() => {
-      closeTooltip()
-      if (listProvider !== undefined) listProvider.updateFocus(value)
-      const popupInfo = showPopup(
-        FilePreviewPopup,
-        { file: value.file, name: value.name, contentType: value.type, metadata: value.metadata },
-        value.type.startsWith('image/') ? 'centered' : 'float'
-      )
+      if (listProvider !== undefined && isAttachment(value)) listProvider.updateFocus(value)
+      const popupInfo = showAttachmentPreviewPopup(value)
       dispatch('open', popupInfo.id)
     }}
   >
     <AttachmentImagePreview {value} size={imageSize} />
     <div class="actions">
-      <AttachmentActions attachment={value} {isSaved} {removable} />
+      <AttachmentActions bind:hovered attachment={value} {isSaved} {removable} />
     </div>
   </div>
 {:else if type === 'audio'}
-  <div class="buttonContainer">
+  <div class="buttonContainer" class:hovered>
     <AudioPlayer {value} />
     <div class="actions" style:padding={'0.125rem 0.25rem'}>
       <AttachmentActions attachment={value} {isSaved} {removable} />
     </div>
   </div>
-{:else if type === 'video'}
-  <div class="content buttonContainer flex-center">
-    <AttachmentVideoPreview {value} preload={videoPreload} />
-    <div class="actions">
-      <AttachmentActions attachment={value} {isSaved} {removable} />
-    </div>
-  </div>
 {:else}
-  <div class="flex buttonContainer extraWidth">
+  <div class="flex buttonContainer extraWidth" class:hovered>
     <AttachmentPresenter {value} />
     <div class="actions">
-      <AttachmentActions attachment={value} {isSaved} {removable} />
+      <AttachmentActions bind:hovered attachment={value} {isSaved} {removable} />
     </div>
   </div>
 {/if}
@@ -107,14 +102,18 @@
     }
   }
 
-  .buttonContainer:hover {
-    .actions {
-      visibility: visible;
+  .buttonContainer {
+    &:hover,
+    &.hovered {
+      .actions {
+        visibility: visible;
+      }
     }
   }
 
   .content {
-    max-width: 20rem;
-    max-height: 20rem;
+    max-width: 25rem;
+    max-height: 25rem;
+    scroll-snap-align: start;
   }
 </style>

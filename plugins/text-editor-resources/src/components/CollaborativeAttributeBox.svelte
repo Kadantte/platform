@@ -15,12 +15,11 @@
 <script lang="ts">
   import { Doc } from '@hcengineering/core'
   import { IntlString } from '@hcengineering/platform'
-  import { KeyedAttribute, getAttribute, getClient } from '@hcengineering/presentation'
-  import { AnySvelteComponent, registerFocus } from '@hcengineering/ui'
+  import { KeyedAttribute } from '@hcengineering/presentation'
   import textEditor, { CollaborationUser, RefAction } from '@hcengineering/text-editor'
+  import { AnySvelteComponent, registerFocus } from '@hcengineering/ui'
 
   import CollaborativeTextEditor from './CollaborativeTextEditor.svelte'
-  import { FocusExtension } from './extension/focus'
   import { type FileAttachFunction } from './extension/types'
 
   export let object: Doc
@@ -46,8 +45,6 @@
   }
 
   let editor: CollaborativeTextEditor
-
-  $: collaborativeDoc = getAttribute(getClient(), object, key)
 
   // Focusable control with index
   let canBlur = true
@@ -79,40 +76,35 @@
       updateFocus()
     }
   }
-
-  const extensions = [
-    FocusExtension.configure({
-      onCanBlur: (value: boolean) => (canBlur = value),
-      onFocus: handleFocus
-    })
-  ]
 </script>
 
-{#if collaborativeDoc != null}
-  <CollaborativeTextEditor
-    bind:this={editor}
-    {collaborativeDoc}
-    objectId={object._id}
-    objectClass={key.attr.attributeOf}
-    objectSpace={object.space}
-    objectAttr={key.key}
-    {user}
-    {userComponent}
-    {refActions}
-    {extensions}
-    {attachFile}
-    {placeholder}
-    {boundary}
-    {readonly}
-    field={key.key}
-    canEmbedFiles={false}
-    withSideMenu={false}
-    kitOptions={{
-      note: false
-    }}
-    on:focus
-    on:blur
-    on:update
-    on:open-document
-  />
-{/if}
+<CollaborativeTextEditor
+  bind:this={editor}
+  {object}
+  attribute={key}
+  {user}
+  {userComponent}
+  {refActions}
+  {attachFile}
+  {placeholder}
+  {boundary}
+  {readonly}
+  withSideMenu={false}
+  kitOptions={{
+    inlineNote: false,
+    hooks: {
+      focus: {
+        onCanBlur: (value) => {
+          canBlur = value
+        },
+        onFocus: handleFocus
+      }
+    },
+    shortcuts: {
+      fileUpload: false
+    }
+  }}
+  on:focus
+  on:blur
+  on:update
+/>

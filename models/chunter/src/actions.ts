@@ -46,8 +46,8 @@ export function defineActions (builder: Builder): void {
 
   createAction(builder, {
     action: chunter.actionImpl.StartConversation,
-    label: chunter.string.StartConversation,
-    icon: chunter.icon.Thread,
+    label: chunter.string.Message,
+    icon: view.icon.Bubble,
     input: 'focus',
     category: chunter.category.Chunter,
     target: contact.mixin.Employee,
@@ -77,7 +77,7 @@ function defineMessageActions (builder: Builder): void {
         group: 'edit'
       }
     },
-    chunter.action.ReplyToThreadAction
+    activity.action.Reply
   )
 
   createAction(
@@ -97,7 +97,8 @@ function defineMessageActions (builder: Builder): void {
         mode: ['context', 'browser'],
         application: chunter.app.Chunter,
         group: 'copy'
-      }
+      },
+      override: [view.action.CopyLink]
     },
     chunter.action.CopyChatMessageLink
   )
@@ -116,6 +117,21 @@ function defineMessageActions (builder: Builder): void {
       context: { mode: ['context', 'browser'], group: 'remove' }
     },
     chunter.action.DeleteChatMessage
+  )
+
+  createAction(
+    builder,
+    {
+      action: chunter.actionImpl.SummarizeMessages,
+      label: chunter.string.SummarizeMessages,
+      icon: view.icon.Feather,
+      input: 'focus',
+      category: chunter.category.Chunter,
+      target: core.class.Doc,
+      context: { mode: ['context', 'browser'], group: 'tools' },
+      visibilityTester: chunter.function.CanSummarizeMessages
+    },
+    chunter.action.SummarizeMessages
   )
 
   createAction(

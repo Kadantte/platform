@@ -18,7 +18,6 @@
   import {
     Icon,
     Label,
-    IconOpenedArrow,
     IconDown,
     AnySvelteComponent,
     IconSize,
@@ -45,7 +44,6 @@
   export let disabled: boolean = false
   export let isFold: boolean = false
   export let isOpen: boolean = false
-  export let isSecondary: boolean = false
   export let withBackground: boolean = false
   export let showMenu: boolean = false
   export let shouldTooltip: boolean = false
@@ -55,6 +53,8 @@
   export let forciblyСollapsed: boolean = false
   export let level: number = 0
   export let _id: any = undefined
+
+  export let draggable: boolean = false
 
   let labelEl: HTMLSpanElement
   let labelWidth: number
@@ -77,7 +77,7 @@
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
 <button
-  class="hulyNavItem-container line-height-auto {type} {type === 'type-anchor-link' || isSecondary
+  class="hulyNavItem-container line-height-auto {type} {type === 'type-anchor-link'
     ? 'font-regular-12'
     : 'font-regular-14'}"
   class:selected
@@ -85,7 +85,12 @@
   class:indent
   class:disabled
   class:showMenu
+  {draggable}
   class:noActions={$$slots.actions === undefined}
+  on:dragstart
+  on:dragover
+  on:dragend
+  on:drop
   on:mouseover={mouseOver}
   on:mouseleave={() => {
     if (levelReset && !showMenu) levelReset = false
@@ -111,8 +116,10 @@
     </button>
   {/if}
   {#if visibleIcon || (type === 'type-tag' && color)}
-    <div class="hulyNavItem-icon" class:withBackground class:w-auto={iconSize === 'x-small'}>
-      {#if type !== 'type-tag' && visibleIcon}
+    <div class="hulyNavItem-icon relative" class:withBackground class:w-auto={iconSize === 'x-small'}>
+      {#if $$slots.icon}
+        <slot name="icon" />
+      {:else if type !== 'type-tag' && visibleIcon}
         <Icon icon={visibleIcon} size={iconSize} {iconProps} />
       {:else if type === 'type-tag'}
         <div style:background-color={color} class="hulyNavItem-icon__tag" />
@@ -201,6 +208,7 @@
       margin-right: var(--spacing-1);
       width: var(--global-min-Size);
       height: var(--global-min-Size);
+      min-width: var(--global-min-Size);
       color: var(--global-primary-TextColor);
 
       &__tag {
@@ -270,6 +278,7 @@
 
       .hulyNavItem-icon {
         width: 0.75rem;
+        min-width: 0.75rem;
         margin-right: 0.625rem;
       }
     }
@@ -280,6 +289,7 @@
         margin-right: var(--spacing-0_75);
         width: var(--global-extra-small-Size);
         height: var(--global-extra-small-Size);
+        min-width: var(--global-extra-small-Size);
         background-color: var(--global-ui-BackgroundColor);
         border-radius: var(--extra-small-BorderRadius);
       }

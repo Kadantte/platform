@@ -17,14 +17,15 @@
   import { Ref, generateId } from '@hcengineering/core'
   import { Document } from '@hcengineering/document'
   import { getResource } from '@hcengineering/platform'
-  import { getClient } from '@hcengineering/presentation'
-  import { Action, IconAdd, IconEdit, IconWithEmoji, getPlatformColorDef, themeStore } from '@hcengineering/ui'
+  import { IconWithEmoji, getClient } from '@hcengineering/presentation'
+  import { Action, IconAdd, IconEdit, getPlatformColorDef, themeStore } from '@hcengineering/ui'
   import view from '@hcengineering/view'
   import { getActions as getContributedActions, openDoc } from '@hcengineering/view-resources'
 
   import document from '../../plugin'
   import { createEmptyDocument } from '../../utils'
 
+  import DropArea from './DropArea.svelte'
   import DocTreeElement from './DocTreeElement.svelte'
 
   export let documents: Ref<Document>[]
@@ -34,11 +35,19 @@
   export let selected: Ref<Document> | undefined
   export let level: number = 0
 
+  export let onDragStart: (e: DragEvent, object: Ref<Document>) => void
+  export let onDragOver: (e: DragEvent, object: Ref<Document>) => void
+  export let onDragEnd: (e: DragEvent, object: Ref<Document>) => void
+  export let onDrop: (e: DragEvent, object: Ref<Document>) => void
+
+  export let draggedItem: Ref<Document> | undefined
+  export let draggedOver: Ref<Document> | undefined
+
   const client = getClient()
   const dispatch = createEventDispatcher()
 
   function getDescendants (obj: Ref<Document>): Ref<Document>[] {
-    return (descendants.get(obj) ?? []).sort((a, b) => a.name.localeCompare(b.name)).map((p) => p._id)
+    return (descendants.get(obj) ?? []).sort((a, b) => a.rank.localeCompare(b.rank)).map((p) => p._id)
   }
 
   function getActions (doc: Document): Action[] {
@@ -79,37 +88,71 @@
     dispatch('selected', obj)
   }
 
-  $: _documents = documents.map((it) => documentById.get(it)).filter((it) => it !== undefined) as Document[]
+  $: _documents = documents.map((it) => documentById.get(it)).filter((it) => it !== undefined)
   $: _descendants = new Map(_documents.map((it) => [it._id, getDescendants(it._id)]))
 </script>
 
 {#each _documents as doc}
-  {@const desc = _descendants.get(doc._id) ?? []}
-
   {#if doc}
-    <DocTreeElement
-      {doc}
-      icon={doc.icon === view.ids.IconWithEmoji ? IconWithEmoji : doc.icon ?? document.icon.Document}
-      iconProps={doc.icon === view.ids.IconWithEmoji
-        ? { icon: doc.color }
-        : {
-            fill: doc.color !== undefined ? getPlatformColorDef(doc.color, $themeStore.dark).icon : 'currentColor'
-          }}
-      title={doc.name}
-      selected={selected === doc._id}
-      isFold
-      {level}
-      empty={desc.length === 0}
-      actions={getActions(doc)}
-      moreActions={() => getMoreActions(doc)}
-      shouldTooltip
-      on:click={() => {
-        handleDocumentSelected(doc._id)
-      }}
-    >
-      {#if desc.length}
-        <svelte:self documents={desc} {descendants} {documentById} {selected} level={level + 1} on:selected />
+    {@const desc = _descendants.get(doc._id) ?? []}
+    {@const isDraggedOver = draggedOver === doc._id}
+    <div class="flex-col relative">
+      {#if isDraggedOver}
+        <DropArea />
       {/if}
-    </DocTreeElement>
+
+      <DocTreeElement
+        {doc}
+        icon={doc.icon === view.ids.IconWithEmoji ? IconWithEmoji : (doc.icon ?? document.icon.Document)}
+        iconProps={doc.icon === view.ids.IconWithEmoji
+          ? { icon: doc.color }
+          : {
+              fill:
+                doc.color !== undefined && typeof doc.color !== 'string'
+                  ? getPlatformColorDef(doc.color, $themeStore.dark).icon
+                  : 'currentColor'
+            }}
+        title={doc.title}
+        selected={selected === doc._id && draggedItem === undefined}
+        isFold
+        {level}
+        empty={desc.length === 0}
+        actions={getActions(doc)}
+        moreActions={() => getMoreActions(doc)}
+        shouldTooltip
+        on:click={() => {
+          handleDocumentSelected(doc._id)
+        }}
+        on:dragstart={(evt) => {
+          onDragStart(evt, doc._id)
+        }}
+        on:dragover={(evt) => {
+          onDragOver(evt, doc._id)
+        }}
+        on:dragend={(evt) => {
+          onDragEnd(evt, doc._id)
+        }}
+        on:drop={(evt) => {
+          onDrop(evt, doc._id)
+        }}
+      >
+        {#if desc.length}
+          <svelte:self
+            documents={desc}
+            {descendants}
+            {documentById}
+            {selected}
+            level={level + 1}
+            {onDragStart}
+            {onDragOver}
+            {onDragEnd}
+            {onDrop}
+            {draggedItem}
+            {draggedOver}
+            on:selected
+          />
+        {/if}
+      </DocTreeElement>
+    </div>
   {/if}
 {/each}

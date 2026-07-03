@@ -2,48 +2,57 @@
 // Copyright © 2023 Hardcore Engineering Inc.
 //
 
-import { MeasureMetricsContext, metricsToString, newMetrics } from '@hcengineering/core'
-import { SplitLogger, configureAnalytics } from '@hcengineering/analytics-service'
-import { writeFile } from 'fs/promises'
+import { Analytics } from '@hcengineering/analytics'
+import { SplitLogger, configureAnalytics, createOpenTelemetryMetricsContext } from '@hcengineering/analytics-service'
+import { newMetrics } from '@hcengineering/core'
+import { setMetadata } from '@hcengineering/platform'
+import { initStatisticsContext, loadBrandingMap } from '@hcengineering/server-core'
+import serverToken from '@hcengineering/server-token'
 import { join } from 'path'
 import config from './config'
 import { start } from './server'
-import { Analytics } from '@hcengineering/analytics'
-import { loadBrandingMap } from '@hcengineering/server-core'
 
 // Load and inc startID, to have easy logs.
 
-const metricsContext = new MeasureMetricsContext(
-  'github',
-  {},
-  {},
-  newMetrics(),
-  new SplitLogger('github-service', {
-    root: join(process.cwd(), 'logs'),
-    enableConsole: (process.env.ENABLE_CONSOLE ?? 'true') === 'true'
-  })
-)
+setMetadata(serverToken.metadata.Secret, config.ServerSecret)
+setMetadata(serverToken.metadata.Service, 'github')
 
-configureAnalytics(config.SentryDSN, config)
+configureAnalytics('github', process.env.VERSION ?? '0.7.0')
+const metricsContext = initStatisticsContext('github', {
+  factory: () =>
+    createOpenTelemetryMetricsContext(
+      'github',
+      {},
+      {},
+      newMetrics(),
+      new SplitLogger('github-service', {
+        root: join(process.cwd(), 'logs'),
+        enableConsole: (process.env.ENABLE_CONSOLE ?? 'true') === 'true'
+      })
+    )
+})
+
 Analytics.setTag('application', 'github-service')
 
-let oldMetricsValue = ''
-
-const intTimer = setInterval(() => {
-  const val = metricsToString(metricsContext.metrics, 'Github', 140)
-  if (val !== oldMetricsValue) {
-    oldMetricsValue = val
-    void writeFile('metrics.txt', val).catch((err) => {
-      console.error(err)
-    })
-  }
-}, 30000)
+let doOnClose: () => Promise<void> = async () => {}
 
 void start(metricsContext, loadBrandingMap(config.BrandingPath))
+  .then((r) => {
+    doOnClose = r
+  })
+  .catch((err) => {
+    metricsContext.error('Error', { error: err })
+  })
 
 const onClose = (): void => {
-  clearInterval(intTimer)
   metricsContext.info('Closed')
+  void doOnClose()
+    .then((r) => {
+      process.exit(0)
+    })
+    .catch((err) => {
+      metricsContext.error('Error', { error: err })
+    })
 }
 
 process.on('uncaughtException', (e) => {

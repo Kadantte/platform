@@ -1,7 +1,5 @@
-FROM node:20
-
+FROM hardcoreeng/base-slim:v20250916
 WORKDIR /usr/src/app
-RUN npm install --ignore-scripts=false --verbose bufferutil utf-8-validate @mongodb-js/zstd snappy --unsafe-perm
 
 COPY bundle/bundle.js ./
 COPY assets/avatar.png ./

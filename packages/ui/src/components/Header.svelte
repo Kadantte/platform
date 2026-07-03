@@ -13,7 +13,7 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte'
+  import { createEventDispatcher, onMount, onDestroy, afterUpdate } from 'svelte'
   import {
     IconMaximize,
     IconMinimize,
@@ -35,11 +35,13 @@
   export let hideSearch: boolean = false
   export let hideActions: boolean = false
   export let hideExtra: boolean = false
+  export let hidePresence: boolean = false
   export let overflowExtra: boolean = false
   export let noPrint: boolean = false
   export let freezeBefore: boolean = false
-  export let doubleRowWidth = 768
+  export let doubleRowWidth: number = 768
   export let closeOnEscape: boolean = true
+  export let realWidth: number | undefined = undefined
 
   const dispatch = createEventDispatcher()
 
@@ -47,8 +49,13 @@
   let spaceFiller: HTMLElement
   let doubleRow: boolean = false
   let doubleExtra: boolean = false
-  let extraWidth: number = 0
-  let spaceWidth: number = 0
+  const headerProps = {
+    extraWidth: 0,
+    spaceWidth: 0,
+    titleWidth: 0,
+    titleOverflow: false,
+    extraOverflow: false
+  }
   $: _doubleRow =
     adaptive === 'doubleRow' ||
     (adaptive !== 'disabled' && doubleRow) ||
@@ -73,11 +80,15 @@
       dispatch('close')
     }
   }
+  afterUpdate(() => {
+    dispatch('resize', { headerWidth: realWidth, ...headerProps })
+  })
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
   use:resizeObserver={(element) => {
+    realWidth = element.clientWidth
     if (!doubleRow && element.clientWidth <= doubleRowWidth) doubleRow = true
     else if (doubleRow && element.clientWidth > doubleRowWidth) doubleRow = false
   }}
@@ -111,6 +122,10 @@
         class="hulyHeader-titleGroup"
         class:withDescription={$$slots.description && !hideDescription}
         class:notGrow={adaptive === 'autoExtra'}
+        use:resizeObserver={(element) => {
+          headerProps.titleWidth = element.clientWidth
+          headerProps.titleOverflow = element.scrollWidth > element.clientWidth
+        }}
         on:click
       >
         {#if $$slots.description && !hideDescription}
@@ -126,8 +141,8 @@
           class="hulyHeader-spaceFiller"
           bind:this={spaceFiller}
           use:resizeObserver={(element) => {
-            if (spaceWidth !== element.clientWidth) spaceWidth = element.clientWidth
-            if (doubleExtra && element.clientWidth > extraWidth + 42) doubleExtra = false
+            if (headerProps.spaceWidth !== element.clientWidth) headerProps.spaceWidth = element.clientWidth
+            if (doubleExtra && element.clientWidth > headerProps.extraWidth + 42) doubleExtra = false
           }}
         />
       {/if}
@@ -147,6 +162,11 @@
     </div>
     <!-- <div class="hulyHeader-row__divider" /> -->
     <div class="hulyHeader-row no-print" class:between={$$slots.search} class:reverse={!$$slots.search}>
+      {#if $$slots.presence && !hidePresence}
+        <div class="hulyHeader-buttonsGroup presence no-print">
+          <slot name="presence" {doubleRow} />
+        </div>
+      {/if}
       {#if $$slots.search}
         <div class="hulyHeader-buttonsGroup search">
           <slot name="search" {doubleRow} />
@@ -157,14 +177,15 @@
           class="hulyHeader-buttonsGroup extra"
           class:overflow={overflowExtra}
           use:resizeObserver={(element) => {
-            if (extraWidth !== element.clientWidth) extraWidth = element.clientWidth
+            headerProps.extraOverflow = element.scrollWidth > element.clientWidth
+            if (headerProps.extraWidth !== element.clientWidth) headerProps.extraWidth = element.clientWidth
           }}
         >
           <slot name="extra" {doubleRow} />
         </div>
       {/if}
       {#if $$slots.actions && !hideActions && !(adaptive === 'freezeActions' || adaptive === 'doubleRow' || adaptive === 'autoExtra')}
-        <div class="hulyHeader-buttonsGroup actions">
+        <div class="hulyHeader-buttonsGroup actions flex-shrink">
           <slot name="actions" {doubleRow} />
         </div>
       {/if}
@@ -191,6 +212,10 @@
       class="hulyHeader-titleGroup"
       class:withDescription={$$slots.description && !hideDescription}
       class:notGrow={adaptive === 'autoExtra'}
+      use:resizeObserver={(element) => {
+        headerProps.titleWidth = element.clientWidth
+        headerProps.titleOverflow = element.scrollWidth > element.clientWidth
+      }}
       on:click
     >
       {#if $$slots.description && !hideDescription}
@@ -206,10 +231,16 @@
         class="hulyHeader-spaceFiller"
         bind:this={spaceFiller}
         use:resizeObserver={(element) => {
-          if (spaceWidth !== element.clientWidth) spaceWidth = element.clientWidth
+          if (headerProps.spaceWidth !== element.clientWidth) headerProps.spaceWidth = element.clientWidth
           if (!doubleExtra && element.clientWidth <= 16) doubleExtra = true
         }}
       />
+    {/if}
+
+    {#if $$slots.presence && !hidePresence}
+      <div class="hulyHeader-buttonsGroup presence no-print">
+        <slot name="presence" {doubleRow} />
+      </div>
     {/if}
 
     {#if $$slots.search && !hideSearch}
@@ -218,12 +249,14 @@
       </div>
       {#if $$slots.actions && !hideActions}<div class="hulyHeader-divider no-print" />{/if}
     {/if}
+
     {#if $$slots.extra && !hideExtra}
       <div
         class="hulyHeader-buttonsGroup extra"
         class:overflow={overflowExtra}
         use:resizeObserver={(element) => {
-          if (extraWidth !== element.clientWidth) extraWidth = element.clientWidth
+          headerProps.extraOverflow = element.scrollWidth > element.clientWidth
+          if (headerProps.extraWidth !== element.clientWidth) headerProps.extraWidth = element.clientWidth
         }}
       >
         <slot name="extra" {doubleRow} />

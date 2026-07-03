@@ -13,23 +13,26 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte'
   import type { IntlString } from '@hcengineering/platform'
-  import { translate } from '@hcengineering/platform'
+  import { translateCB } from '@hcengineering/platform'
   import { themeStore } from '@hcengineering/theme'
-  import IconSearch from './icons/Search.svelte'
-  import IconClose from './icons/Close.svelte'
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte'
   import plugin from '../plugin'
+  import IconClose from './icons/Close.svelte'
+  import IconSearch from './icons/Search.svelte'
 
   export let value: string | undefined = undefined
   export let placeholder: IntlString = plugin.string.Search
   export let placeholderParam: any | undefined = undefined
   export let collapsed: boolean = false
+  export let autoFocus: boolean = false
+  export let width: string | undefined = undefined
+  export let delay: number = 500
 
   let input: HTMLInputElement
   let phTranslate: string = ''
 
-  $: void translate(placeholder, placeholderParam ?? {}, $themeStore.language).then((res) => {
+  $: translateCB(placeholder, placeholderParam ?? {}, $themeStore.language, (res) => {
     phTranslate = res
   })
 
@@ -42,14 +45,20 @@
     timer = setTimeout(() => {
       value = _search
       dispatch('change', _search)
-    }, 500)
+    }, delay)
   }
   onDestroy(() => {
     clearTimeout(timer)
   })
+  onMount(() => {
+    if (autoFocus && input) {
+      autoFocus = false
+      input.focus()
+    }
+  })
 </script>
 
-<label class="searchInput-wrapper" class:collapsed class:filled={value && value !== ''}>
+<label class="searchInput-wrapper" class:collapsed class:filled={value && value !== ''} style:width>
   <div class="searchInput-icon">
     <IconSearch size={'small'} />
   </div>
@@ -179,7 +188,7 @@
     &:active,
     &:focus-within {
       padding: 0 var(--spacing-0_5) 0 0;
-      max-width: 15rem;
+      // max-width: 15rem;
       background-color: var(--input-BackgroundColor);
       outline: 2px solid var(--global-focus-BorderColor);
       outline-offset: 2px;

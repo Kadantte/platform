@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { getMetadata, translate } from '@hcengineering/platform'
-  import { Button, IconClose, Label, themeStore } from '@hcengineering/ui'
+  import { Button, Html, IconClose, Label, themeStore } from '@hcengineering/ui'
   import { createEventDispatcher } from 'svelte'
   import calendar from '../plugin'
   import { concatLink } from '@hcengineering/core'
@@ -41,6 +41,10 @@
         'Content-Type': 'application/json'
       }
     })
+    if (res.status !== 200) {
+      connecting = false
+      return
+    }
     const redirectTo = await res.text()
     window.open(redirectTo, '_blank', 'location=yes,height=870,width=720,scrollbars=yes,status=yes')
     dispatch('close')
@@ -72,13 +76,13 @@
       <Label label={calendar.string.RedirectGoogle} />
     </div>
     <div class="mt-2">
-      {@html label}
+      <Html value={label} />
     </div>
 
     <img class="image" src={getMetadata(calendar.image.Permissions)} alt="" />
-    <div class="footer">
-      <Button label={calendar.string.Connect} kind={'primary'} disabled={connecting} on:click={sendRequest} />
-    </div>
+  </div>
+  <div class="footer">
+    <Button label={calendar.string.Connect} kind={'primary'} disabled={connecting} on:click={sendRequest} />
   </div>
 </div>
 
@@ -87,9 +91,12 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    width: 40rem;
-    min-width: 40rem;
-    max-width: 40rem;
+    width: min(40rem, calc(100vw - 2rem));
+    min-width: 0;
+    max-width: min(40rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    overflow: hidden;
     background-color: var(--popup-bg-hover);
     border-radius: 0.75rem;
     box-shadow: var(--popup-shadow);
@@ -110,10 +117,14 @@
     }
 
     .content {
-      flex-shrink: 0;
-      flex-grow: 1;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       color: var(--theme-content-color);
-      margin: 0 1.75rem 0.5rem;
+      margin: 0 1.75rem;
+      padding-bottom: 0.5rem;
     }
 
     .image {
@@ -123,11 +134,14 @@
     }
 
     .footer {
+      flex-shrink: 0;
       display: flex;
       flex-direction: row-reverse;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 0;
+      padding: 1rem 1.75rem 1.25rem;
+      margin-top: auto;
+      background-color: var(--popup-bg-hover);
     }
   }
 </style>

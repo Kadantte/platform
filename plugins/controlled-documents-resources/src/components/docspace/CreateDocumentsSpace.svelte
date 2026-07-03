@@ -15,9 +15,8 @@
 <script lang="ts">
   import { deepEqual } from 'fast-equals'
   import { createEventDispatcher } from 'svelte'
-  import { AccountArrayEditor } from '@hcengineering/contact-resources'
+  import { AccountArrayEditor, employeeRefByAccountUuidStore, getAnonymousRefs } from '@hcengineering/contact-resources'
   import core, {
-    Account,
     Data,
     DocumentUpdate,
     RolesAssignment,
@@ -26,7 +25,9 @@
     generateId,
     getCurrentAccount,
     WithLookup,
-    Class
+    Class,
+    notEmpty,
+    AccountUuid
   } from '@hcengineering/core'
   import presentation, { Card, getClient } from '@hcengineering/presentation'
   import { StyledTextBox } from '@hcengineering/text-editor-resources'
@@ -35,6 +36,7 @@
   import documents, { DocumentSpace, DocumentSpaceType } from '@hcengineering/controlled-documents'
 
   import documentsRes from '../../plugin'
+  import view from '@hcengineering/view'
 
   export let docSpace: DocumentSpace | undefined = undefined
   export let clazz: Ref<Class<DocumentSpace>> = documents.class.OrgSpace
@@ -48,13 +50,15 @@
   let name: string = docSpace?.name ?? namePlaceholder
   let description: string = docSpace?.description ?? descriptionPlaceholder
   let isPrivate: boolean = docSpace?.private ?? true
-  let members: Ref<Account>[] =
-    docSpace?.members !== undefined ? hierarchy.clone(docSpace.members) : [getCurrentAccount()._id]
-  let owners: Ref<Account>[] =
-    docSpace?.owners !== undefined ? hierarchy.clone(docSpace.owners) : [getCurrentAccount()._id]
+  let members: AccountUuid[] =
+    docSpace?.members !== undefined ? hierarchy.clone(docSpace.members) : [getCurrentAccount().uuid]
+  let owners: AccountUuid[] =
+    docSpace?.owners !== undefined ? hierarchy.clone(docSpace.owners) : [getCurrentAccount().uuid]
   let rolesAssignment: RolesAssignment = {}
 
   $: isNew = docSpace === undefined
+  $: membersPersons = members.map((m) => $employeeRefByAccountUuidStore.get(m)).filter(notEmpty)
+  $: readOnlyGuestOwnerExcludeItems = getAnonymousRefs($employeeRefByAccountUuidStore, owners)
 
   let typeId: Ref<DocumentSpaceType> | undefined = docSpace?.type ?? documents.spaceType.DocumentSpaceType
   let spaceType: WithLookup<DocumentSpaceType> | undefined
@@ -184,14 +188,14 @@
 
   $: roles = (spaceType?.$lookup?.roles ?? []) as Role[]
 
-  function handleOwnersChanged (newOwners: Ref<Account>[]): void {
+  function handleOwnersChanged (newOwners: AccountUuid[]): void {
     owners = newOwners
 
     const newMembersSet = new Set([...members, ...newOwners])
     members = Array.from(newMembersSet)
   }
 
-  function handleMembersChanged (newMembers: Ref<Account>[]): void {
+  function handleMembersChanged (newMembers: AccountUuid[]): void {
     // If a member was removed we need to remove it from any roles assignments as well
     const newMembersSet = new Set(newMembers)
     const removedMembersSet = new Set(members.filter((m) => !newMembersSet.has(m)))
@@ -205,7 +209,7 @@
     members = newMembers
   }
 
-  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: Ref<Account>[]): void {
+  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: AccountUuid[]): void {
     if (rolesAssignment === undefined) {
       rolesAssignment = {}
     }
@@ -280,6 +284,7 @@
     </div>
     <AccountArrayEditor
       value={owners}
+      excludeItems={readOnlyGuestOwnerExcludeItems}
       label={core.string.Owners}
       onChange={handleOwnersChanged}
       kind={'regular'}
@@ -313,13 +318,13 @@
     {#each roles as role}
       <div class="antiGrid-row">
         <div class="antiGrid-row__header">
-          <Label label={documentsRes.string.RoleLabel} params={{ role: role.name }} />
+          <Label label={view.string.RoleLabel} params={{ role: role.name }} />
         </div>
         <AccountArrayEditor
           value={rolesAssignment?.[role._id] ?? []}
           label={documentsRes.string.Members}
-          includeItems={members}
-          readonly={members.length === 0}
+          includeItems={membersPersons}
+          readonly={membersPersons.length === 0}
           onChange={(refs) => {
             handleRoleAssignmentChanged(role._id, refs)
           }}

@@ -14,7 +14,7 @@
 //
 
 import { ObjectId } from 'mongodb'
-import { Account, Class, Doc, Ref } from '@hcengineering/core'
+import { Class, Doc, Ref, PersonUuid } from '@hcengineering/core'
 
 export interface HistoryRecord {
   _id?: ObjectId
@@ -23,7 +23,7 @@ export interface HistoryRecord {
   objectId: Ref<Doc>
   objectClass: Ref<Class<Doc>>
   role: string
-  user: Ref<Account>
+  user: PersonUuid
   tokens: number
   timestamp: number
 }

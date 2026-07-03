@@ -33,11 +33,12 @@ import attachment from '@hcengineering/model-attachment'
 import contact from '@hcengineering/model-contact'
 import core, { TAttachedDoc } from '@hcengineering/model-core'
 import setting from '@hcengineering/setting'
-import type {
-  NewTelegramMessage,
-  SharedTelegramMessage,
-  SharedTelegramMessages,
-  TelegramMessage
+import {
+  type NewTelegramMessage,
+  type SharedTelegramMessage,
+  type SharedTelegramMessages,
+  type TelegramMessage,
+  telegramIntegrationKind
 } from '@hcengineering/telegram'
 import templates from '@hcengineering/templates'
 import view from '@hcengineering/view'
@@ -156,11 +157,16 @@ export function createModel (builder: Builder): void {
     {
       label: telegram.string.Telegram,
       description: telegram.string.TelegramIntegrationDesc,
+      descriptionComponent: telegram.component.TelegramIntegrationDescription,
       icon: telegram.component.IconTelegram,
-      allowMultiple: false,
+      allowMultiple: true,
       createComponent: telegram.component.Connect,
       reconnectComponent: telegram.component.Reconnect,
-      onDisconnect: telegram.handler.DisconnectHandler
+      configureComponent: telegram.component.Configure,
+      stateComponent: telegram.component.StateComponent,
+      onDisconnect: telegram.handler.DisconnectHandler,
+      onDisconnectAll: telegram.handler.DisconnectAllHandler,
+      kind: telegramIntegrationKind
     },
     telegram.integrationType.Telegram
   )
@@ -179,9 +185,8 @@ export function createModel (builder: Builder): void {
     telegram.ids.TelegramMessageSharedActivityViewlet
   )
 
-  builder.mixin(telegram.class.Message, core.class.Class, core.mixin.FullTextSearchContext, {
-    parentPropagate: false,
-    childProcessingAllowed: true
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: telegram.class.Message
   })
 
   builder.createDoc(core.class.DomainIndexConfiguration, core.space.Model, {

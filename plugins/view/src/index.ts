@@ -16,7 +16,7 @@
 
 import { Class, Doc, DocumentQuery, FindOptions, Mixin, Ref } from '@hcengineering/core'
 import { Asset, IntlString, Plugin, Resource, plugin } from '@hcengineering/platform'
-import { AnyComponent, PopupAlignment, PopupPosAlignment } from '@hcengineering/ui'
+import { AnyComponent, PopupAlignment, PopupPosAlignment, type ComponentExtensionId } from '@hcengineering/ui/src/types'
 import {
   Action,
   ActionCategory,
@@ -24,19 +24,23 @@ import {
   Aggregation,
   AllValuesFunc,
   ArrayEditor,
+  AttrPresenter,
   AttributeEditor,
   AttributeFilter,
   AttributeFilterPresenter,
   AttributePresenter,
+  BaseQuery,
   ClassFilters,
   ClassSortFuncs,
   CollectionEditor,
   CollectionPresenter,
+  CustomObjectLinkProvider,
   FilterMode,
   FilteredView,
   Groupping,
   IgnoreActions,
   InlineAttributEditor,
+  LinkIdProvider,
   LinkPresenter,
   LinkProvider,
   ListHeaderExtra,
@@ -52,16 +56,19 @@ import {
   ObjectTitle,
   ObjectTooltip,
   ObjectValidator,
-  AttrPresenter,
+  OpenDocumentFunction,
   PreviewPresenter,
+  ReferenceObjectProvider,
+  ReferenceVersionsProvider,
   SpaceHeader,
   SpaceName,
   SpacePresenter,
+  TypeEditor,
   ViewAction,
   Viewlet,
   ViewletDescriptor,
   ViewletPreference,
-  LinkIdProvider
+  ViewletViewAction
 } from './types'
 
 export * from './types'
@@ -91,10 +98,13 @@ const view = plugin(viewId, {
     ObjectPresenter: '' as Ref<Mixin<ObjectPresenter>>,
     ObjectEditorHeader: '' as Ref<Mixin<ObjectEditorHeader>>,
     ObjectEditorFooter: '' as Ref<Mixin<ObjectEditorFooter>>,
+    ObjectPanelFooter: '' as Ref<Mixin<ObjectEditorFooter>>,
     ObjectValidator: '' as Ref<Mixin<ObjectValidator>>,
     ObjectFactory: '' as Ref<Mixin<ObjectFactory>>,
     ObjectTitle: '' as Ref<Mixin<ObjectTitle>>,
     ObjectIdentifier: '' as Ref<Mixin<ObjectIdentifier>>,
+    ReferenceObjectProvider: '' as Ref<Mixin<ReferenceObjectProvider>>,
+    ReferenceVersionsProvider: '' as Ref<Mixin<ReferenceVersionsProvider>>,
     ObjectTooltip: '' as Ref<Mixin<ObjectTooltip>>,
     SpaceHeader: '' as Ref<Mixin<SpaceHeader>>,
     SpaceName: '' as Ref<Mixin<SpaceName>>,
@@ -110,12 +120,16 @@ const view = plugin(viewId, {
     AttributeFilterPresenter: '' as Ref<Mixin<AttributeFilterPresenter>>,
     Aggregation: '' as Ref<Mixin<Aggregation>>,
     Groupping: '' as Ref<Mixin<Groupping>>,
-    ObjectIcon: '' as Ref<Mixin<ObjectIcon>>
+    ObjectIcon: '' as Ref<Mixin<ObjectIcon>>,
+    CustomObjectLinkProvider: '' as Ref<Mixin<CustomObjectLinkProvider>>,
+    BaseQuery: '' as Ref<Mixin<BaseQuery<Doc>>>,
+    TypeEditor: '' as Ref<Mixin<TypeEditor>>
   },
   class: {
     ViewletPreference: '' as Ref<Class<ViewletPreference>>,
     ViewletDescriptor: '' as Ref<Class<ViewletDescriptor>>,
     Viewlet: '' as Ref<Class<Viewlet>>,
+    ViewletViewAction: '' as Ref<Class<ViewletViewAction>>,
     Action: '' as Ref<Class<Action>>,
     ActionCategory: '' as Ref<Class<ActionCategory>>,
     LinkPresenter: '' as Ref<Class<LinkPresenter>>,
@@ -147,11 +161,20 @@ const view = plugin(viewId, {
 
     // Edit document
     Open: '' as Ref<Action>,
-    OpenInNewTab: '' as Ref<Action>
+    OpenInNewTab: '' as Ref<Action>,
+    RemoveRelation: '' as Ref<Action>,
+
+    CopyLink: '' as Ref<Action<Doc, any>>,
+    CopyDocumentMarkdown: '' as Ref<Action<Doc, any>>,
+    AddRelation: '' as Ref<Action<Doc, any>>
   },
   viewlet: {
     Table: '' as Ref<ViewletDescriptor>,
-    List: '' as Ref<ViewletDescriptor>
+    List: '' as Ref<ViewletDescriptor>,
+    MasterDetail: '' as Ref<ViewletDescriptor>,
+    Tree: '' as Ref<ViewletDescriptor>,
+    Document: '' as Ref<ViewletDescriptor>,
+    RelationshipTable: '' as Ref<ViewletDescriptor>
   },
   component: {
     ActionsPopup: '' as AnyComponent,
@@ -165,7 +188,15 @@ const view = plugin(viewId, {
     IconWithEmoji: '' as AnyComponent,
     AttachedDocPanel: '' as AnyComponent,
     ObjectMention: '' as AnyComponent,
-    SearchSelector: '' as AnyComponent
+    SearchSelector: '' as AnyComponent,
+    FoldersBrowser: '' as AnyComponent,
+    PersonIdPresenter: '' as AnyComponent,
+    PersonIdFilter: '' as AnyComponent,
+    RolePresenter: '' as AnyComponent,
+    ReadOnlyNotification: '' as AnyComponent,
+    ForbiddenNotification: '' as AnyComponent,
+    DatePresenter: '' as AnyComponent,
+    DateEditor: '' as AnyComponent
   },
   ids: {
     IconWithEmoji: '' as Asset
@@ -198,8 +229,10 @@ const view = plugin(viewId, {
     Subscribed: '' as IntlString,
     HyperlinkPlaceholder: '' as IntlString,
     CopyToClipboard: '' as IntlString,
+    CopyAll: '' as IntlString,
     NoGrouping: '' as IntlString,
     Type: '' as IntlString,
+    ViewletViewAction: '' as IntlString,
     UnArchive: '' as IntlString,
     Archive: '' as IntlString,
     Save: '' as IntlString,
@@ -211,7 +244,34 @@ const view = plugin(viewId, {
     Join: '' as IntlString,
     Leave: '' as IntlString,
     Copied: '' as IntlString,
-    And: '' as IntlString
+    TableCopiedToClipboard: '' as IntlString,
+    TableCopyFailed: '' as IntlString,
+    And: '' as IntlString,
+    Title: '' as IntlString,
+    DeleteObject: '' as IntlString,
+    DeleteObjectConfirm: '' as IntlString,
+    RemoveRelationConfirmation: '' as IntlString,
+    RemoveRelation: '' as IntlString,
+    MasterDetail: '' as IntlString,
+    Tree: '' as IntlString,
+    Document: '' as IntlString,
+    Loading: '' as IntlString,
+    ReadOnlyWarningTitle: '' as IntlString,
+    ReadOnlyWarningMessage: '' as IntlString,
+    ReadOnlySignUp: '' as IntlString,
+    ReadOnlyJoinWorkspace: '' as IntlString,
+    PermissionWarningTitle: '' as IntlString,
+    PermissionWarningMessage: '' as IntlString,
+    Icon: '' as IntlString,
+    Select: '' as IntlString,
+    Color: '' as IntlString,
+    AutomationOnly: '' as IntlString,
+    CopyDocumentMarkdown: '' as IntlString,
+    RoleLabel: '' as IntlString,
+    ForbidAttributeChanges: '' as IntlString,
+    AllowAttributeChanges: '' as IntlString,
+    NoCreatePermissionTitle: '' as IntlString,
+    CopyAsMarkdownTable: '' as IntlString
   },
   icon: {
     Table: '' as Asset,
@@ -254,7 +314,17 @@ const view = plugin(viewId, {
     TodoList: '' as Asset,
     DetailsFilled: '' as Asset,
     Translate: '' as Asset,
-    Undo: '' as Asset
+    Undo: '' as Asset,
+    Video: '' as Asset,
+    Audio: '' as Asset,
+    File: '' as Asset,
+    PinTack: '' as Asset,
+    Feather: '' as Asset,
+    MasterDetail: '' as Asset,
+    Tree: '' as Asset,
+    Document: '' as Asset,
+    Print: '' as Asset,
+    AiStar: '' as Asset
   },
   category: {
     General: '' as Ref<ActionCategory>,
@@ -262,6 +332,9 @@ const view = plugin(viewId, {
     Navigation: '' as Ref<ActionCategory>,
     Editor: '' as Ref<ActionCategory>,
     MarkdownFormatting: '' as Ref<ActionCategory>
+  },
+  extensions: {
+    EditDocTitleExtension: '' as ComponentExtensionId
   },
   filter: {
     FilterArrayAll: '' as Ref<FilterMode>,
@@ -289,10 +362,24 @@ const view = plugin(viewId, {
   popup: {
     PositionElementAlignment: '' as Resource<(e?: Event) => PopupAlignment | undefined>
   },
+  function: {
+    OpenDocument: '' as Resource<OpenDocumentFunction>
+  },
   actionImpl: {
     CopyTextToClipboard: '' as ViewAction<{
       textProvider: Resource<(doc: Doc, props: Record<string, any>) => Promise<string>>
       props?: Record<string, any>
+    }>,
+    CopyDocumentMarkdown: '' as ViewAction<{
+      contentClass: Ref<Class<Doc>>
+      contentField: string
+    }>,
+    CopyAsMarkdownTable: '' as ViewAction<{
+      cardClass: Ref<Class<Doc>>
+      viewlet?: Viewlet
+      config?: Array<string | any>
+      query?: DocumentQuery<Doc>
+      viewOptions?: any
     }>,
     UpdateDocument: '' as ViewAction<{
       key: string

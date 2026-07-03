@@ -13,9 +13,12 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { closePopup, closeTooltip, navigate, parseLocation } from '@hcengineering/ui'
+  import { getMetadata } from '@hcengineering/platform'
+  import uiPlugin, { closePopup, closeTooltip, navigate, parseLocation } from '@hcengineering/ui'
+  import presentation from '../plugin'
 
   export let href: string | undefined
+  export let title: string | undefined = undefined
   export let disabled = false
   export let onClick: ((event: MouseEvent) => void) | undefined = undefined
   export let noUnderline = disabled
@@ -24,6 +27,11 @@
   export let shrink: number = 1
   export let accent: boolean = false
   export let noOverflow: boolean = false
+  export let inlineReference: boolean = false
+  export let transparent: boolean = false
+  export let inlineBlock = false
+  export let noSelect: boolean = true
+  export let maxWidth: string | undefined = undefined
 
   function clickHandler (e: MouseEvent): void {
     if (disabled) return
@@ -43,11 +51,17 @@
       closeTooltip()
       try {
         const url = new URL(href)
+        const frontUrl = getMetadata(presentation.metadata.FrontUrl) ?? window.location.origin
+        if (url.origin === frontUrl) {
+          const loc = parseLocation(url)
+          const routes = getMetadata(uiPlugin.metadata.Routes)
+          const app = routes?.get(loc.path[0])
 
-        if (url.origin === window.location.origin) {
-          e.preventDefault()
-          e.stopPropagation()
-          navigate(parseLocation(url))
+          if (app !== undefined) {
+            e.preventDefault()
+            e.stopPropagation()
+            navigate(loc)
+          }
         }
       } catch {}
     }
@@ -63,9 +77,15 @@
     class:noUnderline={noUnderline || disabled}
     class:noOverflow
     class:inline
+    class:inlineBlock
     class:colorInherit
+    class:antiMention={inlineReference}
+    class:transparent
     class:fs-bold={accent}
+    class:select-text={!noSelect}
     style:flex-shrink={shrink}
+    style:max-width={maxWidth}
+    {title}
     on:click={clickHandler}
   >
     <slot />
@@ -76,9 +96,15 @@
     class:noUnderline={noUnderline || disabled}
     class:noOverflow
     class:inline
+    class:inlineBlock
     class:colorInherit
+    class:antiMention={inlineReference}
+    class:transparent
     class:fs-bold={accent}
     style:flex-shrink={shrink}
+    style:max-width={maxWidth}
+    class:select-text={!noSelect}
+    {title}
     on:click={clickHandler}
   >
     <slot />
@@ -87,7 +113,7 @@
 
 <style lang="scss">
   span,
-  a {
+  a:not(.antiMention) {
     min-width: 0;
     font-weight: inherit;
 
@@ -108,6 +134,11 @@
       display: inline-flex;
       align-items: center;
       text-decoration: none;
+      max-width: 100%;
+    }
+
+    &.inlineBlock {
+      display: inline-block;
     }
 
     &.noUnderline {

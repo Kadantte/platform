@@ -18,7 +18,7 @@ import {
   AttachedDoc,
   Attribute,
   Class,
-  CollaborativeDoc,
+  MarkupBlobRef,
   CollectionSize,
   Data,
   Doc,
@@ -29,13 +29,15 @@ import {
   Space,
   Status,
   Timestamp,
-  Type
+  Type,
+  type Permission
 } from '@hcengineering/core'
 import { Asset, IntlString, Plugin, Resource, plugin } from '@hcengineering/platform'
 import { Preference } from '@hcengineering/preference'
 import { TagCategory, TagElement, TagReference } from '@hcengineering/tags'
 import { ToDo } from '@hcengineering/time'
 import {
+  ProjectType,
   ProjectTypeDescriptor,
   Task,
   Project as TaskProject,
@@ -59,7 +61,7 @@ export interface IssueStatus extends Status {}
 export interface Project extends TaskProject, IconProps {
   identifier: string // Project identifier
   sequence: number
-  defaultIssueStatus: Ref<IssueStatus>
+  defaultIssueStatus?: Ref<IssueStatus>
   defaultAssignee?: Ref<Employee>
   defaultTimeReportDay: TimeReportDayType
 }
@@ -182,7 +184,7 @@ export interface Milestone extends Doc {
 export interface Issue extends Task {
   attachedTo: Ref<Issue>
   title: string
-  description: CollaborativeDoc
+  description: MarkupBlobRef | null
   status: Ref<IssueStatus>
   priority: IssuePriority
 
@@ -384,7 +386,8 @@ const pluginState = plugin(trackerId, {
   ids: {
     NoParent: '' as Ref<Issue>,
     IssueDraft: '',
-    IssueDraftChild: ''
+    IssueDraftChild: '',
+    ClassingProjectType: '' as Ref<ProjectType>
   },
   status: {
     Backlog: '' as Ref<Status>,
@@ -407,7 +410,8 @@ const pluginState = plugin(trackerId, {
     ProjectPresenter: '' as AnyComponent,
     CreateIssueTemplate: '' as AnyComponent,
     CreateProject: '' as AnyComponent,
-    IssueStatusPresenter: '' as AnyComponent
+    IssueStatusPresenter: '' as AnyComponent,
+    LabelsView: '' as AnyComponent
   },
   attribute: {
     IssueStatus: '' as Ref<Attribute<Status>>
@@ -429,6 +433,7 @@ const pluginState = plugin(trackerId, {
     Labels: '' as Asset,
     DueDate: '' as Asset,
     Parent: '' as Asset,
+    UnsetParent: '' as Asset,
     Milestone: '' as Asset,
     IssueTemplates: '' as Asset,
     Start: '' as Asset,
@@ -473,6 +478,7 @@ const pluginState = plugin(trackerId, {
     Issue: '' as Ref<TaskTypeDescriptor>
   },
   action: {
+    CopyAsMarkdownTable: '' as Ref<Action<Doc, any>>,
     SetDueDate: '' as Ref<Action<Doc, any>>,
     SetParent: '' as Ref<Action<Doc, any>>,
     SetStatus: '' as Ref<Action>,
@@ -492,7 +498,8 @@ const pluginState = plugin(trackerId, {
     EditProject: '' as Ref<Action>,
     SetMilestone: '' as Ref<Action<Doc, any>>,
     SetLabels: '' as Ref<Action<Doc, any>>,
-    EditRelatedTargets: '' as Ref<Action<Doc, any>>
+    EditRelatedTargets: '' as Ref<Action<Doc, any>>,
+    UnsetParent: '' as Ref<Action<Doc, any>>
   },
   project: {
     DefaultProject: '' as Ref<Project>
@@ -509,11 +516,14 @@ const pluginState = plugin(trackerId, {
     IssueNotificationChanged: '' as IntlString,
     IssueNotificationChangedProperty: '' as IntlString,
     IssueNotificationMessage: '' as IntlString,
-    IssueAssigneedToYou: '' as IntlString,
+    IssueAssignedToYou: '' as IntlString,
     Project: '' as IntlString,
     RelatedIssues: '' as IntlString,
     Issue: '' as IntlString,
-    NewProject: '' as IntlString
+    NewProject: '' as IntlString,
+    UnsetParentIssue: '' as IntlString,
+    ForbidCreateProjectPermission: '' as IntlString,
+    ForbidCreateProjectPermissionDescription: '' as IntlString
   },
   extensions: {
     IssueListHeader: '' as ComponentExtensionId,
@@ -523,6 +533,9 @@ const pluginState = plugin(trackerId, {
   taskTypes: {
     Issue: '' as Ref<TaskType>,
     SubIssue: '' as Ref<TaskType>
+  },
+  permission: {
+    ForbidCreateProject: '' as Ref<Permission>
   }
 })
 export default pluginState

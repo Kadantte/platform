@@ -1,19 +1,22 @@
 /* eslint-disable @typescript-eslint/unbound-method */
+import card from '@hcengineering/card'
 import {
   DOMAIN_BENCHMARK,
   DOMAIN_BLOB,
-  DOMAIN_FULLTEXT_BLOB,
   DOMAIN_MODEL,
   DOMAIN_TRANSIENT,
   DOMAIN_TX,
   Hierarchy,
   ModelDb,
+  systemAccountUuid,
   type Branding,
+  type Class,
+  type Doc,
   type MeasureContext,
+  type Ref,
   type Tx,
-  type WorkspaceIdWithUrl
+  type WorkspaceIds
 } from '@hcengineering/core'
-import { createElasticAdapter, createElasticBackupDataAdapter } from '@hcengineering/elastic'
 import {
   ApplyTxMiddleware,
   BroadcastMiddleware,
@@ -23,38 +26,37 @@ import {
   DBAdapterMiddleware,
   DomainFindMiddleware,
   DomainTxMiddleware,
+  FindSecurityMiddleware,
+  FullTextMiddleware,
+  GuestPermissionsMiddleware,
+  IdentityMiddleware,
   LiveQueryMiddleware,
   LookupMiddleware,
   LowLevelMiddleware,
   MarkDerivedEntryMiddleware,
   ModelMiddleware,
   ModifiedMiddleware,
+  IdentifierMiddleware,
+  NormalizeTxMiddleware,
+  PluginConfigurationMiddleware,
   PrivateMiddleware,
   QueryJoinMiddleware,
+  QueueMiddleware,
+  RankMiddleware,
   SpacePermissionsMiddleware,
   SpaceSecurityMiddleware,
+  VersioningMiddleware,
   TriggersMiddleware,
   TxMiddleware,
-  NotificationsMiddleware
+  TxOrderingMiddleware,
+  UserStatusMiddleware
 } from '@hcengineering/middleware'
-import { createMongoAdapter, createMongoTxAdapter } from '@hcengineering/mongo'
-import { createPostgresAdapter, createPostgresTxAdapter } from '@hcengineering/postgres'
-import {
-  buildStorageFromConfig,
-  createNullAdapter,
-  createRekoniAdapter,
-  createStorageDataAdapter,
-  createYDocAdapter,
-  storageConfigFromEnv
-} from '@hcengineering/server'
 import {
   createBenchmarkAdapter,
   createInMemoryAdapter,
+  createNullAdapter,
   createPipeline,
-  DummyDbAdapter,
-  DummyFullTextAdapter,
-  FullTextMiddleware,
-  type AggregatorStorageAdapter,
+  type BroadcastOps,
   type DbAdapterFactory,
   type DbConfiguration,
   type Middleware,
@@ -62,10 +64,15 @@ import {
   type Pipeline,
   type PipelineContext,
   type PipelineFactory,
+  type PlatformQueue,
   type StorageAdapter,
-  type StorageConfiguration
+  type WorkspaceDestroyAdapter
 } from '@hcengineering/server-core'
-import { createIndexStages } from './indexing'
+import { generateToken } from '@hcengineering/server-token'
+import { createStorageDataAdapter } from './blobStorage'
+import { CommunicationMiddleware, type CommunicationApiFactory } from './communication'
+
+import { RatingMiddleware } from '@hcengineering/server-rating'
 
 /**
  * @public
@@ -73,14 +80,10 @@ import { createIndexStages } from './indexing'
 
 export function getTxAdapterFactory (
   metrics: MeasureContext,
-  dbUrls: string,
-  workspace: WorkspaceIdWithUrl,
+  dbUrl: string,
+  workspace: WorkspaceIds,
   branding: Branding | null,
   opt: {
-    fullTextUrl: string
-    rekoniUrl: string
-    indexProcessing: number // 1000
-    indexParallel: number // 2
     disableTriggers?: boolean
     usePassedCtx?: boolean
 
@@ -88,10 +91,23 @@ export function getTxAdapterFactory (
   },
   extensions?: Partial<DbConfiguration>
 ): DbAdapterFactory {
-  const conf = getConfig(metrics, dbUrls, workspace, branding, metrics, opt, extensions)
+  const conf = getConfig(metrics, dbUrl, metrics, opt, extensions)
   const adapterName = conf.domains[DOMAIN_TX] ?? conf.defaultAdapter
   const adapter = conf.adapters[adapterName]
   return adapter.factory
+}
+
+function addMessagesToFullText (fulltext: MiddlewareCreator): MiddlewareCreator {
+  return async (ctx: MeasureContext, context: PipelineContext, next?: Middleware) => {
+    const result: FullTextMiddleware = (await fulltext(ctx, context, next)) as FullTextMiddleware
+    result.addExtraFind = (baseClass, childClasses) => {
+      if (context.hierarchy.isDerived(baseClass, card.class.Card)) {
+        // Using Card as base class because messages are the same for any card subclass
+        childClasses.add(`${card.class.Card}%message` as Ref<Class<Doc>>)
+      }
+    }
+    return result
+  }
 }
 
 /**
@@ -100,46 +116,72 @@ export function getTxAdapterFactory (
 
 export function createServerPipeline (
   metrics: MeasureContext,
-  dbUrls: string,
+  dbUrl: string,
   model: Tx[],
   opt: {
-    fullTextUrl: string
-    rekoniUrl: string
-    indexProcessing: number // 1000
-    indexParallel: number // 2
+    fulltextUrl?: string
     disableTriggers?: boolean
     usePassedCtx?: boolean
     adapterSecurity?: boolean
 
     externalStorage: StorageAdapter
+
+    queue?: PlatformQueue
+
+    extraLogging?: boolean // If passed, will log every request/etc.
+    pipelineContextVars?: Record<string, any>
+    communicationApiFactory?: CommunicationApiFactory
   },
   extensions?: Partial<DbConfiguration>
 ): PipelineFactory {
-  return (ctx, workspace, upgrade, broadcast, branding) => {
+  return (ctx, workspace, broadcast, branding) => {
     const metricsCtx = opt.usePassedCtx === true ? ctx : metrics
-    const wsMetrics = metricsCtx.newChild('🧲 session', {})
-    const conf = getConfig(metrics, dbUrls, workspace, branding, wsMetrics, opt, extensions)
+    const wsMetrics = metricsCtx.newChild('🧲 session', {}, { span: false })
+    const conf = getConfig(metrics, dbUrl, wsMetrics, opt, extensions)
 
     const middlewares: MiddlewareCreator[] = [
       LookupMiddleware.create,
+      NormalizeTxMiddleware.create,
+      IdentityMiddleware.create,
       ModifiedMiddleware.create,
+      RankMiddleware.create,
+      FindSecurityMiddleware.create,
+      PluginConfigurationMiddleware.create,
       PrivateMiddleware.create,
-      NotificationsMiddleware.create,
       (ctx: MeasureContext, context: PipelineContext, next?: Middleware) =>
         SpaceSecurityMiddleware.create(opt.adapterSecurity ?? false, ctx, context, next),
       SpacePermissionsMiddleware.create,
+      GuestPermissionsMiddleware.create,
       ConfigurationMiddleware.create,
-      LowLevelMiddleware.create,
       ContextNameMiddleware.create,
       MarkDerivedEntryMiddleware.create,
+      ...(opt.communicationApiFactory !== undefined
+        ? [CommunicationMiddleware.create(opt.communicationApiFactory)]
+        : []),
+      UserStatusMiddleware.create,
       ApplyTxMiddleware.create, // Extract apply
+      VersioningMiddleware.create,
+      IdentifierMiddleware.create, // After ApplyTx to ensure that it pass
+      RatingMiddleware.create, // Rating editing restrictions
       TxMiddleware.create, // Store tx into transaction domain
       ...(opt.disableTriggers === true ? [] : [TriggersMiddleware.create]),
-      FullTextMiddleware.create(conf, upgrade),
+      ...(opt.fulltextUrl !== undefined
+        ? [
+            addMessagesToFullText(
+              FullTextMiddleware.create(
+                opt.fulltextUrl,
+                generateToken(systemAccountUuid, workspace.uuid, { service: 'transactor' })
+              )
+            )
+          ]
+        : []),
+      LowLevelMiddleware.create,
+      TxOrderingMiddleware.create(),
       QueryJoinMiddleware.create,
       LiveQueryMiddleware.create,
       DomainFindMiddleware.create,
       DomainTxMiddleware.create,
+      ...(opt.queue !== undefined ? [QueueMiddleware.create(opt.queue)] : []),
       DBAdapterInitMiddleware.create,
       ModelMiddleware.create(model),
       DBAdapterMiddleware.create(conf), // Configure DB adapters
@@ -153,7 +195,9 @@ export function createServerPipeline (
       branding,
       modelDb,
       hierarchy,
-      storageAdapter: opt.externalStorage
+      queue: opt.queue,
+      storageAdapter: opt.externalStorage,
+      contextVars: opt.pipelineContextVars ?? {}
     }
     return createPipeline(ctx, middlewares, context)
   }
@@ -165,7 +209,7 @@ export function createServerPipeline (
 
 export function createBackupPipeline (
   metrics: MeasureContext,
-  dbUrls: string,
+  dbUrl: string,
   systemTx: Tx[],
   opt: {
     usePassedCtx?: boolean
@@ -174,41 +218,18 @@ export function createBackupPipeline (
     externalStorage: StorageAdapter
   }
 ): PipelineFactory {
-  return (ctx, workspace, upgrade, broadcast, branding) => {
+  return (ctx, workspace, broadcast, branding) => {
     const metricsCtx = opt.usePassedCtx === true ? ctx : metrics
-    const wsMetrics = metricsCtx.newChild('🧲 backup', {})
-    const conf = getConfig(
-      metrics,
-      dbUrls,
-      workspace,
-      branding,
-      wsMetrics,
-      {
-        ...opt,
-        fullTextUrl: '',
-        indexParallel: 0,
-        indexProcessing: 0,
-        rekoniUrl: '',
-        disableTriggers: true
-      },
-      {
-        adapters: {
-          FullTextBlob: {
-            factory: async () => new DummyDbAdapter(),
-            url: ''
-          }
-        },
-        fulltextAdapter: {
-          factory: async () => new DummyFullTextAdapter(),
-          stages: () => [],
-          url: ''
-        }
-      }
-    )
+    const wsMetrics = metricsCtx.newChild('🧲 backup', {}, { span: false })
+    const conf = getConfig(metrics, dbUrl, wsMetrics, {
+      ...opt,
+      disableTriggers: true
+    })
 
     const middlewares: MiddlewareCreator[] = [
       LowLevelMiddleware.create,
       ContextNameMiddleware.create,
+      // ConnectionMgrMiddleware.create,
       DomainFindMiddleware.create,
       DBAdapterInitMiddleware.create,
       ModelMiddleware.create(systemTx),
@@ -222,82 +243,122 @@ export function createBackupPipeline (
       branding,
       modelDb,
       hierarchy,
-      storageAdapter: opt.externalStorage
+      storageAdapter: opt.externalStorage,
+      contextVars: {}
     }
     return createPipeline(ctx, middlewares, context)
+  }
+}
+
+export function createEmptyBroadcastOps (): BroadcastOps {
+  return {
+    broadcast: (): void => {},
+    broadcastSessions: (): void => {}
   }
 }
 
 export async function getServerPipeline (
   ctx: MeasureContext,
   model: Tx[],
-  mongodbUri: string,
-  dbUrl: string | undefined,
-  wsUrl: WorkspaceIdWithUrl
-): Promise<{
-    pipeline: Pipeline
-    storageAdapter: AggregatorStorageAdapter
-  }> {
-  const dbUrls = dbUrl !== undefined ? `${dbUrl};${mongodbUri}` : mongodbUri
-
-  const storageConfig: StorageConfiguration = storageConfigFromEnv()
-  const storageAdapter = buildStorageFromConfig(storageConfig, mongodbUri)
-
-  const pipelineFactory = createServerPipeline(
-    ctx,
-    dbUrls,
-    model,
-    {
-      externalStorage: storageAdapter,
-      fullTextUrl: 'http://localhost:9200',
-      indexParallel: 0,
-      indexProcessing: 0,
-      rekoniUrl: '',
-      usePassedCtx: true,
-      disableTriggers: true
-    },
-    {
-      fulltextAdapter: {
-        factory: async () => new DummyFullTextAdapter(),
-        url: '',
-        stages: (adapter, storage, storageAdapter, contentAdapter) =>
-          createIndexStages(
-            ctx.newChild('stages', {}),
-            wsUrl,
-            null,
-            adapter,
-            storage,
-            storageAdapter,
-            contentAdapter,
-            0,
-            0
-          )
-      }
-    }
-  )
-
-  try {
-    return {
-      pipeline: await pipelineFactory(ctx, wsUrl, true, () => {}, null),
-      storageAdapter
-    }
-  } catch (err: any) {
-    await storageAdapter.close()
-    throw err
+  dbUrl: string,
+  wsUrl: WorkspaceIds,
+  storageAdapter: StorageAdapter,
+  opt?: {
+    queue?: PlatformQueue
+    disableTriggers?: boolean
+    communicationApiFactory?: CommunicationApiFactory
   }
+): Promise<Pipeline> {
+  const pipelineFactory = createServerPipeline(ctx, dbUrl, model, {
+    externalStorage: storageAdapter,
+    usePassedCtx: true,
+    disableTriggers: opt?.disableTriggers ?? false,
+    adapterSecurity: isAdapterSecurity(dbUrl),
+    queue: opt?.queue,
+    communicationApiFactory: opt?.communicationApiFactory
+  })
+
+  return await pipelineFactory(ctx, wsUrl, createEmptyBroadcastOps(), null)
+}
+
+const txAdapterFactories: Record<string, DbAdapterFactory> = {}
+const adapterFactories: Record<string, DbAdapterFactory> = {}
+const destroyFactories: Record<string, (url: string) => WorkspaceDestroyAdapter> = {}
+const adapterSecurityState = new Set<string>()
+
+export function isAdapterSecurity (name: string): boolean {
+  for (const it of adapterSecurityState) {
+    if (name.startsWith(it)) {
+      return true
+    }
+  }
+  return false
+}
+export function setAdapterSecurity (name: string, state: boolean): void {
+  if (state) {
+    adapterSecurityState.add(name)
+  } else {
+    adapterSecurityState.delete(name)
+  }
+}
+
+export function registerTxAdapterFactory (name: string, factory: DbAdapterFactory, useAsDefault: boolean = true): void {
+  txAdapterFactories[name] = factory
+  if (useAsDefault) {
+    txAdapterFactories[''] = factory
+  }
+}
+
+export function registerAdapterFactory (name: string, factory: DbAdapterFactory, useAsDefault: boolean = true): void {
+  adapterFactories[name] = factory
+  if (useAsDefault) {
+    adapterFactories[''] = factory
+  }
+}
+
+export function registerDestroyFactory (
+  name: string,
+  factory: (url: string) => WorkspaceDestroyAdapter,
+  useAsDefault: boolean = true
+): void {
+  destroyFactories[name] = factory
+  if (useAsDefault) {
+    destroyFactories[''] = factory
+  }
+}
+
+function matchTxAdapterFactory (dbUrl: string): DbAdapterFactory {
+  for (const [k, v] of Object.entries(txAdapterFactories)) {
+    if (k !== '' && dbUrl.startsWith(k)) {
+      return v
+    }
+  }
+  return txAdapterFactories['']
+}
+
+function matchAdapterFactory (dbUrl: string): DbAdapterFactory {
+  for (const [k, v] of Object.entries(adapterFactories)) {
+    if (k !== '' && dbUrl.startsWith(k)) {
+      return v
+    }
+  }
+  return adapterFactories['']
+}
+
+export function getWorkspaceDestroyAdapter (dbUrl: string): WorkspaceDestroyAdapter {
+  for (const [k, v] of Object.entries(destroyFactories)) {
+    if (dbUrl.startsWith(k)) {
+      return v(dbUrl)
+    }
+  }
+  return destroyFactories[''](dbUrl)
 }
 
 export function getConfig (
   metrics: MeasureContext,
-  dbUrls: string,
-  workspace: WorkspaceIdWithUrl,
-  branding: Branding | null,
+  dbUrl: string,
   ctx: MeasureContext,
   opt: {
-    fullTextUrl: string
-    rekoniUrl: string
-    indexProcessing: number // 1000
-    indexParallel: number // 2
     disableTriggers?: boolean
     usePassedCtx?: boolean
 
@@ -306,14 +367,12 @@ export function getConfig (
   extensions?: Partial<DbConfiguration>
 ): DbConfiguration {
   const metricsCtx = opt.usePassedCtx === true ? ctx : metrics
-  const wsMetrics = metricsCtx.newChild('🧲 session', {})
-  const [dbUrl, mongoUrl] = dbUrls.split(';')
+  const wsMetrics = metricsCtx.newChild('🧲 session', {}, { span: false })
   const conf: DbConfiguration = {
     domains: {
       [DOMAIN_TX]: 'Tx',
       [DOMAIN_TRANSIENT]: 'InMemory',
       [DOMAIN_BLOB]: 'StorageData',
-      [DOMAIN_FULLTEXT_BLOB]: 'FullTextBlob',
       [DOMAIN_MODEL]: 'Null',
       [DOMAIN_BENCHMARK]: 'Benchmark',
       ...extensions?.domains
@@ -322,11 +381,11 @@ export function getConfig (
     defaultAdapter: extensions?.defaultAdapter ?? 'Main',
     adapters: {
       Tx: {
-        factory: mongoUrl !== undefined ? createPostgresTxAdapter : createMongoTxAdapter,
+        factory: matchTxAdapterFactory(dbUrl),
         url: dbUrl
       },
       Main: {
-        factory: mongoUrl !== undefined ? createPostgresAdapter : createMongoAdapter,
+        factory: matchAdapterFactory(dbUrl),
         url: dbUrl
       },
       Null: {
@@ -339,11 +398,7 @@ export function getConfig (
       },
       StorageData: {
         factory: createStorageDataAdapter,
-        url: mongoUrl ?? dbUrl
-      },
-      FullTextBlob: {
-        factory: createElasticBackupDataAdapter,
-        url: opt.fullTextUrl
+        url: ''
       },
       Benchmark: {
         factory: createBenchmarkAdapter,
@@ -351,37 +406,7 @@ export function getConfig (
       },
       ...extensions?.adapters
     },
-    fulltextAdapter: extensions?.fulltextAdapter ?? {
-      factory: createElasticAdapter,
-      url: opt.fullTextUrl,
-      stages: (adapter, storage, storageAdapter, contentAdapter) =>
-        createIndexStages(
-          wsMetrics.newChild('stages', {}),
-          workspace,
-          branding,
-          adapter,
-          storage,
-          storageAdapter,
-          contentAdapter,
-          opt.indexParallel,
-          opt.indexProcessing
-        )
-    },
-    serviceAdapters: extensions?.serviceAdapters ?? {},
-    contentAdapters: {
-      Rekoni: {
-        factory: createRekoniAdapter,
-        contentType: '*',
-        url: opt.rekoniUrl
-      },
-      YDoc: {
-        factory: createYDocAdapter,
-        contentType: 'application/ydoc',
-        url: ''
-      },
-      ...extensions?.contentAdapters
-    },
-    defaultContentAdapter: extensions?.defaultContentAdapter ?? 'Rekoni'
+    serviceAdapters: extensions?.serviceAdapters ?? {}
   }
   return conf
 }

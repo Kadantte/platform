@@ -18,7 +18,7 @@
   import { RuleApplyResult, getClient, getDocRules } from '@hcengineering/presentation'
   import { Component, Issue, IssueTemplate, Project, TrackerEvents } from '@hcengineering/tracker'
   import { ButtonKind, ButtonShape, ButtonSize, deviceOptionsStore as deviceInfo } from '@hcengineering/ui'
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, afterUpdate } from 'svelte'
   import { Analytics } from '@hcengineering/analytics'
 
   import { activeComponent } from '../../issues'
@@ -35,6 +35,7 @@
   export let shape: ButtonShape = undefined
   export let justify: 'left' | 'center' = 'left'
   export let width: string | undefined = '100%'
+  export let maxWidth: string | undefined = undefined
   // export let onlyIcon: boolean = false
   export let isAction: boolean = false
   export let groupBy: string | undefined = undefined
@@ -46,6 +47,8 @@
   const client = getClient()
 
   const dispatch = createEventDispatcher()
+
+  let element: HTMLDivElement
 
   const handleComponentIdChanged = async (newComponentId: Ref<Component> | null | undefined) => {
     if (!isEditable || newComponentId === undefined || (!Array.isArray(value) && value.component === newComponentId)) {
@@ -101,11 +104,13 @@
       }
     }
   }
+
+  afterUpdate(() => dispatch('resize', element?.clientWidth))
 </script>
 
 {#if kind === 'list'}
   {#if !Array.isArray(value) && value.component}
-    <div class={compression ? 'label-wrapper' : 'clear-mins'}>
+    <div bind:this={element} class={compression ? 'label-wrapper' : 'clear-mins'} style:max-width={maxWidth}>
       <ComponentSelector
         {kind}
         {size}
@@ -127,9 +132,11 @@
   {/if}
 {:else}
   <div
+    bind:this={element}
     class="flex flex-wrap clear-mins"
     class:minus-margin={kind === 'list-header'}
     class:label-wrapper={compression}
+    style:max-width={maxWidth}
     style:flex-direction={twoRows ? 'column' : 'row'}
   >
     {#if (!Array.isArray(value) && value.component && value.component !== $activeComponent && groupBy !== 'component') || shouldShowPlaceholder}

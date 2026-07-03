@@ -53,7 +53,7 @@
     }
 
     const data: Omit<Data<Folder>, 'path'> = {
-      name: getTitle(name),
+      title: getTitle(name),
       parent: _parent ?? drive.ids.Root
     }
 
@@ -95,7 +95,7 @@
       kind={'regular'}
       size={'small'}
       label={drive.string.Root}
-      searchField={'name'}
+      searchField={'title'}
       allowDeselect
       showNavigate={false}
       docProps={{ disabled: true, noUnderline: true }}

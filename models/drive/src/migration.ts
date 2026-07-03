@@ -14,7 +14,7 @@
 //
 
 import core, { type Blob, type Ref, DOMAIN_BLOB, generateId, toIdMap } from '@hcengineering/core'
-import type { File, FileVersion } from '@hcengineering/drive'
+import type { File, FileVersion, Resource } from '@hcengineering/drive'
 import {
   type MigrateOperation,
   type MigrationClient,
@@ -57,7 +57,7 @@ async function migrateFileVersions (client: MigrationClient): Promise<void> {
       modifiedOn: file.modifiedOn,
       modifiedBy: file.modifiedBy,
       space: file.space,
-      name: exfile.name,
+      title: exfile.title,
       file: blob._id,
       size: blob.size,
       lastModified: blob.modifiedOn,
@@ -73,11 +73,9 @@ async function migrateFileVersions (client: MigrationClient): Promise<void> {
         _class: file._class
       },
       {
-        $set: {
-          version: 1,
-          versions: 1,
-          file: fileVersionId
-        },
+        version: 1,
+        versions: 1,
+        file: fileVersionId,
         $unset: {
           metadata: 1
         }
@@ -86,17 +84,57 @@ async function migrateFileVersions (client: MigrationClient): Promise<void> {
   }
 }
 
+async function renameFields (client: MigrationClient): Promise<void> {
+  const resources = await client.find<Resource>(DOMAIN_DRIVE, {
+    _class: { $in: [drive.class.Resource, drive.class.File, drive.class.Folder] },
+    name: { $exists: true }
+  })
+
+  for (const resource of resources) {
+    await client.update(
+      DOMAIN_DRIVE,
+      { _id: resource._id },
+      {
+        $rename: {
+          name: 'title'
+        }
+      }
+    )
+  }
+
+  const versions = await client.find<FileVersion>(DOMAIN_DRIVE, {
+    _class: drive.class.FileVersion,
+    name: { $exists: true }
+  })
+
+  for (const version of versions) {
+    await client.update(
+      DOMAIN_DRIVE,
+      { _id: version._id },
+      {
+        $rename: {
+          name: 'title'
+        }
+      }
+    )
+  }
+}
+
 export const driveOperation: MigrateOperation = {
-  async migrate (client: MigrationClient): Promise<void> {
-    await tryMigrate(client, driveId, [
+  async migrate (client: MigrationClient, mode): Promise<void> {
+    await tryMigrate(mode, client, driveId, [
       {
         state: 'file-versions',
         func: migrateFileVersions
+      },
+      {
+        state: 'renameFields',
+        func: renameFields
       }
     ])
   },
 
-  async upgrade (state: Map<string, Set<string>>, client: () => Promise<MigrationUpgradeClient>): Promise<void> {
-    await tryUpgrade(state, client, driveId, [])
+  async upgrade (state: Map<string, Set<string>>, client: () => Promise<MigrationUpgradeClient>, mode): Promise<void> {
+    await tryUpgrade(mode, state, client, driveId, [])
   }
 }

@@ -24,7 +24,8 @@
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { Integration } from '@hcengineering/setting'
   import templates, { TemplateDataProvider } from '@hcengineering/templates'
-  import { EmptyMarkup, isEmptyMarkup, markupToHTML } from '@hcengineering/text'
+  import { EmptyMarkup, isEmptyMarkup, markupToJSON } from '@hcengineering/text'
+  import { markupToHtml } from '@hcengineering/text-html'
   import { StyledTextEditor } from '@hcengineering/text-editor-resources'
   import { Button, EditBox, IconArrowLeft, IconAttachment, Label, Scroller } from '@hcengineering/ui'
   import { createEventDispatcher, onDestroy } from 'svelte'
@@ -71,7 +72,7 @@
       core.space.Workspace,
       {
         ...obj,
-        content: markupToHTML(content),
+        content: markupToHtml(markupToJSON(content)),
         attachments: attachments.length,
         from: selectedIntegration.createdBy,
         copy: copy
@@ -82,7 +83,7 @@
       objectId
     )
     Analytics.handleEvent(GmailEvents.SentEmail, { to: channel.value })
-    await inboxClient.forceReadDoc(getClient(), channel._id, channel._class)
+    await inboxClient.forceReadDoc(channel)
     objectId = generateId()
     dispatch('close')
   }
@@ -118,7 +119,7 @@
   async function createAttachment (file: File) {
     try {
       const uploadFile = await getResource(attachmentP.helper.UploadFile)
-      const uuid = await uploadFile(file)
+      const { uuid, metadata } = await uploadFile(file)
       await client.addCollection(
         attachmentP.class.Attachment,
         core.space.Workspace,
@@ -130,11 +131,11 @@
           file: uuid,
           type: file.type,
           size: file.size,
-          lastModified: file.lastModified
+          lastModified: file.lastModified,
+          metadata
         }
       )
     } catch (err: any) {
-      Analytics.handleError(err)
       setPlatformStatus(unknownError(err))
     }
   }

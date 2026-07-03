@@ -64,6 +64,10 @@ export const documentAllVersionsUpdated = createEvent<ControlledDocument[]>(
 
 export const reviewRequestUpdated = createEvent<DocumentReviewRequest>(generateActionName('reviewRequestUpdated'))
 
+export const reviewRequestHistoryUpdated = createEvent<DocumentReviewRequest[]>(
+  generateActionName('reviewRequestHistoryUpdated')
+)
+
 export const approvalRequestUpdated = createEvent<DocumentApprovalRequest>(generateActionName('approvalRequestUpdated'))
 
 export const editorModeUpdated = createEvent<EditorMode>(generateActionName('editorModeUpdated'))
@@ -91,6 +95,10 @@ export const documentSnapshotsUpdated = createEvent<ControlledDocumentSnapshot[]
 export const savedAttachmentsUpdated = createEvent<Array<Ref<Attachment>>>(
   generateActionName('savedAttachmentsUpdated')
 )
+
+export const documentCommentsAddCanceled = createEvent<{
+  nodeId?: string | null
+}>(generateActionName('documentCommentsAddCanceled'))
 
 export const documentCommentsDisplayRequested = createEvent<{
   nodeId?: string | null

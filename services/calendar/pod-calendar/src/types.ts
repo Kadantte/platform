@@ -14,39 +14,31 @@
 //
 
 import { RecurringRule } from '@hcengineering/calendar'
-import type { Account, Ref, Timestamp } from '@hcengineering/core'
+import type { AccountUuid, PersonId, Timestamp, WorkspaceUuid } from '@hcengineering/core'
 import type { NextFunction, Request, Response } from 'express'
 import type { Credentials } from 'google-auth-library'
 
-export interface Watch {
-  timer: NodeJS.Timeout
+export type GoogleEmail = string & { googleEmail: true }
+
+export interface WatchBase {
+  email: GoogleEmail
+  expired: Timestamp
   channelId: string
   resourceId: string
+  calendarId: string | null
 }
 
-export interface EventWatch {
-  timer: NodeJS.Timeout
+export interface CalendarsWatch extends WatchBase {
+  calendarId: null
+}
+
+export interface EventWatch extends WatchBase {
   calendarId: string
-  channelId: string
-  resourceId: string
 }
 
-export type Token = User & Credentials
+export type Watch = CalendarsWatch | EventWatch
 
-export interface CalendarHistory {
-  userId: Ref<Account>
-  workspace: string
-  email: string
-  historyId: string
-}
-
-export interface EventHistory {
-  calendarId: string
-  userId: Ref<Account>
-  workspace: string
-  email: string
-  historyId: string
-}
+export type Token = User & Credentials & { email: GoogleEmail }
 
 export interface SyncHistory {
   workspace: string
@@ -60,14 +52,14 @@ export interface ReccuringData {
 }
 
 export interface User {
-  email: string
-  userId: Ref<Account>
-  workspace: string
-  token: string
+  userId: PersonId
+  workspace: WorkspaceUuid
 }
 
-export type State = User & {
+export interface State {
   redirectURL: string
+  workspace: WorkspaceUuid
+  accountUuid: AccountUuid
 }
 
 export interface AttachedFile {
@@ -101,3 +93,10 @@ export interface ProjectCredentialsData {
   client_secret: string
   redirect_uris: string[]
 }
+
+export const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.calendars.readonly',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/userinfo.email'
+]

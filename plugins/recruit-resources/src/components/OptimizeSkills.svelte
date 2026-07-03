@@ -13,7 +13,7 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Class, Doc, Ref, toIdMap } from '@hcengineering/core'
+  import { Class, Doc, platformNow, platformNowDiff, Ref, toIdMap } from '@hcengineering/core'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import { Card, getClient } from '@hcengineering/presentation'
   import tags, { TagCategory, TagElement, TagReference } from '@hcengineering/tags'
@@ -232,7 +232,8 @@
     goodTagMap = toIdMap(goodTags)
 
     const goodSortedTags = goodTags
-      .toSorted((a, b) => b.title.length - a.title.length)
+      .slice()
+      .sort((a, b) => b.title.length - a.title.length)
       .filter((t) => t.title.length > 2)
     const goodSortedTagsTitles = new Map<Ref<TagElement>, string>()
     processed = -1
@@ -251,7 +252,7 @@
 
     const tagElementIds = new Map<Ref<TagElement>, TagUpdatePlan['elements'][0]>()
 
-    for (const tag of tagElements.toSorted((a, b) => prepareTitle(a.title).length - prepareTitle(b.title).length)) {
+    for (const tag of tagElements.slice().sort((a, b) => prepareTitle(a.title).length - prepareTitle(b.title).length)) {
       processed++
       const refs = allRefs.filter((it) => it.tag === tag._id)
       if (goodTagMap.has(tag._id)) {
@@ -459,7 +460,7 @@
     const client = getClient()
     for (const item of searchPlanElements) {
       console.log('Apply', item.original.title)
-      const st = Date.now()
+      const st = platformNow()
       const ops = client.apply(undefined, 'optimize-skill')
       let allRefs: TagReference[] = await client.findAll(tags.class.TagReference, { tag: item.original._id })
 
@@ -539,7 +540,7 @@
           })
         }
       }
-      console.log('Apply:commit', item.original.title, Date.now() - st)
+      console.log('Apply:commit', item.original.title, platformNowDiff(st))
       await ops.commit(false)
       processed++
     }

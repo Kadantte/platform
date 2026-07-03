@@ -4,16 +4,22 @@
 
 import { type Doc } from '@hcengineering/core'
 import { type IntlString, type Metadata, type Plugin, plugin, type Asset, type Resource } from '@hcengineering/platform'
-import { type AnyComponent } from '@hcengineering/ui'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
 
 export const printId = 'print' as Plugin
 
 export const print = plugin(printId, {
   string: {
-    PrintToPDF: '' as IntlString
+    PrintToPDF: '' as IntlString,
+    PrintingDocumentOf: '' as IntlString,
+    DownloadAll: '' as IntlString,
+    PrintFailed: '' as IntlString,
+    PrintSettings: '' as IntlString,
+    LandscapeMode: '' as IntlString
   },
   component: {
     PrintToPDF: '' as AnyComponent,
+    PrintBulkToPDF: '' as AnyComponent,
     DOCXViewer: '' as AnyComponent
   },
   icon: {

@@ -15,27 +15,29 @@
 -->
 <script lang="ts">
   import { AttachmentStyleBoxCollabEditor } from '@hcengineering/attachment-resources'
-  import core, { ClassifierKind, Data, Doc, Mixin, Ref } from '@hcengineering/core'
+  import { Data, Doc, type MarkupBlobRef, Mixin, Ref } from '@hcengineering/core'
   import notification from '@hcengineering/notification'
   import { Panel } from '@hcengineering/panel'
   import { getResource } from '@hcengineering/platform'
   import presentation, { createQuery, getClient } from '@hcengineering/presentation'
   import { Vacancy } from '@hcengineering/recruit'
+  import survey from '@hcengineering/survey'
   import tracker from '@hcengineering/tracker'
   import { Button, Component, EditBox, IconMixin, IconMoreH, Label } from '@hcengineering/ui'
   import view from '@hcengineering/view'
-  import { DocAttributeBar, DocNavLink, showMenu } from '@hcengineering/view-resources'
+  import { DocAttributeBar, DocNavLink, getDocMixins, showMenu } from '@hcengineering/view-resources'
   import { createEventDispatcher, onDestroy } from 'svelte'
   import recruit from '../plugin'
   import VacancyApplications from './VacancyApplications.svelte'
 
   export let _id: Ref<Vacancy>
   export let embedded: boolean = false
+  export let readonly = false
 
   let object: Required<Vacancy>
   let rawName: string = ''
   let rawDesc: string = ''
-  let rawFullDesc: string = ''
+  let rawFullDesc: MarkupBlobRef | null = null
   let lastId: Ref<Vacancy> | undefined = undefined
 
   let showAllMixins = false
@@ -44,7 +46,7 @@
   const inboxClient = getResource(notification.function.GetInboxNotificationsClient).then((res) => res())
 
   onDestroy(async () => {
-    void inboxClient.then((client) => client.readDoc(getClient(), _id))
+    void inboxClient.then((client) => client.readDoc(_id))
   })
 
   const client = getClient()
@@ -57,7 +59,7 @@
       const prev = lastId
       lastId = _id
       if (prev !== undefined) {
-        void inboxClient.then((client) => client.readDoc(getClient(), prev))
+        void inboxClient.then((client) => client.readDoc(prev))
       }
       query.query(recruit.class.Vacancy, { _id }, (result) => {
         object = result[0] as Required<Vacancy>
@@ -70,24 +72,10 @@
 
   $: updateObject(_id)
 
-  const ignoreMixins: Set<Ref<Mixin<Doc>>> = new Set<Ref<Mixin<Doc>>>()
   const hierarchy = client.getHierarchy()
   let mixins: Mixin<Doc>[] = []
 
-  function getMixins (object: Doc, showAllMixins: boolean): void {
-    if (object === undefined) return
-    const descendants = hierarchy.getDescendants(core.class.Doc).map((p) => hierarchy.getClass(p))
-
-    mixins = descendants.filter(
-      (m) =>
-        m.kind === ClassifierKind.MIXIN &&
-        !ignoreMixins.has(m._id) &&
-        (hierarchy.hasMixin(object, m._id) ||
-          (showAllMixins && hierarchy.isDerived(object._class, hierarchy.getBaseClass(m._id))))
-    )
-  }
-
-  $: getMixins(object, showAllMixins)
+  $: mixins = getDocMixins(object, showAllMixins)
 
   let descriptionBox: AttachmentStyleBoxCollabEditor
   $: descriptionKey = client.getHierarchy().getAttribute(recruit.class.Vacancy, 'fullDescription')
@@ -99,9 +87,13 @@
 
     const updates: Partial<Data<Vacancy>> = {}
     const trimmedName = rawName.trim()
+    const trimmedNameOld = object.name?.trim()
 
-    if (trimmedName.length > 0 && trimmedName !== object.name?.trim()) {
+    if (trimmedName.length > 0 && (trimmedName !== trimmedNameOld || trimmedNameOld !== object.name)) {
       updates.name = trimmedName
+      rawName = trimmedName
+    } else {
+      rawName = object.name
     }
 
     if (rawDesc !== object.description) {
@@ -140,6 +132,7 @@
         <DocAttributeBar
           {object}
           {mixins}
+          {readonly}
           ignoreKeys={['name', 'fullDescription', 'private', 'archived', 'type', 'owners']}
         />
       {/if}
@@ -151,6 +144,7 @@
       kind={'large-style'}
       focusable
       autoFocus={!embedded}
+      disabled={readonly}
       on:blur={save}
     />
 
@@ -160,14 +154,16 @@
       {/if}
     </svelte:fragment>
     <svelte:fragment slot="utils">
-      <Button
-        icon={IconMoreH}
-        iconProps={{ size: 'medium' }}
-        kind={'icon'}
-        on:click={(e) => {
-          showMenu(e, { object, excludedActions: [view.action.Open] })
-        }}
-      />
+      {#if !readonly}
+        <Button
+          icon={IconMoreH}
+          iconProps={{ size: 'medium' }}
+          kind={'icon'}
+          on:click={(e) => {
+            showMenu(e, { object, excludedActions: [view.action.Open] })
+          }}
+        />
+      {/if}
       <Button
         icon={IconMixin}
         kind={'icon'}
@@ -187,6 +183,7 @@
         key={{ key: 'fullDescription', attr: descriptionKey }}
         bind:this={descriptionBox}
         placeholder={recruit.string.FullDescription}
+        {readonly}
         on:saved={(evt) => {
           saved = evt.detail
         }}
@@ -194,7 +191,18 @@
     </div>
 
     <div class="w-full mt-6">
-      <VacancyApplications objectId={object._id} />
+      <VacancyApplications objectId={object._id} {readonly} />
+    </div>
+    <div class="w-full mt-6">
+      <Component
+        is={survey.component.PollCollection}
+        props={{
+          objectId: object._id,
+          _class: object._class,
+          space: object.space,
+          polls: object.polls
+        }}
+      />
     </div>
     <div class="w-full mt-6">
       <Component is={tracker.component.RelatedIssuesSection} props={{ object, label: tracker.string.RelatedIssues }} />

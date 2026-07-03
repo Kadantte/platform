@@ -44,15 +44,18 @@
   export let useFlexGrow = false
   export let minW0 = true
   export let disabled: boolean = false
+  export let loading: boolean = false
 
   export let enableSearch: boolean = true
 
   let container: HTMLElement
   let opened: boolean = false
 
-  $: selectedItem = multiselect ? items.filter((p) => selected?.includes(p.id)) : items.find((x) => x.id === selected)
-  $: if (autoSelect && selected === undefined && items[0] !== undefined) {
-    selected = multiselect ? [items[0].id] : items[0].id
+  $: selectedItem = multiselect
+    ? (items ?? []).filter((p) => selected?.includes(p.id))
+    : (items ?? []).find((x) => x.id === selected)
+  $: if (autoSelect && selected === undefined && items?.[0] !== undefined) {
+    selected = multiselect ? [items?.[0]?.id] : items?.[0]?.id
   }
 
   const dispatch = createEventDispatcher()
@@ -70,6 +73,7 @@
     {disabled}
     pressed={opened}
     {dataId}
+    {loading}
     showTooltip={{ label, direction: labelDirection }}
     on:click={() => {
       if (!opened) {
@@ -111,7 +115,7 @@
         <slot name="content" />
       {:else if Array.isArray(selectedItem)}
         {#if selectedItem.length > 0}
-          {#each selectedItem as seleceted, i}
+          {#each selectedItem as seleceted}
             <span class="step-row">{seleceted.label}</span>
           {/each}
         {:else}

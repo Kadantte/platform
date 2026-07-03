@@ -13,51 +13,83 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import core, { Class, Doc, DOMAIN_STATUS, Ref, RefTo } from '@hcengineering/core'
+  import core, { AnyAttribute, Class, Doc, DOMAIN_STATUS, Ref, RefTo } from '@hcengineering/core'
   import { TypeRef } from '@hcengineering/model'
   import { getClient } from '@hcengineering/presentation'
-  import { DropdownLabelsIntl, Label } from '@hcengineering/ui'
+  import { Component, DropdownLabelsIntl, Label } from '@hcengineering/ui'
   import view from '@hcengineering/view-resources/src/plugin'
+  import card from '@hcengineering/card'
   import { createEventDispatcher } from 'svelte'
-  import type { ButtonKind, ButtonSize } from '@hcengineering/ui'
+  import type { ButtonKind, ButtonSize, DropdownIntlItem } from '@hcengineering/ui'
+  import contactPlugin from '@hcengineering/contact'
 
   export let type: RefTo<Doc> | undefined
+  export let attribute: AnyAttribute | undefined
+  export let attributeOf: Ref<Class<Doc>>
   export let editable: boolean = true
   export let kind: ButtonKind = 'regular'
   export let size: ButtonSize = 'medium'
+  export let isCard: boolean = false
+  export let width: string | undefined = undefined
+
+  const _classes = isCard ? [card.class.Card, contactPlugin.class.Contact] : [core.class.Doc]
+  const exclude = !isCard ? [card.class.Card] : []
 
   const dispatch = createEventDispatcher()
   const client = getClient()
   const hierarchy = client.getHierarchy()
 
-  const descendants = hierarchy.getDescendants(core.class.Doc)
-  const classes = descendants
-    .map((p) => hierarchy.getClass(p))
-    .filter((p) => {
-      return (
-        hierarchy.hasMixin(p, view.mixin.AttributeEditor) &&
-        p.label !== undefined &&
-        hierarchy.getDomain(p._id) !== DOMAIN_STATUS
-      )
-    })
-    .map((p) => {
-      return { id: p._id, label: p.label }
-    })
+  const classes = fillClasses(_classes, exclude)
+
+  function fillClasses (classes: Ref<Class<Doc>>[], exclude: Ref<Class<Doc>>[]): DropdownIntlItem[] {
+    const res: DropdownIntlItem[] = []
+    const descendants = new Set(classes.map((p) => hierarchy.getDescendants(p)).reduce((a, b) => a.concat(b)))
+    // exclude removed card types
+    const removedTypes = client.getModel().findAllSync(card.class.MasterTag, { removed: true })
+    const excluded = new Set(removedTypes.map((p) => p._id))
+    for (const _class of exclude) {
+      const desc = hierarchy.getDescendants(_class)
+      for (const _id of desc) {
+        excluded.add(_id)
+      }
+    }
+    for (const desc of descendants) {
+      if (excluded.has(desc)) continue
+      const domain = hierarchy.findDomain(desc)
+      if (domain === DOMAIN_STATUS || domain === undefined) continue
+      if (hierarchy.classHierarchyMixin(desc, view.mixin.AttributeEditor) === undefined) continue
+      const _class = hierarchy.getClass(desc)
+      if (_class.label === undefined) continue
+      res.push({ id: _class._id, label: _class.label })
+    }
+    return res
+  }
 
   let refClass: Ref<Class<Doc>> | undefined = type?.to
 
   $: selected = classes.find((p) => p.id === refClass)
 
-  $: refClass && dispatch('change', { type: TypeRef(refClass) })
+  $: refClass !== undefined && dispatch('change', { type: TypeRef(refClass) })
+
+  $: editor = refClass !== undefined && hierarchy.classHierarchyMixin(refClass, view.mixin.TypeEditor)?.editor
 </script>
 
-<div class="hulyModal-content__settingsSet-line">
-  <span class="label">
-    <Label label={core.string.Class} />
-  </span>
-  {#if editable}
-    <DropdownLabelsIntl label={core.string.Class} items={classes} width="8rem" bind:selected={refClass} {kind} {size} />
-  {:else if selected}
-    <Label label={selected.label} />
-  {/if}
-</div>
+<span class="label">
+  <Label label={core.string.Class} />
+</span>
+{#if editable}
+  <DropdownLabelsIntl
+    label={core.string.Class}
+    items={classes}
+    {width}
+    bind:selected={refClass}
+    {kind}
+    {size}
+    withSearch
+  />
+{:else if selected}
+  <Label label={selected.label} />
+{/if}
+{#if editor}
+  <Component is={editor} props={{ attribute, type, editable, attributeOf, isCard }} on:change />
+{/if}

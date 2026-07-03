@@ -2,13 +2,13 @@ import { coreId } from '@hcengineering/core'
 import { addStringsLoader, platformId } from '@hcengineering/platform'
 import { activityId } from '@hcengineering/activity'
 import { attachmentId } from '@hcengineering/attachment'
-import { bitrixId } from '@hcengineering/bitrix'
 import { boardId } from '@hcengineering/board'
 import { calendarId } from '@hcengineering/calendar'
 import { chunterId } from '@hcengineering/chunter'
 import { contactId } from '@hcengineering/contact'
 import { documentsId } from '@hcengineering/controlled-documents'
 import { documentId } from '@hcengineering/document'
+import { exportId } from '@hcengineering/export'
 import { driveId } from '@hcengineering/drive'
 import { githubId } from '@hcengineering/github'
 import { gmailId } from '@hcengineering/gmail'
@@ -34,18 +34,24 @@ import { trainingId } from '@hcengineering/training'
 import { viewId } from '@hcengineering/view'
 import { workbenchId } from '@hcengineering/workbench'
 import { timeId } from '@hcengineering/time'
+import { surveyId } from '@hcengineering/survey'
+import { chatId } from '@hcengineering/chat'
+import { cardId } from '@hcengineering/card'
+import { mailId } from '@hcengineering/mail'
+import { communicationId } from '@hcengineering/communication'
+
 import coreEng from '@hcengineering/core/lang/en.json'
 import loginEng from '@hcengineering/login-assets/lang/en.json'
 import platformEng from '@hcengineering/platform/lang/en.json'
 import activityEn from '@hcengineering/activity-assets/lang/en.json'
 import attachmentEn from '@hcengineering/attachment-assets/lang/en.json'
-import bitrixEn from '@hcengineering/bitrix-assets/lang/en.json'
 import boardEn from '@hcengineering/board-assets/lang/en.json'
 import calendarEn from '@hcengineering/calendar-assets/lang/en.json'
 import chunterEn from '@hcengineering/chunter-assets/lang/en.json'
 import contactEn from '@hcengineering/contact-assets/lang/en.json'
 import documentsEn from '@hcengineering/controlled-documents-assets/lang/en.json'
 import documentEn from '@hcengineering/document-assets/lang/en.json'
+import exportEn from '@hcengineering/export-assets/lang/en.json'
 import driveEn from '@hcengineering/drive-assets/lang/en.json'
 import githubEn from '@hcengineering/github-assets/lang/en.json'
 import gmailEn from '@hcengineering/gmail-assets/lang/en.json'
@@ -70,6 +76,11 @@ import trainingEn from '@hcengineering/training-assets/lang/en.json'
 import viewEn from '@hcengineering/view-assets/lang/en.json'
 import workbenchEn from '@hcengineering/workbench-assets/lang/en.json'
 import timeEn from '@hcengineering/time-assets/lang/en.json'
+import surveyEn from '@hcengineering/survey-assets/lang/en.json'
+import chatEn from '@hcengineering/chat-assets/lang/en.json'
+import cardEn from '@hcengineering/card-assets/lang/en.json'
+import mailEn from '@hcengineering/mail-assets/lang/en.json'
+import communicationEn from '@hcengineering/communication-assets/lang/en.json'
 
 export function registerStringLoaders (): void {
   addStringsLoader(coreId, async (lang: string) => coreEng)
@@ -100,7 +111,7 @@ export function registerStringLoaders (): void {
   addStringsLoader(preferenceId, async (lang: string) => preferenceEn)
   addStringsLoader(hrId, async (lang: string) => hrEn)
   addStringsLoader(documentId, async (lang: string) => documentEn)
-  addStringsLoader(bitrixId, async (lang: string) => bitrixEn)
+  addStringsLoader(exportId, async (lang: string) => exportEn)
   addStringsLoader(requestId, async (lang: string) => requestEn)
   addStringsLoader(loveId, async (lang: string) => loveEn)
   addStringsLoader(driveId, async (lang: string) => driveEn)
@@ -109,4 +120,9 @@ export function registerStringLoaders (): void {
   addStringsLoader(trainingId, async (lang: string) => trainingEn)
   addStringsLoader(githubId, async (lang: string) => githubEn)
   addStringsLoader(timeId, async (lang: string) => timeEn)
+  addStringsLoader(surveyId, async (lang: string) => surveyEn)
+  addStringsLoader(chatId, async (lang: string) => chatEn)
+  addStringsLoader(cardId, async (lang: string) => cardEn)
+  addStringsLoader(mailId, async (lang: string) => mailEn)
+  addStringsLoader(communicationId, async (lang: string) => communicationEn)
 }

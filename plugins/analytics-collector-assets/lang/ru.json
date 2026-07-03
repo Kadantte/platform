@@ -14,7 +14,9 @@
     "WorkspaceId": "Id пространства",
     "WorkspaceName": "Имя пространства",
     "WorkspaceUrl": "URL пространства",
-    "Email": "Email",
-    "UserName": "Имя пользователя"
+    "Account": "Учетная запись",
+    "UserName": "Имя пользователя",
+    "DisableAIReplies": "Отключить ответы ИИ",
+    "ShowAIReplies": "Показать ответы ИИ"
   }
 }

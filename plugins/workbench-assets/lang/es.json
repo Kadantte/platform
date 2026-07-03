@@ -24,9 +24,7 @@
     "OpenInNewTab": "Abrir en una nueva pestaña",
     "NewVersionAvailable": "Nueva versión disponible",
     "PleaseUpdate": "Por favor, actualice",
-    "ServerUnderMaintenance": "El servidor está en mantenimiento",
-    "MobileNotSupported": "Disculpa, el soporte para dispositivos móviles estará disponible próximamente. Mientras tanto, por favor usa el escritorio.",
-    "LogInAnyway": "Iniciar sesión de todas formas",
+    "ServerUnderMaintenance": "Preparando el espacio de trabajo para la nueva versión...",
     "WorkspaceCreating": "Creation in progress...",
     "AccessDenied": "El objeto no existe o no tienes permiso para acceder a él.",
     "UpgradeDownloadProgress": "Descargando actualización: {percent}%",
@@ -34,6 +32,9 @@
     "WidgetPreferences": "Preferencias del widget",
     "OpenInSidebar": "Abrir en la barra lateral",
     "OpenInSidebarNewTab": "Abrir en una nueva pestaña de la barra lateral",
-    "ConfigureWidgets": "Configurar widgets"
+    "ConfigureWidgets": "Configurar widgets",
+    "Tab": "Pestaña",
+    "WorkspaceIsArchived": "El espacio de trabajo está archivado por no estar en uso, por favor contáctenos para restaurarlo...",
+    "WorkspaceIsMigrating": "El espacio de trabajo se está actualizando. Por favor, espere..."
   }
 }

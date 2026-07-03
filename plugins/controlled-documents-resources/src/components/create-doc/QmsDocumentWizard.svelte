@@ -14,17 +14,9 @@
 -->
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte'
-  import { Employee, PersonAccount } from '@hcengineering/contact'
-  import {
-    generateId,
-    getCurrentAccount,
-    makeCollaborativeDoc,
-    type AttachedData,
-    type Class,
-    type Data,
-    type Ref
-  } from '@hcengineering/core'
-  import { MessageBox, copyDocument, getClient } from '@hcengineering/presentation'
+  import { getCurrentEmployee } from '@hcengineering/contact'
+  import { generateId, type AttachedData, type Class, type Data, type Ref } from '@hcengineering/core'
+  import { MessageBox, getClient } from '@hcengineering/presentation'
   import {
     AnySvelteComponent,
     addNotification,
@@ -43,10 +35,10 @@
     type DocumentTemplate,
     DocumentState,
     createChangeControl,
-    createControlledDocFromTemplate,
     DEFAULT_PERIODIC_REVIEW_INTERVAL
   } from '@hcengineering/controlled-documents'
 
+  import { createControlledDocFromTemplate } from '../../docutils'
   import documents from '../../plugin'
   import { getProjectDocumentLink } from '../../navigation'
   import InfoStep from './steps/InfoStep.svelte'
@@ -61,6 +53,7 @@
     currentStepUpdated
   } from '../../stores/wizards/create-document'
   import FailedToCreateDocument from '../FailedToCreateDocument.svelte'
+  import { updateExternalApproversAccess } from '../../utils'
 
   export let _class: Ref<Class<ControlledDocument>> = documents.class.ControlledDocument
 
@@ -68,7 +61,7 @@
 
   const dispatch = createEventDispatcher()
   const client = getClient()
-  const currentUser = getCurrentAccount() as PersonAccount
+  const currentUser = getCurrentEmployee()
 
   const steps: IWizardStep<DocumentWizardStep>[] = [
     {
@@ -111,22 +104,23 @@
     code: '',
     title: '',
     labels: 0,
-    major: 0,
-    minor: 1,
+    major: 1,
+    minor: 0,
     seqNumber: 0,
     commentSequence: 0,
     category: '' as Ref<DocumentCategory>,
     abstract: '',
-    author: currentUser.person as Ref<Employee>,
-    owner: currentUser.person as Ref<Employee>,
+    author: currentUser,
+    owner: currentUser,
     state: DocumentState.Draft,
     snapshots: 0,
     changeControl: ccRecordId,
-    content: makeCollaborativeDoc(generateId()),
+    content: null,
 
     requests: 0,
     reviewers: [],
     approvers: [],
+    externalApprovers: [],
     coAuthors: [],
     plannedEffectiveDate: 0,
     reviewInterval: DEFAULT_PERIODIC_REVIEW_INTERVAL
@@ -145,10 +139,15 @@
 
   $: space = $locationStep.space
 
+  let submitted = false
+
   async function handleSubmit (): Promise<void> {
     if ($locationStep.space === undefined || $locationStep.project === undefined) {
       return
     }
+
+    if (submitted) return
+    submitted = true
 
     const newDocId = generateId<ControlledDocument>()
     const _space = $locationStep.space
@@ -161,8 +160,7 @@
       _space,
       $locationStep.project,
       $locationStep.parent,
-      documents.class.ControlledDocument,
-      copyDocument
+      documents.class.ControlledDocument
     )
 
     if (!success) {
@@ -179,6 +177,14 @@
     }
 
     await createChangeControl(client, ccRecordId, ccRecord, _space)
+
+    if (docObject.externalApprovers.length > 0) {
+      const controlledDoc = await client.findOne(documents.class.ControlledDocument, { _id: newDocId })
+
+      if (controlledDoc !== undefined) {
+        await updateExternalApproversAccess(client, controlledDoc, docObject.externalApprovers, [])
+      }
+    }
 
     const loc = getProjectDocumentLink(newDocId, $locationStep.project)
     navigate(loc)
@@ -207,6 +213,7 @@
   loading={isLoading}
   label={documents.string.NewDocument}
   submitLabel={documents.string.CreateDraft}
+  canSubmit={!submitted}
   {canProceed}
   {steps}
   selectedStep={$currentStep}

@@ -15,7 +15,7 @@
 
 // To help typescript locate view plugin properly
 import activity from '@hcengineering/activity'
-import { AccountRole, SortingOrder, type FindOptions } from '@hcengineering/core'
+import { AccountRole, type ClassCollaborators, SortingOrder, type FindOptions } from '@hcengineering/core'
 import { leadId, type Lead } from '@hcengineering/lead'
 import { type Builder } from '@hcengineering/model'
 import chunter from '@hcengineering/model-chunter'
@@ -32,6 +32,7 @@ import { type ViewOptionsModel } from '@hcengineering/view'
 
 import lead from './plugin'
 import { defineSpaceType } from './spaceType'
+import { definePermissions } from './permissions'
 import { TCustomer, TFunnel, TLead } from './types'
 
 export { leadId } from '@hcengineering/lead'
@@ -51,12 +52,12 @@ export function createModel (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: lead.class.Lead,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: lead.class.Funnel,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.mixin(lead.class.Funnel, core.class.Class, workbench.mixin.SpaceView, {
@@ -152,6 +153,20 @@ export function createModel (builder: Builder): void {
         hiddenKeys: ['identifier', 'name', 'customerDescription'],
         sortable: true
       },
+      viewOptions: {
+        groupBy: [],
+        orderBy: [],
+        other: [
+          {
+            key: 'hideArchived',
+            type: 'toggle',
+            defaultValue: true,
+            actionTarget: 'options',
+            action: view.function.HideArchived,
+            label: view.string.HideArchived
+          }
+        ]
+      },
       config: ['', 'members', 'private', 'archived']
     },
     lead.viewlet.TableFunnel
@@ -226,6 +241,20 @@ export function createModel (builder: Builder): void {
           sortingKey: ['$lookup.attachedTo.$lookup.channels.lastMessage', '$lookup.attachedTo.channels']
         }
       ],
+      viewOptions: {
+        groupBy: [],
+        orderBy: [],
+        other: [
+          {
+            key: 'hideArchived',
+            type: 'toggle',
+            defaultValue: true,
+            actionTarget: 'options',
+            action: view.function.HideArchived,
+            label: view.string.HideArchived
+          }
+        ]
+      },
       configOptions: {
         sortable: true
       }
@@ -250,6 +279,14 @@ export function createModel (builder: Builder): void {
         actionTarget: 'category',
         action: view.function.ShowEmptyGroups,
         label: view.string.ShowEmptyGroups
+      },
+      {
+        key: 'hideArchived',
+        type: 'toggle',
+        defaultValue: true,
+        actionTarget: 'options',
+        action: view.function.HideArchived,
+        label: view.string.HideArchived
       }
     ]
   }
@@ -419,7 +456,7 @@ export function createModel (builder: Builder): void {
       defaultEnabled: false,
       templates: {
         textTemplate: '{body}',
-        htmlTemplate: '<p>{body}</p>',
+        htmlTemplate: '<p>{body}</p><p>{link}</p>',
         subjectTemplate: '{title}'
       }
     },
@@ -503,7 +540,8 @@ export function createModel (builder: Builder): void {
     filters: ['attachedTo']
   })
 
-  builder.mixin(lead.class.Lead, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<Lead>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: lead.class.Lead,
     fields: ['createdBy', 'assignee']
   })
 
@@ -623,4 +661,5 @@ export function createModel (builder: Builder): void {
   })
 
   defineSpaceType(builder)
+  definePermissions(builder)
 }

@@ -3,7 +3,15 @@
 //
 //
 
-import core, { Doc, DocData, DocumentUpdate, MeasureContext, TxOperations, generateId } from '@hcengineering/core'
+import core, {
+  Doc,
+  DocData,
+  DocumentUpdate,
+  MeasureContext,
+  TxOperations,
+  generateId,
+  withContext
+} from '@hcengineering/core'
 import github, { DocSyncInfo, GithubIntegrationRepository, GithubProject } from '@hcengineering/github'
 import { Endpoints } from '@octokit/types'
 import {
@@ -20,7 +28,6 @@ const syncReposKey = 'repo_sync'
 
 export class RepositorySyncMapper implements DocSyncManager {
   constructor (
-    private readonly ctx: MeasureContext,
     private readonly client: TxOperations,
     private readonly app: App
   ) {}
@@ -35,11 +42,18 @@ export class RepositorySyncMapper implements DocSyncManager {
   }
 
   // Perform synchronization of document with external source.
-  async sync (existing: Doc | undefined, info: DocSyncInfo): Promise<DocumentUpdate<DocSyncInfo> | undefined> {
+
+  @withContext('repository-sync')
+  async sync (
+    ctx: MeasureContext,
+    existing: Doc | undefined,
+    info: DocSyncInfo
+  ): Promise<DocumentUpdate<DocSyncInfo> | undefined> {
     return {}
   }
 
   async reloadRepositories (
+    ctx: MeasureContext,
     integration: IntegrationContainer,
     repositories?: InstallationCreatedEvent['repositories'] | InstallationUnsuspendEvent['repositories']
   ): Promise<void> {
@@ -48,9 +62,9 @@ export class RepositorySyncMapper implements DocSyncManager {
     if (repositories !== undefined) {
       // We have a list of repositories, so we could create them if they are missing.
       // Need to find all repositories, not only active, so passed repositories are not work.
-      const allRepositories = (
-        await this.provider.liveQuery.queryFind(github.class.GithubIntegrationRepository, {})
-      ).filter((it) => it.attachedTo === integration.integration._id)
+      const allRepositories = await this.provider.liveQuery.findAll(github.class.GithubIntegrationRepository, {
+        attachedTo: integration.integration._id
+      })
 
       const allRepos: GithubIntegrationRepository[] = [...allRepositories]
       for (const repository of repositories) {
@@ -93,19 +107,25 @@ export class RepositorySyncMapper implements DocSyncManager {
             Date.now(),
             integration.integration.createdBy
           )
-          this.ctx.info('Creating repository info document...', {
+          ctx.info('Creating repository info document...', {
             url: repository.full_name,
-            workspace: this.provider.getWorkspaceId().name
+            workspace: this.provider.getWorkspaceId()
           })
         }
       }
     }
   }
 
-  async handleEvent<T>(integration: IntegrationContainer, derivedClient: TxOperations, evt: T): Promise<void> {
+  @withContext('repository-handleEvent')
+  async handleEvent<T>(
+    ctx: MeasureContext,
+    integration: IntegrationContainer,
+    derivedClient: TxOperations,
+    evt: T
+  ): Promise<void> {
     const event = evt as RepositoryEvent
 
-    const account = (await this.provider.getAccountU(event.sender))?._id ?? core.account.System
+    const account = (await this.provider.getAccountU(event.sender)) ?? core.account.System
     switch (event.action) {
       case 'created': {
         await this.client.addCollection(
@@ -124,9 +144,9 @@ export class RepositorySyncMapper implements DocSyncManager {
           Date.now(),
           account
         )
-        this.ctx.info('Creating repository info document...', {
+        ctx.info('Creating repository info document...', {
           url: event.repository.url,
-          workspace: this.provider.getWorkspaceId().name
+          workspace: this.provider.getWorkspaceId()
         })
         break
       }
@@ -148,7 +168,7 @@ export class RepositorySyncMapper implements DocSyncManager {
           const allProjects = await this.client.findAll(github.mixin.GithubProject, { repositories: githubRepo?._id })
           for (const prj of allProjects) {
             // We need to force sync
-            await this.handleRepoRename(integration, prj, githubRepo)
+            await this.handleRepoRename(ctx, integration, prj, githubRepo)
           }
         }
 
@@ -178,6 +198,7 @@ export class RepositorySyncMapper implements DocSyncManager {
   }
 
   async handleDelete (
+    ctx: MeasureContext,
     existing: Doc | undefined,
     info: DocSyncInfo,
     derivedClient: TxOperations,
@@ -225,7 +246,9 @@ export class RepositorySyncMapper implements DocSyncManager {
     }
   }
 
+  @withContext('repository-externalSync')
   async externalSync (
+    ctx: MeasureContext,
     integration: IntegrationContainer,
     derivedClient: TxOperations,
     kind: ExternalSyncField,
@@ -234,9 +257,11 @@ export class RepositorySyncMapper implements DocSyncManager {
     prj: GithubProject
   ): Promise<void> {}
 
-  repositoryDisabled (integration: IntegrationContainer, repo: GithubIntegrationRepository): void {}
+  repositoryDisabled (ctx: MeasureContext, integration: IntegrationContainer, repo: GithubIntegrationRepository): void {}
 
+  @withContext('repository-externalFullSync')
   async externalFullSync (
+    ctx: MeasureContext,
     integration: IntegrationContainer,
     derivedClient: TxOperations,
     projects: GithubProject[],
@@ -244,28 +269,35 @@ export class RepositorySyncMapper implements DocSyncManager {
   ): Promise<void> {
     const inst = integration.octokit
     if (inst === undefined || integration.octokit === undefined) {
-      this.ctx.info('no installation found', { workspace: this.provider.getWorkspaceId().name })
+      ctx.info('no installation found', { workspace: this.provider.getWorkspaceId() })
       return
     }
 
     if (integration.synchronized.has(syncReposKey)) {
       return
     }
-    this.ctx.info('Checking github installation repositories...', {
+    ctx.info('Checking github installation repositories...', {
       installationId: integration.installationId,
-      workspace: this.provider.getWorkspaceId().name
+      workspace: this.provider.getWorkspaceId()
     })
 
     const iterable = this.app.eachRepository.iterator({ installationId: integration.installationId })
 
     // Need to find all repositories, not only active, so passed repositories are not work.
-    const allRepositories = (
-      await this.provider.liveQuery.queryFind(github.class.GithubIntegrationRepository, {})
-    ).filter((it) => it.attachedTo === integration.integration._id)
+    const allRepositories = await this.provider.liveQuery.findAll(github.class.GithubIntegrationRepository, {
+      attachedTo: integration.integration._id
+    })
 
     let allRepos: GithubIntegrationRepository[] = [...allRepositories]
 
+    const githubRepos:
+    | Repository
+    | Endpoints['GET /installation/repositories']['response']['data']['repositories'][0][] = []
     for await (const { repository } of iterable) {
+      githubRepos.push(repository)
+    }
+
+    for (const repository of githubRepos) {
       const integrationRepo: GithubIntegrationRepository | undefined = allRepos.find(
         (it) => it.repositoryId === repository.id
       )
@@ -290,9 +322,9 @@ export class RepositorySyncMapper implements DocSyncManager {
           Date.now(),
           integration.integration.createdBy
         )
-        this.ctx.info('Creating repository info document...', {
+        ctx.info('Creating repository info document...', {
           url: repository.url,
-          workspace: this.provider.getWorkspaceId().name
+          workspace: this.provider.getWorkspaceId()
         })
       } else {
         allRepos = allRepos.filter((it) => it._id !== integrationRepo._id)
@@ -305,10 +337,10 @@ export class RepositorySyncMapper implements DocSyncManager {
           ['name', ...Object.keys(rdata)]
         )
         if (Object.keys(diff).length > 0) {
-          this.ctx.info('processing repository diff update...', {
+          ctx.info('processing repository diff update...', {
             repository: repository.name,
             ...diff,
-            workspace: this.provider.getWorkspaceId().name
+            workspace: this.provider.getWorkspaceId()
           })
           await this.client.diffUpdate(
             integrationRepo,
@@ -325,13 +357,8 @@ export class RepositorySyncMapper implements DocSyncManager {
 
     // Ok we have repos removed from integration, we need to delete them.
     for (const repo of allRepos) {
-      await this.client.remove(repo)
-      const prj = projects.find((it) => it._id === repo.githubProject)
-      if (prj !== undefined) {
-        await this.client.update(prj, {
-          $pull: { repositories: repo._id }
-        })
-      }
+      // Mark as archived
+      await this.client.update(repo, { archived: true })
     }
 
     // We need to delete and disconnect missing repositories.
@@ -341,6 +368,7 @@ export class RepositorySyncMapper implements DocSyncManager {
 
   // Perform a synchronization of a single repository.
   async handleRepoRename (
+    ctx: MeasureContext,
     integration: IntegrationContainer,
     prj: GithubProject,
     repo: GithubIntegrationRepository
@@ -358,7 +386,7 @@ export class RepositorySyncMapper implements DocSyncManager {
      "https://api.github.com/repos/hcengineering/anticrm/issues/comments/1679316918"
      "https://github.com/hcengineering/uberflow/pull/195"
      * */
-    this.ctx.info('handle repository rename', { repo, workspace: this.provider.getWorkspaceId().name })
+    ctx.info('handle repository rename', { repo, workspace: this.provider.getWorkspaceId() })
     const update = async (): Promise<void> => {
       while (true) {
         const docs = await this.client.findAll(

@@ -25,7 +25,8 @@
     panelSeparators,
     ButtonItem,
     Header,
-    HeaderAdaptive
+    HeaderAdaptive,
+    IHeaderState
   } from '../../'
   import IconClose from './icons/Close.svelte'
   import IconDetails from './icons/Details.svelte'
@@ -33,6 +34,8 @@
   import IconMinWidth from './icons/MinWidth.svelte'
   import IconScale from './icons/Scale.svelte'
   import IconScaleFull from './icons/ScaleFull.svelte'
+
+  import plugin from '../plugin'
 
   export let innerWidth: number = 0
   export let panelWidth: number = 0
@@ -54,6 +57,7 @@
   export let hideActions: boolean = false
   export let hideExtra: boolean = false
   export let overflowExtra: boolean = false
+  export let element: HTMLElement | undefined = undefined
 
   export function getAside (): string | boolean {
     if (customAside) return selectedAside
@@ -73,17 +77,17 @@
 
   const dispatch = createEventDispatcher()
 
-  let el: HTMLElement
   let asideFloat: boolean = false
   let asideShown: boolean = selectedAside !== false
   let hideAside: boolean = !asideShown
   let fullSize: boolean = false
   let oldAside: string | boolean = selectedAside
+  let headerState: IHeaderState
 
   $: if (typeof selectedAside === 'string' && oldAside !== selectedAside) oldAside = selectedAside
   $: setAside(selectedAside)
-  $: if (el !== undefined) {
-    panelWidth = el.clientWidth
+  $: if (element !== undefined) {
+    panelWidth = element.clientWidth
     checkPanel()
   }
 
@@ -141,6 +145,9 @@
   }
 
   let isPrinting = false
+  afterUpdate(() => {
+    dispatch('resize', { panelWidth, innerWidth, ...headerState })
+  })
 </script>
 
 <svelte:window
@@ -153,7 +160,7 @@
 />
 
 <div
-  bind:this={el}
+  bind:this={element}
   class="popupPanel panel"
   class:withPageHeader={$$slots['page-header'] !== undefined}
   class:withPageFooter={$$slots['page-footer'] !== undefined}
@@ -166,12 +173,16 @@
   <Header
     type={'type-panel'}
     noPrint={!printHeader}
-    {adaptive}
+    adaptive={$deviceInfo.isMobile ? 'disabled' : adaptive}
     {hideBefore}
     {hideSearch}
     {hideActions}
     {hideExtra}
     {overflowExtra}
+    on:resize={(event) => {
+      if (event.detail.headerWidth === undefined) return
+      headerState = event.detail
+    }}
   >
     <svelte:fragment slot="beforeTitle">
       {#if allowClose}
@@ -200,6 +211,7 @@
     </svelte:fragment>
     <svelte:fragment slot="actions">
       <slot name="actions" />
+      <slot name="presence" />
       <slot name="pre-utils" />
       <slot name="utils" />
       {#if useMaxWidth !== undefined}
@@ -209,6 +221,7 @@
           iconProps={{ size: 'medium' }}
           kind={'icon'}
           selected={useMaxWidth}
+          showTooltip={{ label: plugin.string.UseMaxWidth, direction: 'bottom' }}
           on:click={() => {
             useMaxWidth = !useMaxWidth
             dispatch('maxWidth', useMaxWidth)
@@ -222,6 +235,7 @@
           iconProps={{ size: 'medium' }}
           kind={'icon'}
           selected={fullSize}
+          showTooltip={{ label: plugin.string.FullSize, direction: 'bottom' }}
           on:click={() => {
             fullSize = !fullSize
             dispatch('fullsize')
@@ -244,6 +258,7 @@
             iconProps={{ size: 'medium', filled: asideShown }}
             kind={'icon'}
             selected={asideShown}
+            showTooltip={{ label: plugin.string.Sidebar, direction: 'bottom' }}
             on:click={handleAside}
           />
         {/if}
@@ -256,21 +271,21 @@
   </Header>
   <div class="popupPanel-body {$deviceInfo.isMobile ? 'mobile' : 'main'}" class:asideShown>
     {#if $deviceInfo.isMobile}
-      <Scroller horizontal padding={'.5rem .75rem'}>
-        <div
-          class="popupPanel-body__mobile"
-          use:resizeObserver={(element) => {
-            innerWidth = element.clientWidth
-          }}
-        >
+      <div
+        class="popupPanel-body__mobile"
+        use:resizeObserver={(element) => {
+          innerWidth = element.clientWidth
+        }}
+      >
+        <Scroller horizontal padding={'.5rem .75rem'}>
           {#if $$slots.header && isHeader}
             <div class="popupPanel-body__header mobile bottom-divider" class:max={useMaxWidth}>
               <slot name="header" />
             </div>
           {/if}
           <slot />
-        </div>
-      </Scroller>
+        </Scroller>
+      </div>
     {:else}
       <div
         class="popupPanel-body__main"
@@ -304,6 +319,11 @@
       </div>
     {/if}
   </div>
+  {#if $$slots['panel-footer']}
+    <div class="popupPanel-footer">
+      <slot name="panel-footer" />
+    </div>
+  {/if}
   <div class="popupPanel-pageHeader only-print" id="page-header">
     <slot name="page-header" />
   </div>

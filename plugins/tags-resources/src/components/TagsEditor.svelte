@@ -22,7 +22,7 @@
     type IdMap,
     type Ref
   } from '@hcengineering/core'
-  import { translate } from '@hcengineering/platform'
+  import { translateCB } from '@hcengineering/platform'
   import { createQuery, KeyedAttribute } from '@hcengineering/presentation'
   import { TagElement, TagReference } from '@hcengineering/tags'
   import {
@@ -46,6 +46,7 @@
   export let key: KeyedAttribute
   export let showTitle = true
   export let schema: '0' | '3' | '9' = key.attr.schema ?? '0'
+  export let readonly = false
 
   let elements: IdMap<TagElement> = new Map()
   const elementQuery = createQuery()
@@ -59,7 +60,7 @@
 
   $: itemLabel = (key.attr.type as Collection<AttachedDoc>).itemLabel
 
-  $: translate(itemLabel ?? key.attr.label, {}, $themeStore.language).then((v) => {
+  $: translateCB(itemLabel ?? key.attr.label, {}, $themeStore.language, (v) => {
     keyLabel = v
   })
 
@@ -113,13 +114,15 @@
         <Label label={key.attr.label} />
       </span>
       <div class="buttons-group x-small">
-        <Button
-          icon={IconAdd}
-          kind={'ghost'}
-          showTooltip={{ label: tags.string.AddTagTooltip, props: { word: keyLabel } }}
-          id={'add-tag'}
-          on:click={addTag}
-        />
+        {#if !readonly}
+          <Button
+            icon={IconAdd}
+            kind={'ghost'}
+            showTooltip={{ label: tags.string.AddTagTooltip, props: { word: keyLabel } }}
+            id={'add-tag'}
+            on:click={addTag}
+          />
+        {/if}
       </div>
     </div>
   {/if}

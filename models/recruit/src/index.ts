@@ -14,9 +14,8 @@
 //
 
 import activity from '@hcengineering/activity'
-import { AccountRole, SortingOrder, type Lookup, type Ref } from '@hcengineering/core'
+import { AccountRole, type ClassCollaborators, SortingOrder, type Lookup, type Ref } from '@hcengineering/core'
 import { type Builder } from '@hcengineering/model'
-import attachment from '@hcengineering/model-attachment'
 import calendar from '@hcengineering/model-calendar'
 import chunter from '@hcengineering/model-chunter'
 import contact from '@hcengineering/model-contact'
@@ -31,13 +30,14 @@ import view, { createAction, showColorsViewOption, actionTemplates as viewTempla
 import workbench, { createNavigateAction, type Application } from '@hcengineering/model-workbench'
 import notification from '@hcengineering/notification'
 import { type IntlString } from '@hcengineering/platform'
-import { recruitId, type Applicant, RecruitEvents } from '@hcengineering/recruit'
+import { recruitId, type Applicant, RecruitEvents, type Vacancy } from '@hcengineering/recruit'
 import setting from '@hcengineering/setting'
 import { type KeyBinding, type ViewOptionModel, type ViewOptionsModel } from '@hcengineering/view'
 
 import recruit from './plugin'
 import { createReviewModel, reviewTableConfig, reviewTableOptions } from './review'
 import { defineSpaceType } from './spaceType'
+import { definePermissions } from './permissions'
 import { TApplicant, TApplicantMatch, TCandidate, TOpinion, TReview, TVacancy, TVacancyList } from './types'
 
 export { recruitId } from '@hcengineering/recruit'
@@ -56,17 +56,17 @@ export function createModel (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: recruit.class.Vacancy,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: recruit.class.Applicant,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: recruit.class.Review,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.mixin(recruit.class.Vacancy, core.class.Class, workbench.mixin.SpaceView, {
@@ -85,7 +85,8 @@ export function createModel (builder: Builder): void {
     editor: recruit.component.VacancyList
   })
 
-  builder.mixin(recruit.class.Vacancy, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<Vacancy>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: recruit.class.Vacancy,
     fields: ['createdBy']
   })
 
@@ -97,7 +98,8 @@ export function createModel (builder: Builder): void {
     inlineEditor: view.component.ArrayEditor
   })
 
-  builder.mixin(recruit.class.Applicant, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<Applicant>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: recruit.class.Applicant,
     fields: ['createdBy', 'assignee']
   })
 
@@ -213,7 +215,8 @@ export function createModel (builder: Builder): void {
                 ['assigned', view.string.Assigned, {}],
                 ['created', view.string.Created, {}],
                 ['subscribed', view.string.Subscribed, {}]
-              ]
+              ],
+              descriptors: [view.viewlet.List, view.viewlet.Table, task.viewlet.Kanban]
             }
           },
           {
@@ -296,6 +299,41 @@ export function createModel (builder: Builder): void {
     recruit.viewlet.TableCandidate
   )
 
+  const tableCandidateExportConfig = {
+    skipAttributes: ['_class', 'avatarType', 'space'],
+    attributeKeyMap: { city: 'location' },
+    attributeTransforms: {
+      channels: {
+        operations: [
+          {
+            type: 'group_by',
+            config: {
+              keyField: 'data.provider',
+              valueField: 'data.value'
+            }
+          },
+          {
+            type: 'join',
+            config: {
+              delimiter: ', '
+            }
+          }
+        ]
+      }
+    }
+  }
+  builder.createDoc(
+    view.class.ViewletViewAction,
+    core.space.Model,
+    {
+      descriptor: view.viewlet.Table,
+      extension: workbench.extensions.SpecialViewAction,
+      config: tableCandidateExportConfig,
+      applicableToClass: recruit.mixin.Candidate
+    },
+    recruit.specialViewAction.TableCandidate
+  )
+
   builder.createDoc(
     view.class.Viewlet,
     core.space.Model,
@@ -331,7 +369,9 @@ export function createModel (builder: Builder): void {
     key: 'hideArchived',
     type: 'toggle',
     defaultValue: true,
-    label: recruit.string.HideArchivedVacancies
+    actionTarget: 'options',
+    action: view.function.HideArchived,
+    label: view.string.HideArchived
   }
 
   builder.createDoc(
@@ -355,13 +395,14 @@ export function createModel (builder: Builder): void {
         }
       ],
       configOptions: {
-        hiddenKeys: ['name', 'space', 'modifiedOn'],
+        hiddenKeys: ['name', 'space', 'modifiedOn', 'company'],
         sortable: true
       },
       viewOptions: {
         groupBy: [],
         orderBy: [],
-        other: [vacancyHideArchivedOption]
+        other: [vacancyHideArchivedOption],
+        storageKey: 'vacancyViewOptions'
       }
     },
     recruit.viewlet.TableVacancy
@@ -431,10 +472,36 @@ export function createModel (builder: Builder): void {
       configOptions: {
         hiddenKeys: ['name', 'attachedTo'],
         sortable: true
+      },
+      viewOptions: {
+        groupBy: [],
+        orderBy: [],
+        other: [vacancyHideArchivedOption],
+        storageKey: 'vacancyViewOptions'
       }
     },
     recruit.viewlet.TableApplicant
   )
+
+  const applicationDoneOption: ViewOptionModel = {
+    key: 'hideDoneState',
+    type: 'toggle',
+    defaultValue: true,
+    actionTarget: 'query',
+    action: recruit.function.HideDoneState,
+    label: recruit.string.HideDoneState
+  }
+
+  // hiding applicants related to archived vacancies from applicants view
+  const hideApplicantsFromArchivedVacanciesOption: ViewOptionModel = {
+    key: 'hideArchivedVacancies',
+    type: 'toggle',
+    defaultValue: true,
+    actionTarget: 'options',
+    action: view.function.HideArchived,
+    label: recruit.string.HideApplicantsFromArchivedVacancies
+  }
+
   builder.createDoc(
     view.class.Viewlet,
     core.space.Model,
@@ -479,9 +546,11 @@ export function createModel (builder: Builder): void {
         hiddenKeys: ['name', 'attachedTo'],
         sortable: true
       },
-      baseQuery: {
-        isDone: false,
-        '$lookup.space.archived': false
+      viewOptions: {
+        groupBy: [],
+        orderBy: [],
+        other: [applicationDoneOption, hideApplicantsFromArchivedVacanciesOption],
+        storageKey: 'applicantViewOptions'
       }
     },
     recruit.viewlet.ApplicantTable
@@ -500,8 +569,7 @@ export function createModel (builder: Builder): void {
         }
       },
       baseQuery: {
-        isDone: false,
-        '$lookup.space.archived': false
+        isDone: false
       }
     },
     recruit.viewlet.TableApplicantMatch
@@ -517,25 +585,6 @@ export function createModel (builder: Builder): void {
         space: recruit.class.Vacancy
       }
     ]
-  }
-
-  const applicationDoneOption: ViewOptionModel = {
-    key: 'hideDoneState',
-    type: 'toggle',
-    defaultValue: true,
-    actionTarget: 'query',
-    action: recruit.function.HideDoneState,
-    label: recruit.string.HideDoneState
-  }
-
-  // hiding applicants related to archived vacancies from applicants view
-  const hideApplicantsFromArchivedVacanciesOption: ViewOptionModel = {
-    key: 'hideArchivedVacancies',
-    type: 'toggle',
-    defaultValue: true,
-    actionTarget: 'query',
-    action: recruit.function.HideArchivedVacancies,
-    label: recruit.string.HideApplicantsFromArchivedVacancies
   }
 
   const applicantViewOptions = (colors: boolean, hides: boolean): ViewOptionsModel => {
@@ -556,8 +605,10 @@ export function createModel (builder: Builder): void {
           actionTarget: 'category',
           action: view.function.ShowEmptyGroups,
           label: view.string.ShowEmptyGroups
-        }
-      ]
+        },
+        vacancyHideArchivedOption
+      ],
+      storageKey: 'applicantViewOptions'
     }
     if (colors) {
       model.other.push(showColorsViewOption)
@@ -579,6 +630,13 @@ export function createModel (builder: Builder): void {
         {
           key: 'status',
           props: { kind: 'list', size: 'small', shouldShowName: false }
+        },
+        {
+          key: 'kind',
+          label: task.string.TaskType,
+          presenter: task.component.TaskTypeListPresenter,
+          props: { kind: 'list', size: 'small', justify: 'center' },
+          displayProps: { key: 'applicant_kind' }
         },
         {
           key: '$lookup.attachedTo',
@@ -771,9 +829,6 @@ export function createModel (builder: Builder): void {
         strict: true,
         hiddenKeys: ['name', 'space', 'modifiedOn']
       },
-      baseQuery: {
-        '$lookup.space.archived': false
-      },
       viewOptions: {
         groupBy: ['company', 'dueTo', 'createdBy'],
         orderBy: [
@@ -782,7 +837,8 @@ export function createModel (builder: Builder): void {
           ['modifiedOn', SortingOrder.Descending],
           ['createdOn', SortingOrder.Descending]
         ],
-        other: [vacancyHideArchivedOption]
+        other: [vacancyHideArchivedOption],
+        storageKey: 'vacancyViewOptions'
       }
     },
     recruit.viewlet.ListVacancy
@@ -794,13 +850,8 @@ export function createModel (builder: Builder): void {
     {
       attachTo: recruit.class.Applicant,
       descriptor: task.viewlet.Kanban,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      baseQuery: {
-        isDone: false,
-        '$lookup.space.archived': false
-      },
       viewOptions: {
-        ...applicantViewOptions(false, false),
+        ...applicantViewOptions(false, true),
         groupDepth: 1
       },
       options: {
@@ -846,9 +897,9 @@ export function createModel (builder: Builder): void {
     card: recruit.component.KanbanCard
   })
 
-  builder.mixin(recruit.class.Applicant, core.class.Class, view.mixin.PreviewPresenter, {
-    presenter: recruit.component.KanbanCard
-  })
+  // builder.mixin(recruit.class.Applicant, core.class.Class, view.mixin.PreviewPresenter, {
+  //   presenter: recruit.component.KanbanCard
+  // })
 
   builder.mixin(recruit.class.Applicant, core.class.Class, view.mixin.ObjectEditor, {
     editor: recruit.component.EditApplication
@@ -980,24 +1031,28 @@ export function createModel (builder: Builder): void {
     },
     override: [recruit.action.CreateGlobalApplication]
   })
-  createAction(builder, {
-    action: view.actionImpl.ShowPopup,
-    actionProps: {
-      component: recruit.component.CreateCandidate,
-      element: 'top'
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.ShowPopup,
+      actionProps: {
+        component: recruit.component.CreateCandidate,
+        element: 'top'
+      },
+      label: recruit.string.CreateTalent,
+      icon: recruit.icon.Create,
+      keyBinding: ['keyC'],
+      input: 'none',
+      category: recruit.category.Recruit,
+      target: core.class.Doc,
+      context: {
+        mode: ['workbench', 'browser'],
+        application: recruit.app.Recruit,
+        group: 'create'
+      }
     },
-    label: recruit.string.CreateTalent,
-    icon: recruit.icon.Create,
-    keyBinding: ['keyC'],
-    input: 'none',
-    category: recruit.category.Recruit,
-    target: core.class.Doc,
-    context: {
-      mode: ['workbench', 'browser'],
-      application: recruit.app.Recruit,
-      group: 'create'
-    }
-  })
+    recruit.action.CreateTalent
+  )
 
   createAction(builder, {
     action: view.actionImpl.ShowPopup,
@@ -1048,7 +1103,8 @@ export function createModel (builder: Builder): void {
       title: recruit.string.Applications,
       query: recruit.completion.ApplicationQuery,
       context: ['search', 'mention', 'spotlight'],
-      classToSearch: recruit.class.Applicant
+      classToSearch: recruit.class.Applicant,
+      priority: 500
     },
     recruit.completion.ApplicationCategory
   )
@@ -1062,7 +1118,8 @@ export function createModel (builder: Builder): void {
       title: recruit.string.Vacancies,
       query: recruit.completion.VacancyQuery,
       context: ['search', 'mention', 'spotlight'],
-      classToSearch: recruit.class.Vacancy
+      classToSearch: recruit.class.Vacancy,
+      priority: 550
     },
     recruit.completion.VacancyCategory
   )
@@ -1245,7 +1302,8 @@ export function createModel (builder: Builder): void {
         mode: ['context', 'browser'],
         application: recruit.app.Recruit,
         group: 'copy'
-      }
+      },
+      override: [view.action.CopyLink]
     },
     recruit.action.CopyApplicationLink
   )
@@ -1265,7 +1323,8 @@ export function createModel (builder: Builder): void {
         mode: ['context', 'browser'],
         application: recruit.app.Recruit,
         group: 'copy'
-      }
+      },
+      override: [view.action.CopyLink]
     },
     recruit.action.CopyCandidateLink
   )
@@ -1344,7 +1403,7 @@ export function createModel (builder: Builder): void {
       defaultEnabled: false,
       templates: {
         textTemplate: '{body}',
-        htmlTemplate: '<p>{body}</p>',
+        htmlTemplate: '<p>{body}</p><p>{link}</p>',
         subjectTemplate: '{title}'
       }
     },
@@ -1438,50 +1497,21 @@ export function createModel (builder: Builder): void {
   )
 
   // Allow to use fuzzy search for mixins
-  builder.mixin(recruit.class.Vacancy, core.class.Class, core.mixin.FullTextSearchContext, {
-    fullTextSummary: true,
-    childProcessingAllowed: true,
-    propagate: []
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: recruit.class.Vacancy,
+    fullTextSummary: true
   })
 
-  builder.mixin(recruit.mixin.Candidate, core.class.Class, core.mixin.FullTextSearchContext, {
-    fullTextSummary: true,
-    propagate: [recruit.class.Applicant],
-    childProcessingAllowed: true,
-    propagateClasses: [
-      tags.class.TagReference,
-      chunter.class.ChatMessage,
-      attachment.class.Attachment,
-      contact.class.Channel
-    ]
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: recruit.mixin.Candidate,
+    fullTextSummary: true
   })
 
   // Allow to use fuzzy search for mixins
-  builder.mixin(recruit.class.Applicant, core.class.Class, core.mixin.FullTextSearchContext, {
+  builder.createDoc(core.class.FullTextSearchContext, core.space.Model, {
+    toClass: recruit.class.Applicant,
     fullTextSummary: true,
-    forceIndex: true,
-    childProcessingAllowed: true,
-    propagate: []
-  })
-
-  createAction(builder, {
-    label: recruit.string.MatchVacancy,
-    icon: recruit.icon.Vacancy,
-    action: view.actionImpl.ShowPopup,
-    actionProps: {
-      component: recruit.component.MatchVacancy,
-      element: 'top',
-      fillProps: {
-        _objects: 'objects'
-      }
-    },
-    input: 'any',
-    category: recruit.category.Recruit,
-    target: recruit.mixin.Candidate,
-    context: {
-      mode: ['context', 'browser'],
-      group: 'create'
-    }
+    forceIndex: true
   })
 
   builder.mixin(recruit.mixin.Candidate, core.class.Class, view.mixin.ObjectEditorFooter, {
@@ -1582,4 +1612,5 @@ export function createModel (builder: Builder): void {
   )
 
   defineSpaceType(builder)
+  definePermissions(builder)
 }

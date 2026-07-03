@@ -21,11 +21,11 @@
     Icon,
     IconFolder,
     IconSize,
-    IconWithEmoji,
     Label,
     getPlatformColorDef,
     themeStore
   } from '@hcengineering/ui'
+  import IconWithEmoji from './IconWithEmoji.svelte'
   import view, { IconProps } from '@hcengineering/view'
 
   import presentation from '..'
@@ -42,11 +42,14 @@
   <div class="icon medium-gap">
     <Icon
       {size}
-      icon={value.icon === iconWithEmoji && iconWithEmoji ? IconWithEmoji : value.icon ?? defaultIcon ?? IconFolder}
+      icon={value.icon === iconWithEmoji && iconWithEmoji ? IconWithEmoji : (value.icon ?? defaultIcon ?? IconFolder)}
       iconProps={value.icon === iconWithEmoji && iconWithEmoji
         ? { icon: value.color }
         : {
-            fill: value.color !== undefined ? getPlatformColorDef(value.color, $themeStore.dark).icon : 'currentColor'
+            fill:
+              value.color !== undefined && typeof value.color !== 'string'
+                ? getPlatformColorDef(value.color, $themeStore.dark).icon
+                : 'currentColor'
           }}
     />
   </div>

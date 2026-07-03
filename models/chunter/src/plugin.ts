@@ -22,7 +22,7 @@ import type { IntlString, Resource } from '@hcengineering/platform'
 import { mergeIds } from '@hcengineering/platform'
 import type { AnyComponent, Location } from '@hcengineering/ui/src/types'
 import type { Action, ActionCategory, ViewAction, Viewlet, ViewletDescriptor } from '@hcengineering/view'
-import { type WidgetTab } from '@hcengineering/workbench'
+import { type WidgetTab, type LocationData } from '@hcengineering/workbench'
 
 export default mergeIds(chunterId, chunter, {
   component: {
@@ -34,7 +34,10 @@ export default mergeIds(chunterId, chunter, {
     ChatWidgetTab: '' as AnyComponent,
     ChatMessageNotificationLabel: '' as AnyComponent,
     ThreadNotificationPresenter: '' as AnyComponent,
-    JoinChannelNotificationPresenter: '' as AnyComponent
+    JoinChannelNotificationPresenter: '' as AnyComponent,
+    WorkbenchTabExtension: '' as AnyComponent,
+    DirectMessageButton: '' as AnyComponent,
+    EmployeePresenter: '' as AnyComponent
   },
   action: {
     MarkCommentUnread: '' as Ref<Action>,
@@ -42,8 +45,7 @@ export default mergeIds(chunterId, chunter, {
     ArchiveChannel: '' as Ref<Action>,
     UnarchiveChannel: '' as Ref<Action>,
     ConvertToPrivate: '' as Ref<Action>,
-    CopyChatMessageLink: '' as Ref<Action<Doc, any>>,
-    ReplyToThreadAction: '' as Ref<Action>
+    CopyChatMessageLink: '' as Ref<Action<Doc, any>>
   },
   actionImpl: {
     ArchiveChannel: '' as ViewAction,
@@ -54,7 +56,8 @@ export default mergeIds(chunterId, chunter, {
     OpenInSidebar: '' as ViewAction,
     TranslateMessage: '' as ViewAction,
     ShowOriginalMessage: '' as ViewAction,
-    StartConversation: '' as ViewAction
+    StartConversation: '' as ViewAction,
+    SummarizeMessages: '' as ViewAction
   },
   category: {
     Chunter: '' as Ref<ActionCategory>
@@ -91,7 +94,9 @@ export default mergeIds(chunterId, chunter, {
     Channels: '' as Ref<Viewlet>
   },
   ids: {
-    ChunterNotificationGroup: '' as Ref<NotificationGroup>
+    ChunterNotificationGroup: '' as Ref<NotificationGroup>,
+    ModulePermissionGroup: '' as Ref<Doc>,
+    ModulePermissionGroupReadOnlyGuest: '' as Ref<Doc>
   },
   space: {
     General: '' as Ref<Channel>,
@@ -108,7 +113,8 @@ export default mergeIds(chunterId, chunter, {
     ReplyToThread: '' as Resource<(doc: ActivityMessage, event: MouseEvent) => Promise<void>>,
     CanReplyToThread: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
     GetMessageLink: '' as Resource<(doc: Doc, props: Record<string, any>) => Promise<Location>>,
-    CloseChatWidgetTab: '' as Resource<(tab: WidgetTab) => Promise<void>>
+    CloseChatWidgetTab: '' as Resource<(tab: WidgetTab) => Promise<void>>,
+    LocationDataResolver: '' as Resource<(loc: Location) => Promise<LocationData>>
   },
   filter: {
     ChatMessagesFilter: '' as Resource<(message: ActivityMessage, _class?: Ref<Doc>) => boolean>

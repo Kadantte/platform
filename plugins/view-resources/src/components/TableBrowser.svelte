@@ -14,15 +14,16 @@
 -->
 <script lang="ts">
   import type { Class, Doc, DocumentQuery, FindOptions, Ref } from '@hcengineering/core'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
-  import { Scroller, tableSP, FadeOptions } from '@hcengineering/ui'
-  import { BuildModelKey } from '@hcengineering/view'
-  import { onMount } from 'svelte'
+  import { generateId, SortingOrder } from '@hcengineering/core'
+  import { ActionContext } from '@hcengineering/presentation'
+  import { FadeOptions, Scroller, tableSP } from '@hcengineering/ui'
+  import { BuildModelKey, ViewOptionModel, ViewOptions, Viewlet } from '@hcengineering/view'
+  import { onDestroy, onMount } from 'svelte'
   import { focusStore, ListSelectionProvider, SelectDirection } from '../selection'
   import { LoadingProps } from '../utils'
-  import SourcePresenter from './inference/SourcePresenter.svelte'
+  import { type ViewletContext, ViewletContextStore, viewletContextStore } from '../viewletContextStore'
   import Table from './Table.svelte'
-  import { ActionContext } from '@hcengineering/presentation'
+  import { setViewOptions } from '../viewOptions'
 
   export let _class: Ref<Class<Doc>>
   export let query: DocumentQuery<Doc>
@@ -35,6 +36,11 @@
   export let enableChecking = true
   export let tableId: string | undefined = undefined
   export let fade: FadeOptions = tableSP
+  export let prefferedSorting: string = 'modifiedOn'
+  export let viewOptions: ViewOptions | undefined = undefined
+  export let viewOptionsConfig: ViewOptionModel[] | undefined = undefined
+  export let viewlet: Viewlet | undefined = undefined
+  export let readonly = false
 
   // If defined, will show a number of dummy items before real data will appear.
   export let loadingProps: LoadingProps | undefined = undefined
@@ -50,35 +56,50 @@
   )
   const selection = listProvider.selection
 
+  const contextId = generateId()
+  async function onSort (event: CustomEvent<{ key: string, order: SortingOrder }>) {
+    const { key, order } = event.detail
+    if (viewlet && viewOptions) {
+      viewOptions.orderBy = [key, order]
+      setViewOptions(viewlet, viewOptions)
+    }
+  }
+
+  // Set viewlet context in store when component mounts/updates
+  $: {
+    viewletContextStore.update((cur) => {
+      const contexts = cur.contexts
+      const pos = contexts.findIndex((it) => it.id === contextId)
+      const newContext: ViewletContext = {
+        id: contextId,
+        viewlet,
+        config,
+        query,
+        viewOptions,
+        _class
+      }
+      if (pos === -1) {
+        return new ViewletContextStore([...contexts, newContext])
+      }
+      return new ViewletContextStore(contexts.map((it) => (it.id === contextId ? newContext : it)))
+    })
+  }
+
   onMount(() => {
     ;(document.activeElement as HTMLElement)?.blur()
   })
 
-  // Search config
-  let _config = config
-
-  let prefferedSorting: string = 'modifiedOn'
-
-  function updateConfig (config: Array<BuildModelKey | string>, search?: string): void {
-    const useSearch = search !== '' && search != null
-    _config = [
-      ...(useSearch
-        ? [
-            {
-              key: '',
-              presenter: SourcePresenter,
-              label: getEmbeddedLabel('#'),
-              sortingKey: '#score',
-              props: { search }
-            }
-          ]
-        : []),
-      ...config
-    ]
-    prefferedSorting = !useSearch ? 'modifiedOn' : '#score'
-  }
-
-  $: updateConfig(config, query.$search)
+  onDestroy(() => {
+    // Remove this context from store when component unmounts
+    viewletContextStore.update((cur) => {
+      const contexts = cur.contexts
+      const pos = contexts.findIndex((it) => it.id === contextId)
+      if (pos === -1) {
+        return cur
+      }
+      return new ViewletContextStore(contexts.slice(0, pos))
+    })
+  })
 </script>
 
 <svelte:window />
@@ -93,7 +114,7 @@
   <Table
     bind:this={table}
     {_class}
-    config={_config}
+    {config}
     {options}
     {query}
     {totalQuery}
@@ -106,13 +127,17 @@
     checked={$selection ?? []}
     {prefferedSorting}
     {tableId}
+    {viewOptions}
+    viewOptionsConfig={viewOptionsConfig ?? viewlet?.viewOptions?.other}
     selection={listProvider.current($focusStore)}
+    {readonly}
     on:row-focus={(evt) => {
       listProvider.updateFocus(evt.detail)
     }}
     on:content={(evt) => {
       listProvider.update(evt.detail)
     }}
+    on:sort={onSort}
     on:check={(evt) => {
       listProvider.updateSelection(evt.detail.docs, evt.detail.value)
     }}

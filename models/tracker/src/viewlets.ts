@@ -20,7 +20,7 @@ import core from '@hcengineering/model-core'
 import task from '@hcengineering/model-task'
 import view, { showColorsViewOption } from '@hcengineering/model-view'
 import tags from '@hcengineering/tags'
-import { type BuildModelKey, type ViewOptionsModel } from '@hcengineering/view'
+import { type ViewOptionModel, type BuildModelKey, type ViewOptionsModel } from '@hcengineering/view'
 import tracker from './plugin'
 
 export const issuesOptions = (kanban: boolean): ViewOptionsModel => ({
@@ -29,6 +29,7 @@ export const issuesOptions = (kanban: boolean): ViewOptionsModel => ({
     'kind',
     'assignee',
     'priority',
+    'space',
     'component',
     'milestone',
     'createdBy',
@@ -66,6 +67,14 @@ export const issuesOptions = (kanban: boolean): ViewOptionsModel => ({
       action: view.function.ShowEmptyGroups,
       label: view.string.ShowEmptyGroups
     },
+    {
+      key: 'hideArchived',
+      type: 'toggle',
+      defaultValue: true,
+      actionTarget: 'options',
+      action: view.function.HideArchived,
+      label: view.string.HideArchived
+    },
     ...(!kanban ? [showColorsViewOption] : [])
   ]
 })
@@ -97,18 +106,20 @@ export function issueConfig (
       props: { kind: 'list', size: 'small', justify: 'center' },
       displayProps: { key: key + 'status' }
     },
-    // {
-    //   key: 'kind',
-    //   label: task.string.TaskType,
-    //   presenter: task.component.TaskTypePresenter,
-    //   props: { kind: 'list', size: 'small', justify: 'center' },
-    //   displayProps: { key: key + 'kind' }
-    // },
+    {
+      key: 'kind',
+      label: task.string.TaskType,
+      presenter: task.component.TaskTypeListPresenter,
+      props: { kind: 'list', size: 'small', justify: 'center' },
+      displayProps: { key: key + 'kind' }
+    },
     {
       key: '',
       label: tracker.string.Title,
       presenter: tracker.component.TitlePresenter,
-      props: compact ? { shouldUseMargin: true, showParent: false } : {},
+      props: compact
+        ? { shouldUseMargin: true, showParent: false, grow: true, minWidth: '5rem' }
+        : { grow: true, minWidth: '5rem' },
       displayProps: { key: key + 'title' }
     },
     {
@@ -142,7 +153,8 @@ export function issueConfig (
             props: {
               kind: 'list',
               size: 'small',
-              shouldShowPlaceholder: false
+              shouldShowPlaceholder: false,
+              maxWidth: '30rem'
             },
             displayProps: {
               key: key + 'milestone',
@@ -161,7 +173,8 @@ export function issueConfig (
             props: {
               kind: 'list',
               size: 'small',
-              shouldShowPlaceholder: false
+              shouldShowPlaceholder: false,
+              maxWidth: '30rem'
             },
             displayProps: {
               key: key + 'component',
@@ -417,7 +430,8 @@ export function defineViewlets (builder: Builder): void {
           props: {
             kind: 'list',
             size: 'small',
-            shouldShowPlaceholder: false
+            shouldShowPlaceholder: false,
+            maxWidth: '30rem'
           },
           displayProps: { key: 'component', compression: true }
         },
@@ -428,7 +442,8 @@ export function defineViewlets (builder: Builder): void {
           props: {
             kind: 'list',
             size: 'small',
-            shouldShowPlaceholder: false
+            shouldShowPlaceholder: false,
+            maxWidth: '30rem'
           },
           displayProps: { key: 'milestone', compression: true }
         },
@@ -471,7 +486,17 @@ export function defineViewlets (builder: Builder): void {
       configOptions: {
         strict: true
       },
-      config: ['subIssues', 'priority', 'component', 'dueDate', 'labels', 'estimation', 'attachments', 'comments']
+      config: [
+        'subIssues',
+        'priority',
+        'component',
+        'milestone',
+        'dueDate',
+        'labels',
+        'estimation',
+        'attachments',
+        'comments'
+      ]
     },
     tracker.viewlet.IssueKanban
   )
@@ -518,17 +543,51 @@ export function defineViewlets (builder: Builder): void {
     tracker.viewlet.ComponentList
   )
 
+  const hideArchivedOption: ViewOptionModel = {
+    key: 'hideArchived',
+    type: 'toggle',
+    defaultValue: false,
+    actionTarget: 'options',
+    action: view.function.HideArchived,
+    label: view.string.HideArchived
+  }
+
+  const tableOptions: ViewOptionsModel = {
+    groupBy: [],
+    orderBy: [],
+    other: [hideArchivedOption]
+  }
+
+  const projectListOptions: ViewOptionsModel = {
+    groupBy: ['createdBy', 'modifiedBy'],
+    orderBy: [
+      ['name', SortingOrder.Ascending],
+      ['identifier', SortingOrder.Ascending],
+      ['modifiedOn', SortingOrder.Descending],
+      ['createdOn', SortingOrder.Descending]
+    ],
+    other: [hideArchivedOption]
+  }
+
   builder.createDoc(
     view.class.Viewlet,
     core.space.Model,
     {
       attachTo: tracker.class.Project,
       descriptor: view.viewlet.Table,
+      viewOptions: tableOptions,
       configOptions: {
-        hiddenKeys: ['identifier', 'name', 'description']
+        hiddenKeys: ['identifier', 'name', 'description'],
+        sortable: true
       },
       config: [
-        '',
+        {
+          key: '',
+          presenter: tracker.component.ProjectPresenter,
+          props: {
+            openIssues: true
+          }
+        },
         'members',
         {
           key: 'defaultAssignee',
@@ -539,9 +598,50 @@ export function defineViewlets (builder: Builder): void {
           presenter: tracker.component.ModificationDatePresenter,
           displayProps: { fixed: 'right', dividerBefore: true }
         }
-      ]
+      ],
+      options: {
+        showArchived: true
+      }
     },
     tracker.viewlet.ProjectList
+  )
+
+  builder.createDoc(
+    view.class.Viewlet,
+    core.space.Model,
+    {
+      attachTo: tracker.class.Project,
+      descriptor: view.viewlet.List,
+      viewOptions: projectListOptions,
+      configOptions: {
+        strict: true,
+        hiddenKeys: ['identifier', 'name', 'description']
+      },
+      config: [
+        {
+          key: '',
+          presenter: tracker.component.ProjectPresenter,
+          props: {
+            openIssues: true,
+            shouldUseMargin: true
+          }
+        },
+        'members',
+        {
+          key: 'defaultAssignee',
+          props: { kind: 'list' }
+        },
+        {
+          key: 'modifiedOn',
+          presenter: tracker.component.ModificationDatePresenter,
+          displayProps: { fixed: 'right', dividerBefore: true }
+        }
+      ],
+      options: {
+        showArchived: true
+      }
+    },
+    tracker.viewlet.ProjectListGrouped
   )
 
   const milestoneOptions: ViewOptionsModel = {

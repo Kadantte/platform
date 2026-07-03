@@ -14,10 +14,10 @@
 //
 
 import { mergeIds } from '@hcengineering/platform'
-import type { IntlString, Metadata } from '@hcengineering/platform'
+import type { IntlString } from '@hcengineering/platform'
 
 import workbench, { workbenchId } from '@hcengineering/workbench'
-import { type AnyComponent } from '@hcengineering/ui'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
 
 export default mergeIds(workbenchId, workbench, {
   string: {
@@ -42,18 +42,15 @@ export default mergeIds(workbenchId, workbench, {
     OpenInNewTab: '' as IntlString,
     NewVersionAvailable: '' as IntlString,
     PleaseUpdate: '' as IntlString,
-    MobileNotSupported: '' as IntlString,
-    LogInAnyway: '' as IntlString,
     WorkspaceCreating: '' as IntlString,
     AccessDenied: '' as IntlString,
     Widget: '' as IntlString,
-    WidgetPreference: '' as IntlString
-  },
-  metadata: {
-    MobileAllowed: '' as Metadata<boolean>
+    WidgetPreference: '' as IntlString,
+    Tab: '' as IntlString
   },
   component: {
     SpacePanel: '' as AnyComponent,
-    Workbench: '' as AnyComponent
+    Workbench: '' as AnyComponent,
+    WorkbenchTabs: '' as AnyComponent
   }
 })

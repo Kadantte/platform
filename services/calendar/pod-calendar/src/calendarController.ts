@@ -13,128 +13,183 @@
 // limitations under the License.
 //
 
-import { Account, Ref } from '@hcengineering/core'
-import { type Db } from 'mongodb'
-import { type CalendarClient } from './calendar'
+import { AccountClient, Integration } from '@hcengineering/account-client'
+import {
+  MeasureContext,
+  RateLimiter,
+  WorkspaceInfoWithStatus,
+  WorkspaceUuid,
+  isActiveMode,
+  isDeletingMode
+} from '@hcengineering/core'
 import config from './config'
-import { type ProjectCredentials, type Token, type User } from './types'
+import { getIntegrations } from './integrations'
 import { WorkspaceClient } from './workspaceClient'
 
+interface WorkspaceStateInfo {
+  shouldStart: boolean
+  needRecheck: boolean
+}
+
 export class CalendarController {
-  private readonly workspaces: Map<string, WorkspaceClient> = new Map<string, WorkspaceClient>()
-
-  private readonly credentials: ProjectCredentials
-  private readonly clients: Map<string, CalendarClient[]> = new Map<string, CalendarClient[]>()
-
   protected static _instance: CalendarController
 
-  private constructor (private readonly mongo: Db) {
-    this.credentials = JSON.parse(config.Credentials)
+  private constructor (
+    private readonly ctx: MeasureContext,
+    readonly accountClient: AccountClient
+  ) {
     CalendarController._instance = this
   }
 
-  static getCalendarController (mongo?: Db): CalendarController {
+  static getCalendarController (ctx: MeasureContext, accountClient: AccountClient): CalendarController {
     if (CalendarController._instance !== undefined) {
       return CalendarController._instance
     }
-    if (mongo === undefined) throw new Error('CalendarController not exist')
-    return new CalendarController(mongo)
+    return new CalendarController(ctx, accountClient)
   }
 
   async startAll (): Promise<void> {
-    const tokens = await this.mongo.collection<Token>('tokens').find().toArray()
-    for (const token of tokens) {
-      try {
-        await this.createClient(token)
-      } catch (err) {
-        console.error(`Couldn't create client for ${token.workspace} ${token.userId}`)
+    try {
+      const integrations = await getIntegrations(this.accountClient)
+      this.ctx.info('Start integrations', { count: integrations.length })
+
+      const groups = new Map<WorkspaceUuid, Integration[]>()
+      for (const int of integrations) {
+        if (int.workspaceUuid === null) continue
+        const group = groups.get(int.workspaceUuid)
+        if (group === undefined) {
+          groups.set(int.workspaceUuid, [int])
+        } else {
+          group.push(int)
+          groups.set(int.workspaceUuid, group)
+        }
+      }
+      void this.runAll(groups)
+    } catch (err: any) {
+      this.ctx.error('Failed to start existing integrations', err)
+    }
+  }
+
+  private async runAll (groups: Map<WorkspaceUuid, Integration[]>): Promise<void> {
+    const ids = [...groups.keys()]
+    if (ids.length === 0) return
+    const limiter = new RateLimiter(config.InitLimit)
+    const infos = await this.accountClient.getWorkspacesInfo(ids)
+    const outdatedWorkspaces = new Set<WorkspaceUuid>()
+    for (let index = 0; index < infos.length; index++) {
+      const info = infos[index]
+      const integrations = groups.get(info.uuid) ?? []
+      const { shouldStart, needRecheck } = await this.checkWorkspace(info, integrations)
+
+      if (shouldStart) {
+        await limiter.add(async () => {
+          try {
+            this.ctx.info('start workspace', { workspace: info.uuid })
+            await WorkspaceClient.run(this.ctx, this.accountClient, info.uuid)
+          } catch (err) {
+            this.ctx.error('Failed to start workspace', { workspace: info.uuid, error: err })
+          }
+        })
+      }
+
+      if (needRecheck) {
+        outdatedWorkspaces.add(info.uuid)
+      }
+
+      if (index % 10 === 0) {
+        this.ctx.info('starting progress', { value: index + 1, total: infos.length })
       }
     }
+    await limiter.waitProcessing()
+    this.ctx.info('Started all workspaces', { count: infos.length })
 
-    for (const client of this.workspaces.values()) {
-      void client.sync()
-    }
-  }
-
-  push (email: string, mode: 'events' | 'calendar', calendarId?: string): void {
-    const clients = this.clients.get(email)
-    for (const client of clients ?? []) {
-      if (mode === 'calendar') {
-        void client.syncCalendars(email)
+    if (outdatedWorkspaces.size > 0) {
+      this.ctx.info('Found outdated workspaces for future recheck', { count: outdatedWorkspaces.size })
+      // Schedule recheck for outdated workspaces
+      const outdatedGroups = new Map<WorkspaceUuid, Integration[]>()
+      for (const workspaceId of outdatedWorkspaces) {
+        const integrations = groups.get(workspaceId)
+        if (integrations !== undefined) {
+          outdatedGroups.set(workspaceId, integrations)
+        }
       }
-      if (mode === 'events' && calendarId !== undefined) {
-        void client.sync(calendarId, email)
+      void this.recheckOutdatedWorkspaces(outdatedGroups)
+    }
+  }
+
+  private async checkWorkspace (
+    info: WorkspaceInfoWithStatus,
+    integrations: Integration[]
+  ): Promise<WorkspaceStateInfo> {
+    if (isDeletingMode(info.mode)) {
+      if (integrations !== undefined) {
+        for (const int of integrations) {
+          await this.accountClient.deleteIntegration(int)
+        }
       }
+      return { shouldStart: false, needRecheck: false }
     }
-  }
-
-  addClient (email: string, client: CalendarClient): void {
-    const clients = this.clients.get(email)
-    if (clients === undefined) {
-      this.clients.set(email, [client])
-    } else {
-      clients.push(client)
-      this.clients.set(email, clients)
+    if (!isActiveMode(info.mode)) {
+      this.ctx.info('workspace is not active', { workspaceUuid: info.uuid })
+      return { shouldStart: false, needRecheck: false }
     }
-  }
+    const lastVisit = (Date.now() - (info.lastVisit ?? 0)) / (3600 * 24 * 1000) // In days
 
-  removeClient (email: string): void {
-    const clients = this.clients.get(email)
-    if (clients !== undefined) {
-      this.clients.set(
-        email,
-        clients.filter((p) => !p.isClosed)
-      )
+    if (lastVisit > config.WorkspaceInactivityInterval) {
+      this.ctx.info('workspace is outdated, needs recheck', {
+        workspaceUuid: info.uuid,
+        lastVisitDays: lastVisit.toFixed(1)
+      })
+      return { shouldStart: false, needRecheck: true }
     }
+    return { shouldStart: true, needRecheck: false }
   }
 
-  async getUserId (email: string, workspace: string): Promise<Ref<Account>> {
-    const workspaceClient = await this.getWorkspaceClient(workspace)
-    return await workspaceClient.getUserId(email)
-  }
+  // TODO: Subscribe to workspace queue istead of using setTimeout
+  async recheckOutdatedWorkspaces (outdatedGroups: Map<WorkspaceUuid, Integration[]>): Promise<void> {
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(
+          () => {
+            resolve()
+          },
+          10 * 60 * 1000
+        ) // Wait 10 minutes
+      })
 
-  async signout (workspace: string, value: string): Promise<void> {
-    const workspaceClient = await this.getWorkspaceClient(workspace)
-    const clients = await workspaceClient.signout(value)
-    if (clients === 0) {
-      this.workspaces.delete(workspace)
-    }
-  }
+      const ids = [...outdatedGroups.keys()]
+      const limiter = new RateLimiter(config.InitLimit)
+      const infos = await this.accountClient.getWorkspacesInfo(ids)
+      const stillOutdatedGroups = new Map<WorkspaceUuid, Integration[]>()
 
-  removeWorkspace (workspace: string): void {
-    this.workspaces.delete(workspace)
-  }
+      for (let index = 0; index < infos.length; index++) {
+        const info = infos[index]
+        const integrations = outdatedGroups.get(info.uuid) ?? []
+        const { shouldStart, needRecheck } = await this.checkWorkspace(info, integrations)
 
-  async close (): Promise<void> {
-    for (const workspace of this.workspaces.values()) {
-      await workspace.close()
-    }
-    this.workspaces.clear()
-  }
-
-  async createClient (user: Token): Promise<CalendarClient> {
-    const workspace = await this.getWorkspaceClient(user.workspace)
-    const newClient = await workspace.createCalendarClient(user)
-    return newClient
-  }
-
-  async newClient (user: User, code: string): Promise<CalendarClient> {
-    const workspace = await this.getWorkspaceClient(user.workspace)
-    const newClient = await workspace.newCalendarClient(user, code)
-    return newClient
-  }
-
-  private async getWorkspaceClient (workspace: string): Promise<WorkspaceClient> {
-    let res = this.workspaces.get(workspace)
-    if (res === undefined) {
-      try {
-        res = await WorkspaceClient.create(this.credentials, this.mongo, workspace, this)
-        this.workspaces.set(workspace, res)
-      } catch (err) {
-        console.error(`Couldn't create workspace worker for ${workspace}, reason: ${JSON.stringify(err)}`)
-        throw err
+        if (shouldStart) {
+          await limiter.add(async () => {
+            try {
+              this.ctx.info('restarting previously outdated workspace', { workspace: info.uuid })
+              await WorkspaceClient.run(this.ctx, this.accountClient, info.uuid)
+            } catch (err) {
+              this.ctx.error('Failed to restart workspace', { workspace: info.uuid, error: err })
+            }
+          })
+        } else if (needRecheck) {
+          // Keep this workspace for future recheck
+          stillOutdatedGroups.set(info.uuid, integrations)
+        }
       }
+
+      await limiter.waitProcessing()
+
+      if (stillOutdatedGroups.size > 0) {
+        this.ctx.info('Still outdated workspaces, scheduling next recheck', { count: stillOutdatedGroups.size })
+        void this.recheckOutdatedWorkspaces(stillOutdatedGroups)
+      }
+    } catch (err: any) {
+      this.ctx.error('Failed to recheck outdated workspaces', { error: err })
     }
-    return res
   }
 }

@@ -15,7 +15,7 @@
 
 import { Plugin, Resource, plugin } from '@hcengineering/platform'
 import type { TriggerFunc } from '@hcengineering/server-core'
-import { NotificationContentProvider, Presenter } from '@hcengineering/server-notification'
+import { Presenter } from '@hcengineering/server-notification'
 
 export * from './types'
 export * from './utils'
@@ -33,10 +33,10 @@ export default plugin(serverActivityId, {
     ActivityMessagesHandler: '' as Resource<TriggerFunc>,
     OnDocRemoved: '' as Resource<TriggerFunc>,
     OnReactionChanged: '' as Resource<TriggerFunc>,
-    ReferenceTrigger: '' as Resource<TriggerFunc>
+    ReferenceTrigger: '' as Resource<TriggerFunc>,
+    HandleCardActivity: '' as Resource<TriggerFunc>
   },
   function: {
-    ReactionNotificationContentProvider: '' as Resource<NotificationContentProvider>,
     DocUpdateMessageTextPresenter: '' as Resource<Presenter>
   }
 })

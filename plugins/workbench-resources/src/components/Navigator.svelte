@@ -16,8 +16,8 @@
   import core, { Doc, Ref, SortingOrder, Space, getCurrentAccount, hasAccountRole } from '@hcengineering/core'
   import { getResource } from '@hcengineering/platform'
   import preference, { SpacePreference } from '@hcengineering/preference'
-  import { createQuery, getClient } from '@hcengineering/presentation'
-  import { Scroller, NavItem } from '@hcengineering/ui'
+  import { createQuery, getClient, isAdminUser } from '@hcengineering/presentation'
+  import { Scroller, NavItem, Component } from '@hcengineering/ui'
   import { NavLink } from '@hcengineering/view-resources'
   import type { Application, NavigatorModel, SpecialNavModel } from '@hcengineering/workbench'
   import { getSpecialSpaceClass } from '../utils'
@@ -40,17 +40,21 @@
   let starred: Space[] = []
   let shownSpaces: Space[] = []
 
+  const adminUser = isAdminUser()
+
   $: if (model) {
     const classes = Array.from(new Set(getSpecialSpaceClass(model).flatMap((c) => hierarchy.getDescendants(c)))).filter(
       (it) => !hierarchy.isMixin(it)
     )
     if (classes.length > 0) {
-      query.query(
+      query.query<Space>(
         classes.length === 1 ? classes[0] : core.class.Space,
-        {
-          ...(classes.length === 1 ? {} : { _class: { $in: classes } }),
-          members: getCurrentAccount()._id
-        },
+        !adminUser
+          ? {
+              ...(classes.length === 1 ? {} : { _class: { $in: classes } }),
+              members: getCurrentAccount().uuid
+            }
+          : { ...(classes.length === 1 ? {} : { _class: { $in: classes } }) },
         (result) => {
           spaces = result
         },
@@ -77,8 +81,8 @@
 
   let requestIndex = 0
   async function update (model: NavigatorModel, spaces: Space[], preferences: Map<Ref<Doc>, SpacePreference>) {
-    shownSpaces = spaces.filter((sp) => !sp.archived && !preferences.has(sp._id))
-    starred = spaces.filter((sp) => preferences.has(sp._id))
+    shownSpaces = spaces.filter((sp) => !sp.archived && (model.hideStarred || !preferences.has(sp._id)))
+    starred = model.hideStarred ? [] : spaces.filter((sp) => preferences.has(sp._id))
     if (model.specials !== undefined) {
       const [sp, resIndex] = await updateSpecials(model.specials, spaces, ++requestIndex)
       if (resIndex !== requestIndex) return
@@ -142,7 +146,6 @@
     return special.checkIsDisabled && (await (await getResource(special.checkIsDisabled))())
   }
 
-  let savedMenu: boolean = false
   let menuSelection: boolean = false
 </script>
 
@@ -169,12 +172,8 @@
     {/if}
     <div class="min-h-3 flex-no-shrink" />
 
-    <SavedView
-      {currentApplication}
-      on:shown={(res) => (savedMenu = res.detail)}
-      on:select={(res) => (menuSelection = res.detail)}
-    />
-    {#if starred.length}
+    <SavedView alias={currentApplication?.alias} on:select={(res) => (menuSelection = res.detail)} />
+    {#if starred.length > 0 && !model.hideStarred}
       <StarredNav
         label={preference.string.Starred}
         spaces={starred}
@@ -187,7 +186,16 @@
       />
     {/if}
 
-    {#each model.spaces as m, i (m.label)}
+    {#if model.groups && model.groups.length > 0}
+      <div class="min-h-3 flex-no-shrink" />
+      {#each model.groups as group (group.id)}
+        {#if group.component}
+          <Component is={group.component} props={{ model: group, currentSpace }} />
+        {/if}
+      {/each}
+    {/if}
+
+    {#each model.spaces as m (m.label)}
       <SpacesNav
         spaces={shownSpaces.filter((it) => hierarchy.isDerived(it._class, m.spaceClass))}
         {currentSpace}

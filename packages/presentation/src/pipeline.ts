@@ -1,14 +1,17 @@
-import { Analytics } from '@hcengineering/analytics'
 import {
   toFindResult,
   type Class,
   type Client,
   type Doc,
   type DocumentQuery,
+  type DomainParams,
+  type DomainRequestOptions,
+  type DomainResult,
   type FindOptions,
   type FindResult,
   type Hierarchy,
   type ModelDb,
+  type OperationDomain,
   type QuerySelector,
   type Ref,
   type SearchOptions,
@@ -18,7 +21,7 @@ import {
   type TxResult,
   type WithLookup
 } from '@hcengineering/core'
-import { setPlatformStatus, unknownError, type Resource } from '@hcengineering/platform'
+import platform, { PlatformError, setPlatformStatus, unknownError, type Resource } from '@hcengineering/platform'
 
 /**
  * @public
@@ -35,6 +38,12 @@ export interface PresentationMiddleware {
     query: DocumentQuery<T>,
     options?: FindOptions<T>
   ) => Promise<FindResult<T>>
+
+  domainRequest: <T>(
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ) => Promise<DomainResult<T>>
 
   findOne: <T extends Doc>(
     _class: Ref<Class<T>>,
@@ -103,6 +112,27 @@ export class PresentationPipelineImpl implements PresentationPipeline {
     return current
   }
 
+  async domainRequest<T>(
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ): Promise<DomainResult<T>> {
+    try {
+      return this.head !== undefined
+        ? await this.head.domainRequest(domain, params, options)
+        : await this.client.domainRequest(domain, params, options)
+    } catch (err: any) {
+      if (err instanceof PlatformError) {
+        if (err.status.code === platform.status.ConnectionClosed) {
+          return { domain, value: null as any }
+        }
+      }
+      const status = unknownError(err)
+      await setPlatformStatus(status)
+      return { domain, value: null as any }
+    }
+  }
+
   async findAll<T extends Doc>(
     _class: Ref<Class<T>>,
     query: DocumentQuery<T>,
@@ -112,8 +142,12 @@ export class PresentationPipelineImpl implements PresentationPipeline {
       return this.head !== undefined
         ? await this.head.findAll(_class, query, options)
         : await this.client.findAll(_class, query, options)
-    } catch (err) {
-      Analytics.handleError(err as Error)
+    } catch (err: any) {
+      if (err instanceof PlatformError) {
+        if (err.status.code === platform.status.ConnectionClosed) {
+          return toFindResult([], -1)
+        }
+      }
       const status = unknownError(err)
       await setPlatformStatus(status)
       return toFindResult([], -1)
@@ -134,7 +168,11 @@ export class PresentationPipelineImpl implements PresentationPipeline {
         ? await this.head.findOne(_class, query, options)
         : await this.client.findOne(_class, query, options)
     } catch (err) {
-      Analytics.handleError(err as Error)
+      if (err instanceof PlatformError) {
+        if (err.status.code === platform.status.ConnectionClosed) {
+          return
+        }
+      }
       const status = unknownError(err)
       await setPlatformStatus(status)
     }
@@ -163,7 +201,11 @@ export class PresentationPipelineImpl implements PresentationPipeline {
         return await this.head.tx(tx)
       }
     } catch (err) {
-      Analytics.handleError(err as Error)
+      if (err instanceof PlatformError) {
+        if (err.status.code === platform.status.ConnectionClosed) {
+          return {}
+        }
+      }
       const status = unknownError(err)
       await setPlatformStatus(status)
       return {}
@@ -258,6 +300,25 @@ export abstract class BasePresentationMiddleware {
     return await this.client.findOne(_class, query, options)
   }
 
+  async domainRequest<T>(
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ): Promise<DomainResult<T>> {
+    return await this.provideDomainRequest(domain, params, options)
+  }
+
+  protected async provideDomainRequest<T>(
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ): Promise<DomainResult<T>> {
+    if (this.next !== undefined) {
+      return await this.next.domainRequest(domain, params, options)
+    }
+    return await this.client.domainRequest(domain, params, options)
+  }
+
   protected async provideSubscribe<T extends Doc>(
     _class: Ref<Class<T>>,
     query: DocumentQuery<T>,
@@ -304,6 +365,14 @@ export class OptimizeQueryMiddleware extends BasePresentationMiddleware implemen
 
   async tx (tx: Tx): Promise<TxResult> {
     return await this.provideTx(tx)
+  }
+
+  async domainRequest<T>(
+    domain: OperationDomain,
+    params: DomainParams,
+    options?: DomainRequestOptions
+  ): Promise<DomainResult<T>> {
+    return await this.provideDomainRequest(domain, params, options)
   }
 
   async subscribe<T extends Doc>(

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-import { type Widget, type WidgetTab } from '@hcengineering/workbench'
-import { getCurrentAccount, type Ref } from '@hcengineering/core'
+import { WorkbenchEvents, type Widget, type WidgetTab } from '@hcengineering/workbench'
+import { type Class, type Doc, getCurrentAccount, type Ref } from '@hcengineering/core'
 import { get, writable } from 'svelte/store'
-import { getCurrentLocation } from '@hcengineering/ui'
+import { getCurrentLocation, deviceOptionsStore as deviceInfo } from '@hcengineering/ui'
 import { getResource } from '@hcengineering/platform'
 
-import { workspaceStore } from './utils'
+import { locationWorkspaceStore } from './utils'
+import { Analytics } from '@hcengineering/analytics'
 
 export enum SidebarVariant {
   MINI = 'mini',
@@ -30,36 +31,41 @@ export interface WidgetState {
   data?: Record<string, any>
   tabs: WidgetTab[]
   tab?: string
+  objectId?: Ref<Doc>
+  objectClass?: Ref<Class<Doc>>
   closedByUser?: boolean
+  openedByUser?: boolean
 }
 
 export interface SidebarState {
   variant: SidebarVariant
+  float: boolean
   widgetsState: Map<Ref<Widget>, WidgetState>
   widget?: Ref<Widget>
 }
 
 export const defaultSidebarState: SidebarState = {
   variant: SidebarVariant.MINI,
+  float: false,
   widgetsState: new Map()
 }
 
 export const sidebarStore = writable<SidebarState>(defaultSidebarState)
 
-workspaceStore.subscribe((workspace) => {
+locationWorkspaceStore.subscribe((workspace) => {
   sidebarStore.set(getSidebarStateFromLocalStorage(workspace ?? ''))
 })
 
 sidebarStore.subscribe(setSidebarStateToLocalStorage)
 
 export function syncSidebarState (): void {
-  const workspace = get(workspaceStore)
+  const workspace = get(locationWorkspaceStore)
   sidebarStore.set(getSidebarStateFromLocalStorage(workspace ?? ''))
 }
 function getSideBarLocalStorageKey (workspace: string): string | undefined {
   const me = getCurrentAccount()
   if (me == null || workspace === '') return undefined
-  return `workbench.${workspace}.${me.person}.sidebar.state.`
+  return `workbench.${workspace}.${me.uuid}.sidebar.state.`
 }
 
 function getSidebarStateFromLocalStorage (workspace: string): SidebarState {
@@ -71,10 +77,13 @@ function getSidebarStateFromLocalStorage (workspace: string): SidebarState {
 
   try {
     const parsed = JSON.parse(state)
+    const device = get(deviceInfo)
 
     return {
       ...defaultSidebarState,
       ...parsed,
+      variant:
+        device.isMobile && device.minWidth ? SidebarVariant.MINI : (parsed.variant ?? defaultSidebarState.variant),
       widgetsState: new Map(Object.entries(parsed.widgetsState ?? {}))
     }
   } catch (e) {
@@ -85,29 +94,43 @@ function getSidebarStateFromLocalStorage (workspace: string): SidebarState {
 }
 
 function setSidebarStateToLocalStorage (state: SidebarState): void {
-  const workspace = get(workspaceStore)
+  const workspace = get(locationWorkspaceStore)
   if (workspace == null || workspace === '') return
 
   const sidebarStateLocalStorageKey = getSideBarLocalStorageKey(workspace)
   if (sidebarStateLocalStorageKey === undefined) return
+  const device = get(deviceInfo)
   window.localStorage.setItem(
     sidebarStateLocalStorageKey,
-    JSON.stringify({ ...state, widgetsState: Object.fromEntries(state.widgetsState.entries()) })
+    JSON.stringify({
+      ...state,
+      variant: device.isMobile && device.minWidth ? SidebarVariant.MINI : state.variant,
+      widgetsState: Object.fromEntries(state.widgetsState.entries())
+    })
   )
 }
 
-export function openWidget (widget: Widget, data?: Record<string, any>, active = true): void {
+export function openWidget (
+  widget: Widget,
+  data?: Record<string, any>,
+  params?: { active: boolean, openedByUser: boolean },
+  tabs?: WidgetTab[]
+): void {
   const state = get(sidebarStore)
   const { widgetsState } = state
   const widgetState = widgetsState.get(widget._id)
+  const active = params?.active ?? true
+  const openedByUser = params?.openedByUser ?? false
 
   widgetsState.set(widget._id, {
     _id: widget._id,
     data: data ?? widgetState?.data,
-    tab: widgetState?.tab,
-    tabs: widgetState?.tabs ?? []
+    tab: widgetState?.tab ?? tabs?.[0]?.id,
+    tabs: widgetState?.tabs ?? tabs ?? [],
+    openedByUser
   })
 
+  Analytics.handleEvent(WorkbenchEvents.SidebarOpenWidget, { widget: widget._id })
   sidebarStore.set({
     ...state,
     widgetsState,
@@ -125,7 +148,7 @@ export function closeWidget (widget: Ref<Widget>): void {
   }
 
   widgetsState.delete(widget)
-
+  Analytics.handleEvent(WorkbenchEvents.SidebarCloseWidget, { widget })
   if (state.widget === widget) {
     sidebarStore.set({
       ...state,
@@ -152,6 +175,8 @@ export async function closeWidgetTab (widget: Widget, tab: string): Promise<void
   const newTabs = tabs.filter((it) => it.id !== tab)
   const closedTab = tabs.find((it) => it.id === tab)
 
+  Analytics.handleEvent(WorkbenchEvents.SidebarCloseWidget, { widget: widget._id, tab: closedTab?.name })
+
   if (widget.onTabClose !== undefined && closedTab !== undefined) {
     const fn = await getResource(widget.onTabClose)
     void fn(closedTab)
@@ -174,7 +199,7 @@ export async function closeWidgetTab (widget: Widget, tab: string): Promise<void
     widgetsState.set(widget._id, { ...widgetState, tabs: newTabs })
   } else {
     const index = tabs.findIndex((it) => it.id === widgetState.tab)
-    const newTab = index === -1 ? newTabs[0] : tabs[index + 1] ?? tabs[index - 1] ?? newTabs[0]
+    const newTab = index === -1 ? newTabs[0] : (tabs[index + 1] ?? tabs[index - 1] ?? newTabs[0])
 
     widgetsState.set(widget._id, { ...widgetState, tabs: newTabs, tab: newTab.id })
   }
@@ -196,8 +221,11 @@ export function openWidgetTab (widget: Ref<Widget>, tab: string): void {
   if (newTab === undefined) return
 
   widgetsState.set(widget, { ...widgetState, tab })
+  Analytics.handleEvent(WorkbenchEvents.SidebarOpenWidget, { widget, tab: newTab?.name })
   sidebarStore.set({
     ...state,
+    widget,
+    variant: SidebarVariant.EXPANDED,
     widgetsState
   })
 }
@@ -230,6 +258,7 @@ export function createWidgetTab (widget: Widget, tab: WidgetTab, newTab = false)
     tab: tab.id
   })
 
+  Analytics.handleEvent(WorkbenchEvents.SidebarOpenWidget, { widget: widget._id, tab: tab.name })
   sidebarStore.set({
     ...state,
     widget: widget._id,
@@ -332,4 +361,38 @@ export function updateTabData (widget: Ref<Widget>, tabId: string, data: Record<
     ...state,
     widgetsState
   })
+}
+
+export function updateWidgetState (widget: Ref<Widget>, newState: Partial<WidgetState>): void {
+  const state = get(sidebarStore)
+  const { widgetsState } = state
+  const widgetState = widgetsState.get(widget)
+
+  if (widgetState === undefined) return
+
+  widgetsState.set(widget, { ...widgetState, ...newState })
+
+  sidebarStore.set({
+    ...state,
+    widgetsState
+  })
+}
+
+export function getSidebarObject (): Partial<Pick<Doc, '_id' | '_class'>> {
+  const state = get(sidebarStore)
+  if (state.variant !== SidebarVariant.EXPANDED || state.widget == null) {
+    return {}
+  }
+  const { widgetsState } = state
+  const widgetState = widgetsState.get(state.widget)
+  if (widgetState == null) {
+    return {}
+  }
+
+  const tab = widgetState.tabs.find((it) => it.id === widgetState.tab)
+
+  return {
+    _id: tab?.objectId ?? widgetState.objectId,
+    _class: tab?.objectClass ?? widgetState.objectClass
+  }
 }

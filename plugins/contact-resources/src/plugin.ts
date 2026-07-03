@@ -17,16 +17,18 @@
 import contact, { contactId } from '@hcengineering/contact'
 import { type Client, type Doc } from '@hcengineering/core'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
-import { type LabelAndProps, type Location } from '@hcengineering/ui'
+import { type LabelAndProps, type Location } from '@hcengineering/ui/src/types'
 import {
   type CreateAggregationManagerFunc,
   type GrouppingManagerResource,
   type FilterFunction,
-  type SortFunc
+  type SortFunc,
+  type ViewActionAvailabilityFunction
 } from '@hcengineering/view'
 
 export default mergeIds(contactId, contact, {
   string: {
+    HideInactive: '' as IntlString,
     Apply: '' as IntlString,
     CreatePerson: '' as IntlString,
     OrganizationNamePlaceholder: '' as IntlString,
@@ -59,10 +61,12 @@ export default mergeIds(contactId, contact, {
     AddMember: '' as IntlString,
     KickEmployee: '' as IntlString,
     KickEmployeeDescr: '' as IntlString,
-    Email: '' as IntlString,
+    ResendInvite: '' as IntlString,
+    ResendInviteDescr: '' as IntlString,
     CreateEmployee: '' as IntlString,
     Inactive: '' as IntlString,
     Active: '' as IntlString,
+    Role: '' as IntlString,
     NotSpecified: '' as IntlString,
     MergePersons: '' as IntlString,
     MergePersonsFrom: '' as IntlString,
@@ -81,7 +85,32 @@ export default mergeIds(contactId, contact, {
     DeleteEmployee: '' as IntlString,
     DeleteEmployeeDescr: '' as IntlString,
     HasMessagesIn: '' as IntlString,
-    HasNewMessagesIn: '' as IntlString
+    HasNewMessagesIn: '' as IntlString,
+    CannotMerge: '' as IntlString,
+    AutoTranslation: '' as IntlString,
+    TranslateTo: '' as IntlString,
+    DontTranslate: '' as IntlString,
+    SelectLanguage: '' as IntlString,
+    SelectLanguages: '' as IntlString,
+    WorkspaceStatusUntil: '' as IntlString,
+    WorkspaceStatusMenu: '' as IntlString,
+    WorkspaceStatusMessage: '' as IntlString,
+    WorkspaceStatusSetYour: '' as IntlString,
+    WorkspaceStatusUpdateYour: '' as IntlString,
+    WorkspaceStatusAway: '' as IntlString,
+    WorkspaceStatusVacation: '' as IntlString,
+    WorkspaceStatusOutSick: '' as IntlString,
+    WorkspaceStatusClear: '' as IntlString,
+    WorkspaceStatusSave: '' as IntlString,
+    WorkspaceStatusQuickPick: '' as IntlString,
+    WorkspaceStatusComposeHint: '' as IntlString,
+    WorkspaceStatusClearUntil: '' as IntlString,
+    WorkspaceStatusDoNotClear: '' as IntlString,
+    WorkspaceStatusIn30Min: '' as IntlString,
+    WorkspaceStatusIn1Hour: '' as IntlString,
+    WorkspaceStatusIn4Hours: '' as IntlString,
+    WorkspaceStatusEndOfDay: '' as IntlString,
+    WorkspaceStatusPickDate: '' as IntlString
   },
   function: {
     GetContactLink: '' as Resource<(doc: Doc, props: Record<string, any>) => Promise<Location>>,
@@ -90,7 +119,9 @@ export default mergeIds(contactId, contact, {
     FilterChannelNinResult: '' as FilterFunction,
     FilterChannelHasMessagesResult: '' as FilterFunction,
     FilterChannelHasNewMessagesResult: '' as FilterFunction,
-    PersonTooltipProvider: '' as Resource<(client: Client, doc?: Doc | null) => Promise<LabelAndProps | undefined>>
+    PersonTooltipProvider: '' as Resource<(client: Client, doc?: Doc | null) => Promise<LabelAndProps | undefined>>,
+    CanResendInvitation: '' as Resource<ViewActionAvailabilityFunction>,
+    CanMergePersons: '' as Resource<ViewActionAvailabilityFunction>
   },
   aggregation: {
     CreatePersonAggregationManager: '' as CreateAggregationManagerFunc,

@@ -15,36 +15,49 @@
 //
 
 import { Analytics } from '@hcengineering/analytics'
-import client, { ClientSocket, ClientSocketReadyState, type ClientFactoryOptions } from '@hcengineering/client'
+import client, {
+  type ClientFactoryOptions,
+  ClientSocket,
+  ClientSocketReadyState,
+  pingConst,
+  pongConst
+} from '@hcengineering/client'
 import core, {
   Account,
   Class,
   ClientConnectEvent,
   ClientConnection,
+  clone,
   Doc,
   DocChunk,
   DocumentQuery,
   Domain,
+  type DomainParams,
+  type DomainRequestOptions,
+  type DomainResult,
   FindOptions,
   FindResult,
+  generateId,
   LoadModelResponse,
+  type MeasureContext,
   MeasureMetricsContext,
+  type OperationDomain,
+  type PersonUuid,
   Ref,
   SearchOptions,
   SearchQuery,
   SearchResult,
   Timestamp,
+  toFindResult,
   Tx,
   TxApplyIf,
   TxHandler,
   TxResult,
-  generateId,
-  toFindResult,
-  type MeasureContext
+  type WorkspaceUuid
 } from '@hcengineering/core'
-import { PlatformError, UNAUTHORIZED, broadcastEvent, getMetadata, unknownError } from '@hcengineering/platform'
-
-import { HelloRequest, HelloResponse, RPCHandler, ReqId, type Response } from '@hcengineering/rpc'
+import platform, { getMetadata, PlatformError, Severity, Status, UNAUTHORIZED } from '@hcengineering/platform'
+import { HelloRequest, HelloResponse, type RateLimitInfo, ReqId, type Response, RPCHandler } from '@hcengineering/rpc'
+import { uncompress } from 'snappyjs'
 
 const SECOND = 1000
 const pingTimeout = 10 * SECOND
@@ -58,9 +71,14 @@ class RequestPromise {
   resolve!: (value?: any) => void
   reject!: (reason?: any) => void
   reconnect?: () => void
+
+  // Required to properly handle rate limits
+  sendData: () => void = () => {}
+
   constructor (
     readonly method: string,
     readonly params: any[],
+
     readonly handleResult?: (result: any) => Promise<void>
   ) {
     this.promise = new Promise((resolve, reject) => {
@@ -72,18 +90,23 @@ class RequestPromise {
   chunks?: { index: number, data: FindResult<any> }[]
 }
 
+const globalRPCHandler: RPCHandler = new RPCHandler()
+
+interface OnConnectHandler {
+  resolve: () => void
+  reject: (err: Error) => void
+}
+
 class Connection implements ClientConnection {
   private websocket: ClientSocket | null = null
   binaryMode = false
+  compressionMode = false
   private readonly requests = new Map<ReqId, RequestPromise>()
   private lastId = 0
   private interval: number | undefined
-  private dialTimer: any | undefined
+  private dialTimer: number | undefined
 
   private sockets = 0
-
-  private incomingTimer: any
-
   private openAction: any
 
   private readonly sessionId: string | undefined
@@ -93,16 +116,24 @@ class Connection implements ClientConnection {
 
   private pingResponse: number = Date.now()
 
-  private helloRecieved: boolean = false
+  private helloReceived: boolean = false
 
-  rpcHandler = new RPCHandler()
+  private account: Account | undefined
+
+  onConnect?: (event: ClientConnectEvent, lastTx: string | undefined, data: any) => Promise<void>
+
+  rpcHandler: RPCHandler
+
+  lastHash?: string
+
+  handlers: TxHandler[] = []
 
   constructor (
     private readonly ctx: MeasureContext,
     private readonly url: string,
-    private readonly handler: TxHandler,
-    readonly workspace: string,
-    readonly email: string,
+    handler: TxHandler,
+    readonly workspace: WorkspaceUuid,
+    readonly user: PersonUuid,
     readonly opt?: ClientFactoryOptions
   ) {
     if (typeof sessionStorage !== 'undefined') {
@@ -118,29 +149,42 @@ class Connection implements ClientConnection {
         sessionStorage.removeItem(sKey)
       }
       window.addEventListener('beforeunload', () => {
-        sessionStorage.setItem(sKey, sessionId as string)
+        sessionStorage.setItem(sKey, sessionId)
       })
     } else {
       this.sessionId = generateId()
     }
+    this.rpcHandler = opt?.useGlobalRPCHandler === true ? globalRPCHandler : new RPCHandler()
+    this.pushHandler(handler)
+    this.onConnect = opt?.onConnect
 
     this.scheduleOpen(this.ctx, false)
   }
 
+  pushHandler (handler: TxHandler): void {
+    this.handlers.push(handler)
+  }
+
+  async getLastHash (ctx: MeasureContext): Promise<string | undefined> {
+    await this.waitOpenConnection(ctx)
+    return this.lastHash
+  }
+
   private schedulePing (socketId: number): void {
-    clearInterval(this.interval)
     this.pingResponse = Date.now()
     const wsocket = this.websocket
-    const interval = setInterval(() => {
+
+    clearInterval(this.interval)
+    this.interval = setInterval(() => {
       if (wsocket !== this.websocket) {
-        clearInterval(interval)
+        clearInterval(this.interval)
         return
       }
       if (!this.upgrading && this.pingResponse !== 0 && Date.now() - this.pingResponse > hangTimeout) {
         // No ping response from server.
 
         if (this.websocket !== null) {
-          console.log('no ping response from server. Closing socket.', socketId, this.workspace, this.email)
+          console.log('no ping response from server. Closing socket.', socketId, this.workspace, this.user)
           clearInterval(this.interval)
           this.websocket.close(1000)
           return
@@ -150,7 +194,7 @@ class Connection implements ClientConnection {
       if (!this.closed) {
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
         void this.sendRequest({
-          method: 'ping',
+          method: pingConst,
           params: [],
           once: true,
           handleResult: async (result) => {
@@ -158,12 +202,13 @@ class Connection implements ClientConnection {
               this.pingResponse = Date.now()
             }
           }
+        }).catch((err) => {
+          this.ctx.error('failed to send msg', { err })
         })
       } else {
         clearInterval(this.interval)
       }
     }, pingTimeout)
-    this.interval = interval
   }
 
   async close (): Promise<void> {
@@ -171,6 +216,12 @@ class Connection implements ClientConnection {
     clearTimeout(this.openAction)
     clearTimeout(this.dialTimer)
     clearInterval(this.interval)
+    for (const handler of this.onConnectHandlers) {
+      handler.reject(new Error('Connection closed'))
+    }
+    for (const req of this.requests.values()) {
+      req.reject(new Error('Connection closed'))
+    }
     if (this.websocket !== null) {
       this.websocket.close(1000)
       this.websocket = null
@@ -178,11 +229,11 @@ class Connection implements ClientConnection {
   }
 
   isConnected (): boolean {
-    return this.websocket != null && this.websocket.readyState === ClientSocketReadyState.OPEN && this.helloRecieved
+    return this.websocket != null && this.websocket.readyState === ClientSocketReadyState.OPEN && this.helloReceived
   }
 
   delay = 0
-  onConnectHandlers: (() => void)[] = []
+  onConnectHandlers: OnConnectHandler[] = []
 
   private waitOpenConnection (ctx: MeasureContext): Promise<void> | undefined {
     if (this.isConnected()) {
@@ -193,9 +244,10 @@ class Connection implements ClientConnection {
       'wait-connection',
       {},
       (ctx) =>
-        new Promise((resolve) => {
-          this.onConnectHandlers.push(() => {
-            resolve()
+        new Promise((resolve, reject) => {
+          this.onConnectHandlers.push({
+            resolve,
+            reject
           })
           // Websocket is null for first time
           this.scheduleOpen(ctx, false)
@@ -231,50 +283,92 @@ class Connection implements ClientConnection {
     }
   }
 
+  currentRateLimit: RateLimitInfo | undefined
+  slowDownTimer = 0
+
   handleMsg (socketId: number, resp: Response<any>): void {
     if (this.closed) {
       return
     }
 
+    if (resp.rateLimit !== undefined && resp.rateLimit.remaining < 50) {
+      this.currentRateLimit = resp.rateLimit
+      if (this.currentRateLimit.remaining < this.currentRateLimit.limit / 3) {
+        if (this.slowDownTimer < 50) {
+          this.slowDownTimer += 50
+        }
+        this.slowDownTimer++
+      } else if (this.slowDownTimer > 0) {
+        this.slowDownTimer--
+      }
+    }
+
     if (resp.error !== undefined) {
-      if (resp.error?.code === UNAUTHORIZED.code || resp.terminate === true) {
-        Analytics.handleError(new PlatformError(resp.error))
+      if (resp.terminate === true) {
+        if (
+          resp.error.code !== platform.status.WorkspaceArchived &&
+          resp.error.code !== platform.status.WorkspaceNotFound
+        ) {
+          Analytics.handleError(new PlatformError(resp.error))
+        }
         this.closed = true
         this.websocket?.close()
-        this.opt?.onUnauthorized?.()
+        this.opt?.onError?.(resp.error.code)
       }
-      console.error(resp.error)
+
+      if (resp.id !== undefined) {
+        const promise = this.requests.get(resp.id)
+
+        // Support rate limits
+        if (resp.rateLimit !== undefined) {
+          const { remaining, retryAfter } = resp.rateLimit
+          if (remaining === 0) {
+            void new Promise((resolve) => setTimeout(resolve, retryAfter ?? 1)).then(() => {
+              // Retry after a while, so rate limits allow to call more.
+              promise?.sendData()
+            })
+            return
+          }
+        }
+
+        if (promise !== undefined) {
+          promise.reject(new PlatformError(resp.error))
+        }
+      }
+
       return
     }
 
     if (resp.id === -1) {
       this.delay = 0
       if (resp.result?.state === 'upgrading') {
-        void this.opt?.onConnect?.(ClientConnectEvent.Maintenance, resp.result.stats)
+        void this.onConnect?.(ClientConnectEvent.Maintenance, undefined, resp.result.stats)
         this.upgrading = true
         this.delay = 3
         return
       }
       if (resp.result === 'hello') {
         const helloResp = resp as HelloResponse
-        if (helloResp.binary) {
-          this.binaryMode = true
-        }
+        this.binaryMode = helloResp.binary
+        this.compressionMode = helloResp.useCompression ?? false
 
         // We need to clear dial timer, since we recieve hello response.
         clearTimeout(this.dialTimer)
-        this.dialTimer = null
+        this.dialTimer = undefined
+        this.lastHash = (resp as HelloResponse).lastHash
 
         const serverVersion = helloResp.serverVersion
-        console.log('Connected to server:', serverVersion)
+        if (typeof window !== 'undefined') {
+          console.log('Connected to server:', serverVersion)
+        }
 
         if (this.opt?.onHello !== undefined && !this.opt.onHello(serverVersion)) {
           this.closed = true
           this.websocket?.close()
           return
         }
-
-        this.helloRecieved = true
+        this.account = helloResp.account
+        this.helloReceived = true
         if (this.upgrading) {
           // We need to call upgrade since connection is upgraded
           this.opt?.onUpgrade?.()
@@ -284,17 +378,20 @@ class Connection implements ClientConnection {
         // Notify all waiting connection listeners
         const handlers = this.onConnectHandlers.splice(0, this.onConnectHandlers.length)
         for (const h of handlers) {
-          h()
+          h.resolve()
         }
 
         for (const [, v] of this.requests.entries()) {
           v.reconnect?.()
         }
 
-        void this.opt?.onConnect?.(
-          (resp as HelloResponse).reconnect === true ? ClientConnectEvent.Reconnected : ClientConnectEvent.Connected,
+        void this.onConnect?.(
+          helloResp.reconnect === true ? ClientConnectEvent.Reconnected : ClientConnectEvent.Connected,
+          helloResp.lastTx,
           this.sessionId
-        )
+        )?.catch((err) => {
+          this.ctx.error('failed to call onConnect', { err })
+        })
         this.schedulePing(socketId)
         return
       } else {
@@ -302,15 +399,18 @@ class Connection implements ClientConnection {
       }
       return
     }
-    if (resp.result === 'ping') {
-      void this.sendRequest({ method: 'ping', params: [] })
+    if (resp.result === pingConst) {
+      void this.sendRequest({ method: pingConst, params: [] }).catch((err) => {
+        this.ctx.error('failed to send ping', { err })
+      })
       return
     }
     if (resp.id !== undefined) {
       const promise = this.requests.get(resp.id)
+
       if (promise === undefined) {
         console.error(
-          new Error(`unknown response id: ${resp.id as string} ${this.workspace} ${this.email}`),
+          new Error(`unknown response id: ${resp.id as string} ${this.workspace} ${this.user}`),
           JSON.stringify(this.requests)
         )
         return
@@ -369,44 +469,62 @@ class Connection implements ClientConnection {
           'result: ',
           resp.result,
           this.workspace,
-          this.email
+          this.user
         )
         promise.reject(new PlatformError(resp.error))
       } else {
         if (request?.handleResult !== undefined) {
-          void request.handleResult(resp.result).then(() => {
-            promise.resolve(resp.result)
-          })
+          void request
+            .handleResult(resp.result)
+            .then(() => {
+              promise.resolve(resp.result)
+            })
+            .catch((err) => {
+              this.ctx.error('failed to handleResult', { err })
+            })
         } else {
           promise.resolve(resp.result)
         }
       }
-      void broadcastEvent(client.event.NetworkRequests, this.requests.size)
     } else {
       const txArr = Array.isArray(resp.result) ? (resp.result as Tx[]) : [resp.result as Tx]
 
       for (const tx of txArr) {
         if (tx?._class === core.class.TxModelUpgrade) {
-          console.log('Processing upgrade', this.workspace, this.email)
+          console.log('Processing upgrade', this.workspace, this.user)
           this.opt?.onUpgrade?.()
           return
         }
       }
-      this.handler(...txArr)
-
-      clearTimeout(this.incomingTimer)
-      void broadcastEvent(client.event.NetworkRequests, this.requests.size + 1)
-
-      this.incomingTimer = setTimeout(() => {
-        void broadcastEvent(client.event.NetworkRequests, this.requests.size)
-      }, 500)
+      this.handlers.forEach((handler) => {
+        handler(...txArr)
+      })
     }
+  }
+
+  checkArrayBufferPing (data: ArrayBuffer): boolean {
+    if (data.byteLength === pingConst.length || data.byteLength === pongConst.length) {
+      const text = new TextDecoder().decode(data)
+      if (text === pingConst) {
+        void this.sendRequest({ method: pingConst, params: [] }).catch((err) => {
+          this.ctx.error('failed to send ping', { err })
+        })
+        return true
+      }
+      if (text === pongConst) {
+        this.pingResponse = Date.now()
+        return true
+      }
+    }
+    return false
   }
 
   private openConnection (ctx: MeasureContext, socketId: number): void {
     this.binaryMode = false
+    this.helloReceived = false
     // Use defined factory or browser default one.
     const clientSocketFactory =
+      this.opt?.socketFactory ??
       getMetadata(client.metadata.ClientSocketFactory) ??
       ((url: string) => {
         const s = new WebSocket(url)
@@ -426,13 +544,13 @@ class Connection implements ClientConnection {
       return
     }
     this.websocket = wsocket
-    const opened = false
-
-    if (this.dialTimer != null) {
+    if (this.dialTimer === undefined) {
       this.dialTimer = setTimeout(() => {
-        this.dialTimer = null
-        if (!opened && !this.closed) {
-          void this.opt?.onDialTimeout?.()
+        this.dialTimer = undefined
+        if (!this.closed) {
+          void this.opt?.onDialTimeout?.()?.catch((err) => {
+            this.ctx.error('failed to handle dial timeout', { err })
+          })
           this.scheduleOpen(this.ctx, true)
         }
       }, dialTimeout)
@@ -445,14 +563,71 @@ class Connection implements ClientConnection {
       if (this.websocket !== wsocket) {
         return
       }
+      if (event.data === pongConst) {
+        this.pingResponse = Date.now()
+        return
+      }
+      if (event.data === pingConst) {
+        void this.sendRequest({ method: pingConst, params: [] }).catch((err) => {
+          this.ctx.error('failed to send ping', { err })
+        })
+        return
+      }
+      if (event.data instanceof ArrayBuffer && this.checkArrayBufferPing(event.data)) {
+        return
+      }
       if (event.data instanceof Blob) {
-        void event.data.arrayBuffer().then((data) => {
+        void event.data
+          .arrayBuffer()
+          .then((data) => {
+            if (this.checkArrayBufferPing(data)) {
+              // Support ping/pong
+              return
+            }
+            if (this.compressionMode && this.helloReceived) {
+              try {
+                data = uncompress(data)
+              } catch (err: any) {
+                // Ignore
+                console.error(err)
+              }
+            }
+            try {
+              const resp = this.rpcHandler.readResponse<any>(data, this.binaryMode)
+              this.handleMsg(socketId, resp)
+            } catch (err: any) {
+              if (!this.helloReceived) {
+                // Just error and ignore for now.
+                console.error(err)
+              } else {
+                throw err
+              }
+            }
+          })
+          .catch((err) => {
+            this.ctx.error('failed to decode array buffer', { err })
+          })
+      } else {
+        let data = event.data
+        if (this.compressionMode && this.helloReceived) {
+          try {
+            data = uncompress(data)
+          } catch (err: any) {
+            // Ignore
+            console.error(err)
+          }
+        }
+        try {
           const resp = this.rpcHandler.readResponse<any>(data, this.binaryMode)
           this.handleMsg(socketId, resp)
-        })
-      } else {
-        const resp = this.rpcHandler.readResponse<any>(event.data, this.binaryMode)
-        this.handleMsg(socketId, resp)
+        } catch (err: any) {
+          if (!this.helloReceived) {
+            // Just error and ignore for now.
+            console.error(err)
+          } else {
+            throw err
+          }
+        }
       }
     }
     wsocket.onclose = (ev) => {
@@ -460,42 +635,38 @@ class Connection implements ClientConnection {
         wsocket.close()
         return
       }
-      // console.log('client websocket closed', socketId, ev?.reason)
-      void broadcastEvent(client.event.NetworkRequests, -1)
       this.scheduleOpen(this.ctx, true)
     }
     wsocket.onopen = () => {
       if (this.websocket !== wsocket) {
         return
       }
-      const useBinary = getMetadata(client.metadata.UseBinaryProtocol) ?? true
-      const useCompression = getMetadata(client.metadata.UseProtocolCompression) ?? false
-      this.helloRecieved = false
+      const useBinary = this.opt?.useBinaryProtocol ?? getMetadata(client.metadata.UseBinaryProtocol) ?? true
+      this.compressionMode =
+        this.opt?.useProtocolCompression ?? getMetadata(client.metadata.UseProtocolCompression) ?? false
       const helloRequest: HelloRequest = {
         method: 'hello',
         params: [],
         id: -1,
         binary: useBinary,
-        compression: useCompression
+        compression: this.compressionMode
       }
       ctx.withSync('send-hello', {}, () => this.websocket?.send(this.rpcHandler.serialize(helloRequest, false)))
     }
 
-    wsocket.onerror = (event: any) => {
+    // FIX: remove undefined variable 'opened'
+    wsocket.onerror = () => {
       if (this.websocket !== wsocket) {
         return
       }
       if (this.delay < 3) {
         this.delay += 1
       }
-      if (opened) {
-        console.error('client websocket error:', socketId, this.url, this.workspace, this.email)
-      }
-      void broadcastEvent(client.event.NetworkRequests, -1)
+      console.error('client websocket error:', socketId, this.url, this.workspace, this.user)
     }
   }
 
-  private async sendRequest (data: {
+  private sendRequest (data: {
     method: string
     params: any[]
     // If not defined, on reconnect with timeout, will retry automatically.
@@ -504,72 +675,96 @@ class Connection implements ClientConnection {
     once?: boolean // Require handleResult to retrieve result
     measure?: (time: number, result: any, serverTime: number, queue: number, toRecieve: number) => void
     allowReconnect?: boolean
+    overrideId?: number
   }): Promise<any> {
-    return await this.ctx.newChild('send-request', {}).with(data.method, {}, async (ctx) => {
-      if (this.closed) {
-        throw new PlatformError(unknownError('connection closed'))
-      }
+    return this.ctx.with(
+      'send-request',
+      {},
+      async (ctx) => {
+        if (this.closed) {
+          throw new PlatformError(new Status(Severity.ERROR, platform.status.ConnectionClosed, {}))
+        }
 
-      if (data.once === true) {
-        // Check if has same request already then skip
-        const dparams = JSON.stringify(data.params)
-        for (const [, v] of this.requests) {
-          if (v.method === data.method && JSON.stringify(v.params) === dparams) {
-            // We have same unanswered, do not add one more.
-            return
+        if (this.slowDownTimer > 0) {
+          // We need to wait a bit to avoid ban.
+          await new Promise((resolve) => setTimeout(resolve, this.slowDownTimer))
+        }
+
+        if (data.once === true) {
+          // Check if has same request already then skip
+          const dparams = JSON.stringify(data.params)
+          for (const [, v] of this.requests) {
+            if (v.method === data.method && JSON.stringify(v.params) === dparams) {
+              // We have same unanswered, do not add one more.
+              return
+            }
           }
         }
-      }
 
-      const id = this.lastId++
-      const promise = new RequestPromise(data.method, data.params, data.handleResult)
-      promise.handleTime = data.measure
+        const id = data.overrideId ?? this.lastId++
+        const promise = new RequestPromise(data.method, data.params, data.handleResult)
+        promise.handleTime = data.measure
 
-      const w = this.waitOpenConnection(ctx)
-      if (w instanceof Promise) {
-        await w
-      }
-      this.requests.set(id, promise)
-      const sendData = async (): Promise<void> => {
-        if (this.websocket?.readyState === ClientSocketReadyState.OPEN) {
-          promise.startTime = Date.now()
-
-          const dta = ctx.withSync('serialize', {}, () =>
-            this.rpcHandler.serialize(
-              {
-                method: data.method,
-                params: data.params,
-                id,
-                time: Date.now()
-              },
-              this.binaryMode
-            )
-          )
-          ctx.withSync('send-data', {}, () => this.websocket?.send(dta))
+        const w = this.waitOpenConnection(ctx)
+        if (w instanceof Promise) {
+          await w
         }
-      }
-      if (data.allowReconnect ?? true) {
-        promise.reconnect = () => {
-          setTimeout(async () => {
-            // In case we don't have response yet.
-            if (this.requests.has(id) && ((await data.retry?.()) ?? true)) {
-              void sendData()
+        if (data.method !== pingConst) {
+          this.requests.set(id, promise)
+        }
+        promise.sendData = (): void => {
+          if (this.websocket?.readyState === ClientSocketReadyState.OPEN) {
+            promise.startTime = Date.now()
+
+            if (data.method !== pingConst) {
+              const dta = this.rpcHandler.serialize(
+                {
+                  method: data.method,
+                  params: data.params,
+                  meta: ctx.extractMeta(),
+                  id,
+                  time: Date.now()
+                },
+                this.binaryMode
+              )
+
+              this.websocket?.send(dta)
+            } else {
+              this.websocket?.send(pingConst)
             }
-          }, 50)
+          }
         }
+        if (data.allowReconnect ?? true) {
+          promise.reconnect = () => {
+            setTimeout(async () => {
+              // In case we don't have response yet.
+              if (this.requests.has(id) && ((await data.retry?.()) ?? true)) {
+                promise.sendData()
+              }
+            }, 50)
+          }
+        }
+        promise.sendData()
+        if (data.method !== pingConst) {
+          return await promise.promise
+        }
+      },
+      { method: data.method },
+      {
+        span: 'skip'
       }
-      void ctx.with('send-data', {}, () => sendData())
-      void ctx.with('broadcast-event', {}, () => broadcastEvent(client.event.NetworkRequests, this.requests.size))
-      return await promise.promise
-    })
+    )
   }
 
-  async loadModel (last: Timestamp, hash?: string): Promise<Tx[] | LoadModelResponse> {
-    return await this.sendRequest({ method: 'loadModel', params: [last, hash] })
+  loadModel (last: Timestamp, hash?: string): Promise<Tx[] | LoadModelResponse> {
+    return this.sendRequest({ method: 'loadModel', params: [last, hash] })
   }
 
-  async getAccount (): Promise<Account> {
-    return await this.sendRequest({ method: 'getAccount', params: [] })
+  getAccount (): Promise<Account> {
+    if (this.account !== undefined) {
+      return Promise.resolve(clone(this.account))
+    }
+    return this.sendRequest({ method: 'getAccount', params: [] })
   }
 
   async findAll<T extends Doc>(
@@ -582,7 +777,7 @@ class Connection implements ClientConnection {
       params: [_class, query, options],
       measure: (time, result, serverTime, queue, toReceive) => {
         if (typeof window !== 'undefined' && (time > 1000 || serverTime > 500)) {
-          console.error(
+          console.warn(
             'measure slow findAll',
             time,
             serverTime,
@@ -616,15 +811,15 @@ class Connection implements ClientConnection {
     // We need to revert deleted query simple values.
     // We need to get rid of simple query parameters matched in documents
     for (const doc of result) {
-      if (doc._class == null) {
-        doc._class = _class
-      }
       for (const [k, v] of Object.entries(query)) {
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
           if (doc[k] == null) {
             doc[k] = v
           }
         }
+      }
+      if (doc._class == null) {
+        doc._class = _class
       }
     }
 
@@ -644,8 +839,12 @@ class Connection implements ClientConnection {
     })
   }
 
-  loadChunk (domain: Domain, idx?: number, recheck?: boolean): Promise<DocChunk> {
-    return this.sendRequest({ method: 'loadChunk', params: [domain, idx, recheck] })
+  loadChunk (domain: Domain, idx?: number): Promise<DocChunk> {
+    return this.sendRequest({ method: 'loadChunk', params: [domain, idx] })
+  }
+
+  async getDomainHash (domain: Domain): Promise<string> {
+    return await this.sendRequest({ method: 'getDomainHash', params: [domain] })
   }
 
   closeChunk (idx: number): Promise<void> {
@@ -668,8 +867,18 @@ class Connection implements ClientConnection {
     return this.sendRequest({ method: 'searchFulltext', params: [query, options] })
   }
 
+  domainRequest (domain: OperationDomain, params: DomainParams, options?: DomainRequestOptions): Promise<DomainResult> {
+    return this.sendRequest({
+      method: 'domainRequest',
+      params: [domain, params],
+      retry: async () => {
+        return options?.retry ?? false
+      }
+    })
+  }
+
   sendForceClose (): Promise<void> {
-    return this.sendRequest({ method: 'forceClose', params: [], allowReconnect: false })
+    return this.sendRequest({ method: 'forceClose', params: [], allowReconnect: false, overrideId: -2, once: true })
   }
 }
 
@@ -679,8 +888,8 @@ class Connection implements ClientConnection {
 export function connect (
   url: string,
   handler: TxHandler,
-  workspace: string,
-  user: string,
+  workspace: WorkspaceUuid,
+  user: PersonUuid,
   opt?: ClientFactoryOptions
 ): ClientConnection {
   return new Connection(

@@ -13,11 +13,12 @@
 // limitations under the License.
 //
 
-import { type Class, DOMAIN_MODEL, type Ref, type Space, type AccountRole } from '@hcengineering/core'
+import { AccountRole, type AccountUuid, type Class, DOMAIN_MODEL, type Ref, type Space } from '@hcengineering/core'
 import { type Builder, Mixin, Model, Prop, TypeRef, UX } from '@hcengineering/model'
 import preference, { TPreference } from '@hcengineering/model-preference'
 import { createAction } from '@hcengineering/model-view'
-import { getEmbeddedLabel, type Asset, type IntlString, type Resource } from '@hcengineering/platform'
+import core, { TClass, TDoc } from '@hcengineering/model-core'
+import { type Asset, getEmbeddedLabel, type IntlString, type Resource } from '@hcengineering/platform'
 import view, { type KeyBinding } from '@hcengineering/view'
 import type {
   Application,
@@ -28,15 +29,18 @@ import type {
   Widget,
   WidgetPreference,
   WidgetTab,
-  WidgetType
+  WidgetType,
+  WorkbenchTab
 } from '@hcengineering/workbench'
-import { type AnyComponent } from '@hcengineering/ui'
-import core, { TClass, TDoc } from '@hcengineering/model-core'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
+import presentation from '@hcengineering/model-presentation'
 
 import workbench from './plugin'
 
 export { workbenchId } from '@hcengineering/workbench'
-export type { Application }
+export { workbenchOperation } from './migration'
+export type { Application, Widget }
+export { WidgetType } from '@hcengineering/workbench'
 
 @Model(workbench.class.Application, core.class.Doc, DOMAIN_MODEL)
 @UX(workbench.string.Application)
@@ -47,6 +51,7 @@ export class TApplication extends TDoc implements Application {
   position?: 'top' | 'mid'
   hidden!: boolean
   accessLevel?: AccountRole
+  order?: number
 }
 
 @Model(workbench.class.ApplicationNavModel, core.class.Doc, DOMAIN_MODEL)
@@ -75,6 +80,7 @@ export class TWidget extends TDoc implements Widget {
 
   component!: AnyComponent
   tabComponent?: AnyComponent
+  switcherComponent?: AnyComponent
   headerLabel?: IntlString
 
   closeIfNoTabs?: boolean
@@ -90,8 +96,31 @@ export class TWidgetPreference extends TPreference implements WidgetPreference {
   enabled!: boolean
 }
 
+@Model(workbench.class.WorkbenchTab, preference.class.Preference)
+@UX(workbench.string.Tab)
+export class TWorkbenchTab extends TPreference implements WorkbenchTab {
+  declare attachedTo: AccountUuid
+  location!: string
+  name?: string
+  isPinned!: boolean
+}
+
 export function createModel (builder: Builder): void {
-  builder.createModel(TApplication, TSpaceView, THiddenApplication, TApplicationNavModel, TWidget, TWidgetPreference)
+  builder.createModel(
+    TApplication,
+    TSpaceView,
+    THiddenApplication,
+    TApplicationNavModel,
+    TWidget,
+    TWidgetPreference,
+    TWorkbenchTab
+  )
+
+  builder.mixin(workbench.class.WorkbenchTab, core.class.Class, core.mixin.TxAccessLevel, {
+    createAccessLevel: AccountRole.Guest,
+    removeAccessLevel: AccountRole.Guest,
+    updateAccessLevel: AccountRole.Guest
+  })
 
   builder.mixin(workbench.class.Application, core.class.Class, view.mixin.ObjectPresenter, {
     presenter: workbench.component.ApplicationPresenter
@@ -117,6 +146,67 @@ export function createModel (builder: Builder): void {
       mode: ['workbench']
     }
   })
+
+  createAction(builder, {
+    action: workbench.actionImpl.PinTab,
+    label: view.string.Pin,
+    icon: view.icon.Pin,
+    input: 'focus',
+    category: workbench.category.Workbench,
+    target: workbench.class.WorkbenchTab,
+    query: {
+      isPinned: false
+    },
+    context: {
+      mode: 'context',
+      group: 'edit'
+    }
+  })
+
+  createAction(builder, {
+    action: workbench.actionImpl.UnpinTab,
+    label: view.string.Unpin,
+    icon: view.icon.Pin,
+    input: 'focus',
+    category: workbench.category.Workbench,
+    target: workbench.class.WorkbenchTab,
+    query: {
+      isPinned: true
+    },
+    context: {
+      mode: 'context',
+      group: 'edit'
+    }
+  })
+
+  createAction(builder, {
+    action: workbench.actionImpl.CloseTab,
+    label: presentation.string.Close,
+    icon: view.icon.Delete,
+    input: 'focus',
+    category: workbench.category.Workbench,
+    target: workbench.class.WorkbenchTab,
+    visibilityTester: workbench.function.CanCloseTab,
+    context: {
+      mode: 'context',
+      group: 'edit'
+    }
+  })
+
+  createAction(
+    builder,
+    {
+      action: workbench.actionImpl.CloseCurrentTab,
+      label: presentation.string.Close,
+      icon: view.icon.Delete,
+      input: 'none',
+      category: workbench.category.Workbench,
+      allowedForEditableContent: 'always',
+      target: core.class.Doc,
+      context: { mode: ['workbench', 'browser', 'panel', 'editor', 'input'] }
+    },
+    workbench.action.CloseCurrentTab
+  )
 }
 
 export default workbench

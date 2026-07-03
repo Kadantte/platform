@@ -31,6 +31,7 @@
   export let submitKind: ButtonKind = 'primary'
   export let cancelLabel: IntlString = ui.string.Cancel
   export let canSubmit: boolean = false
+  export let hideSubmit: boolean = false
   export let shouldSubmitOnEnter: boolean = false
   export let shouldCloseOnCancel: boolean = true
   export let hasBack: boolean = false
@@ -44,6 +45,7 @@
   export let withoutFooter = false
   export let closeIcon: AnySvelteComponent = Close
   export let shadow: boolean = false
+  export let className: string = ''
 
   const dispatch = createEventDispatcher()
 
@@ -66,7 +68,7 @@
 
 <svelte:element
   this={isForm ? 'form' : 'div'}
-  class="root"
+  class="root {className}"
   class:shadow
   class:embedded
   on:submit|preventDefault={isForm && shouldSubmitOnEnter ? submit : undefined}
@@ -138,15 +140,17 @@
           <slot name="btnsXtraStart" />
           <Button kind="regular" size="large" label={cancelLabel} on:click={cancel} {loading} />
           <slot name="btnsXtraBetween" />
-          <Button
-            kind={submitKind}
-            size="large"
-            label={submitLabel}
-            focusIndex={10001}
-            disabled={!canSubmit}
-            on:click={submit}
-            {loading}
-          />
+          {#if !hideSubmit}
+            <Button
+              kind={submitKind}
+              size="large"
+              label={submitLabel}
+              focusIndex={10001}
+              disabled={!canSubmit}
+              on:click={submit}
+              {loading}
+            />
+          {/if}
           <slot name="btnsXtraEnd" />
         </slot>
       </div>
@@ -169,6 +173,10 @@
       height: 100%;
       max-height: unset;
       border-radius: 0;
+    }
+
+    &.extendedHeight {
+      max-height: 90vh;
     }
   }
 

@@ -13,11 +13,23 @@
 // limitations under the License.
 //
 
-import type { Account, AccountRole, Blob, Class, Configuration, Doc, Mixin, Ref } from '@hcengineering/core'
-import type { Plugin } from '@hcengineering/platform'
+import type {
+  AccountRole,
+  Blob,
+  Class,
+  Configuration,
+  Doc,
+  Mixin,
+  Ref,
+  AccountUuid,
+  Domain,
+  IntegrationKind
+} from '@hcengineering/core'
+import type { Metadata, Plugin } from '@hcengineering/platform'
 import { Asset, IntlString, Resource, plugin } from '@hcengineering/platform'
 import { TemplateField, TemplateFieldCategory } from '@hcengineering/templates'
-import { AnyComponent } from '@hcengineering/ui'
+import { Action, AnyComponent } from '@hcengineering/ui'
+import { type Integration as AccountIntegration } from '@hcengineering/account-client'
 
 import { SpaceTypeCreator, SpaceTypeEditor } from './spaceTypeEditor'
 
@@ -25,10 +37,12 @@ export * from './spaceTypeEditor'
 export * from './utils'
 export * from './analytics'
 
+export const DOMAIN_SETTING = 'setting' as Domain
+
 /**
  * @public
  */
-export type Handler = Resource<(value: string) => Promise<void>>
+export type Handler = Resource<(integration: AccountIntegration) => Promise<void>>
 
 /**
  * @public
@@ -36,14 +50,19 @@ export type Handler = Resource<(value: string) => Promise<void>>
 export interface IntegrationType extends Doc {
   label: IntlString
   description: IntlString
+  descriptionComponent?: AnyComponent
+  stateComponent?: AnyComponent
   icon: AnyComponent
   allowMultiple: boolean
+  kind: IntegrationKind
 
   createComponent?: AnyComponent
   onDisconnect?: Handler
+  onDisconnectAll?: Handler // Disconnect for all workspaces
   reconnectComponent?: AnyComponent
-
   configureComponent?: AnyComponent
+
+  getActions?: Resource<(integration?: AccountIntegration) => Promise<Action[]>>
 }
 
 /**
@@ -54,7 +73,7 @@ export interface Integration extends Doc {
   disabled: boolean
   value: string
   error?: IntlString | null
-  shared?: Ref<Account>[]
+  shared?: AccountUuid[]
 }
 
 /**
@@ -90,6 +109,9 @@ export interface SettingsCategory extends Doc {
   order?: number
   role: AccountRole
 
+  // A feature to be used with hides
+  feature?: string
+
   expandable?: boolean
   adminOnly?: boolean
 }
@@ -101,6 +123,41 @@ export interface InviteSettings extends Configuration {
   expirationTime: number
   emailMask: string
   limit: number
+  defaultInviteRole: AccountRole
+  inviteLinkGeneratorRoles: AccountRole[]
+}
+
+/**
+ * Stable capability IDs for role-based permissions.
+ * Used with RoleCapabilitySettings to define which AccountRoles can perform which actions.
+ * @public
+ */
+export const RoleCapability = {
+  GenerateInviteLink: 'setting:capability:GenerateInviteLink',
+  ManageInviteSettings: 'setting:capability:ManageInviteSettings'
+} as const
+
+/**
+ * @public
+ */
+export type RoleCapabilityId = (typeof RoleCapability)[keyof typeof RoleCapability]
+
+/**
+ * Workspace-level config: which AccountRoles have which capabilities.
+ * Maps capability ID -> list of roles that have it (account has capability if hasAccountRole(account, role) for any role in the list).
+ * @public
+ */
+export interface RoleCapabilitySettings extends Configuration {
+  /** capabilityId -> roles that are allowed (e.g. [User, Maintainer, Owner]) */
+  roleByCapability: Record<string, AccountRole[]>
+}
+
+/**
+ * @public
+ */
+export interface OfficeSettings extends Configuration {
+  defaultStartWithTranscription: boolean
+  defaultStartWithRecording: boolean
 }
 
 /**
@@ -108,6 +165,10 @@ export interface InviteSettings extends Configuration {
  */
 export interface WorkspaceSetting extends Doc {
   icon?: Ref<Blob> | null
+}
+
+export enum IntegrationError {
+  EMAIL_IS_ALREADY_USED = 'EMAIL_IS_ALREADY_USED'
 }
 
 /**
@@ -122,16 +183,24 @@ export default plugin(settingId, {
     Password: '' as Ref<Doc>,
     Setting: '' as Ref<Doc>,
     Integrations: '' as Ref<Doc>,
+    Relations: '' as Ref<Doc>,
     Support: '' as Ref<Doc>,
     Privacy: '' as Ref<Doc>,
     Terms: '' as Ref<Doc>,
     ClassSetting: '' as Ref<Doc>,
     General: '' as Ref<Doc>,
-    Owners: '' as Ref<Doc>,
+    Members: '' as Ref<Doc>,
     InviteSettings: '' as Ref<Doc>,
+    RoleCapabilitySettings: '' as Ref<Doc>,
     WorkspaceSetting: '' as Ref<Doc>,
     ManageSpaces: '' as Ref<Doc>,
-    Spaces: '' as Ref<Doc>
+    Spaces: '' as Ref<Doc>,
+    Backup: '' as Ref<Doc>,
+    Export: '' as Ref<Doc>,
+    OfficeSettings: '' as Ref<Doc>,
+    DisablePermissionsConfiguration: '' as Ref<Configuration>,
+    Mailboxes: '' as Ref<Doc>,
+    Security: '' as Ref<Doc>
   },
   mixin: {
     Editable: '' as Ref<Mixin<Editable>>,
@@ -145,6 +214,8 @@ export default plugin(settingId, {
     Integration: '' as Ref<Class<Integration>>,
     IntegrationType: '' as Ref<Class<IntegrationType>>,
     InviteSettings: '' as Ref<Class<InviteSettings>>,
+    RoleCapabilitySettings: '' as Ref<Class<RoleCapabilitySettings>>,
+    OfficeSettings: '' as Ref<Class<OfficeSettings>>,
     WorkspaceSetting: '' as Ref<Class<WorkspaceSetting>>
   },
   component: {
@@ -158,12 +229,24 @@ export default plugin(settingId, {
     Terms: '' as AnyComponent,
     ClassSetting: '' as AnyComponent,
     PermissionPresenter: '' as AnyComponent,
+    AttributePermissionPresenter: '' as AnyComponent,
+    ClassPermissionPresenter: '' as AnyComponent,
     SpaceTypeDescriptorPresenter: '' as AnyComponent,
     SpaceTypeGeneralSectionEditor: '' as AnyComponent,
     SpaceTypePropertiesSectionEditor: '' as AnyComponent,
     SpaceTypeRolesSectionEditor: '' as AnyComponent,
     RoleEditor: '' as AnyComponent,
-    RoleAssignmentEditor: '' as AnyComponent
+    RoleAssignmentEditor: '' as AnyComponent,
+    RelationSetting: '' as AnyComponent,
+    Backup: '' as AnyComponent,
+    CreateAttributePopup: '' as AnyComponent,
+    CreateRelation: '' as AnyComponent,
+    EditRelation: '' as AnyComponent,
+    Mailboxes: '' as AnyComponent,
+    AddEmailSocialId: '' as AnyComponent,
+    OfficeSettings: '' as AnyComponent,
+    UserRoleSelect: '' as AnyComponent,
+    TwoFactorSettings: '' as AnyComponent
   },
   string: {
     Settings: '' as IntlString,
@@ -177,25 +260,27 @@ export default plugin(settingId, {
     Categories: '' as IntlString,
     Delete: '' as IntlString,
     Disconnect: '' as IntlString,
+    DisconnectAll: '' as IntlString,
     Add: '' as IntlString,
+    Proceed: '' as IntlString,
+    SendConfirmation: '' as IntlString,
+    NewEmail: '' as IntlString,
     AccountSettings: '' as IntlString,
     ChangePassword: '' as IntlString,
-    CurrentPassword: '' as IntlString,
-    NewPassword: '' as IntlString,
     Saving: '' as IntlString,
     Saved: '' as IntlString,
-    EnterCurrentPassword: '' as IntlString,
-    EnterNewPassword: '' as IntlString,
-    RepeatNewPassword: '' as IntlString,
     Signout: '' as IntlString,
     InviteWorkspace: '' as IntlString,
     SelectWorkspace: '' as IntlString,
     Reconnect: '' as IntlString,
     ClassSetting: '' as IntlString,
     Classes: '' as IntlString,
-    Owners: '' as IntlString,
+    Members: '' as IntlString,
     Configure: '' as IntlString,
     InviteSettings: '' as IntlString,
+    RoleCapabilitySettings: '' as IntlString,
+    DefaultInviteRoleForJoin: '' as IntlString,
+    InviteLinkGeneratorRoles: '' as IntlString,
     General: '' as IntlString,
     Properties: '' as IntlString,
     TaskTypes: '' as IntlString,
@@ -203,11 +288,85 @@ export default plugin(settingId, {
     Collections: '' as IntlString,
     SpaceTypes: '' as IntlString,
     Roles: '' as IntlString,
-    OwnerOrMainteinerRequired: '' as IntlString
+    OwnerOrMaintainerRequired: '' as IntlString,
+    Backup: '' as IntlString,
+    BackupLast: '' as IntlString,
+    BackupTotalSnapshots: '' as IntlString,
+    BackupTotalFiles: '' as IntlString,
+    BackupSize: '' as IntlString,
+    BackupLinkInfo: '' as IntlString,
+    BackupBearerTokenInfo: '' as IntlString,
+    BackupSnapshots: '' as IntlString,
+    BackupFileDownload: '' as IntlString,
+    BackupFiles: '' as IntlString,
+    BackupNoBackup: '' as IntlString,
+    BackupDownloadAll: '' as IntlString,
+    BackupPreparingDownload: '' as IntlString,
+    BackupDownloadAllInfo: '' as IntlString,
+    BackupCopyScript: '' as IntlString,
+    BackupCopyToken: '' as IntlString,
+    BackupScriptInfo: '' as IntlString,
+    BackupRestoreGuide: '' as IntlString,
+    BackupRestoreGuideInfo: '' as IntlString,
+    NonBackupedBlobs: '' as IntlString,
+    AddAttribute: '' as IntlString,
+    Mailboxes: '' as IntlString,
+    CreateMailbox: '' as IntlString,
+    CreateMailboxPlaceholder: '' as IntlString,
+    MailboxNoDomains: '' as IntlString,
+    MailboxLimitReached: '' as IntlString,
+    OfficeSettings: '' as IntlString,
+    OfficeDefaultSettings: '' as IntlString,
+    DefaultStartWithTranscription: '' as IntlString,
+    DefaultStartWithRecording: '' as IntlString,
+    GuestPermissionsSettings: '' as IntlString,
+    GuestPermissionsApplicationPermissions: '' as IntlString,
+    GuestPermissionsApplicationPermissionsHint: '' as IntlString,
+    GuestPermissionsTabGuest: '' as IntlString,
+    GuestPermissionsTabAnonymousGuest: '' as IntlString,
+    GuestPermissionsAnonymousApplicationHint: '' as IntlString,
+    MailboxErrorInvalidName: '' as IntlString,
+    MailboxErrorDomainNotFound: '' as IntlString,
+    MailboxErrorNameRulesViolated: '' as IntlString,
+    MailboxErrorMailboxExists: '' as IntlString,
+    MailboxErrorMailboxCountLimit: '' as IntlString,
+    DeleteMailbox: '' as IntlString,
+    MailboxDeleteConfirmation: '' as IntlString,
+    Security: '' as IntlString,
+    TwoFactorAuth: '' as IntlString,
+    TwoFactorAuthDescription: '' as IntlString,
+    EnableTwoFactorAuth: '' as IntlString,
+    DisableTwoFactorAuth: '' as IntlString,
+    TwoFactorAuthEnabled: '' as IntlString,
+    TwoFactorAuthDisabled: '' as IntlString,
+    ShowQRCode: '' as IntlString,
+    EnterVerificationCode: '' as IntlString,
+    IntegrationFailed: '' as IntlString,
+    IntegrationError: '' as IntlString,
+    EmailIsUsed: '' as IntlString,
+    Customize: '' as IntlString,
+    CodeSent: '' as IntlString,
+    SendAgain: '' as IntlString,
+    SendAgainIn: '' as IntlString,
+    AllIntegrations: '' as IntlString,
+    ConnectedIntegrations: '' as IntlString,
+    AvailableIntegrations: '' as IntlString,
+    Connect: '' as IntlString,
+    Integrate: '' as IntlString,
+    FailedToLoadIntegrations: '' as IntlString,
+    FailedToDisconnect: '' as IntlString,
+    ServiceIsUnavailable: '' as IntlString,
+    Integrated: '' as IntlString,
+    Connected: '' as IntlString,
+    Disconnected: '' as IntlString,
+    Available: '' as IntlString,
+    NotConnectedIntegration: '' as IntlString,
+    IntegrationIsUnstable: '' as IntlString
   },
   icon: {
     AccountSettings: '' as Asset,
-    Owners: '' as Asset,
+    Members: '' as Asset,
+    GuestPermissions: '' as Asset,
     Password: '' as Asset,
     Setting: '' as Asset,
     Integrations: '' as Asset,
@@ -220,7 +379,11 @@ export default plugin(settingId, {
     Enums: '' as Asset,
     InviteSettings: '' as Asset,
     InviteWorkspace: '' as Asset,
-    Views: '' as Asset
+    Views: '' as Asset,
+    Relations: '' as Asset,
+    Mailbox: '' as Asset,
+    OfficeSettings: '' as Asset,
+    Reset: '' as Asset
   },
   templateFieldCategory: {
     Integration: '' as Ref<TemplateFieldCategory>
@@ -230,5 +393,13 @@ export default plugin(settingId, {
     OwnerLastName: '' as Ref<TemplateField>,
     OwnerPosition: '' as Ref<TemplateField>,
     Value: '' as Ref<TemplateField>
+  },
+  metadata: {
+    BackupUrl: '' as Metadata<string>,
+    DefaultInviteRole: '' as Metadata<string | undefined>,
+    DefaultInviteLinkGeneratorRoles: '' as Metadata<string[] | undefined>
+  },
+  function: {
+    HasRoleCapability: '' as Resource<(capabilityId: RoleCapabilityId | string) => Promise<boolean>>
   }
 })

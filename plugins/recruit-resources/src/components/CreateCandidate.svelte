@@ -36,7 +36,8 @@
     toIdMap,
     TxProcessor,
     WithLookup,
-    type Blob
+    type Blob,
+    type PersonId
   } from '@hcengineering/core'
   import { getMetadata, getResource, setPlatformStatus, unknownError } from '@hcengineering/platform'
   import presentation, {
@@ -67,19 +68,21 @@
     Label,
     MiniToggle,
     showPopup,
-    Spinner
+    Spinner,
+    ActionIcon
   } from '@hcengineering/ui'
   import { createEventDispatcher, onDestroy } from 'svelte'
   import recruit from '../plugin'
   import { getCandidateIdentifier } from '../utils'
   import YesNo from './YesNo.svelte'
+  import IconShuffle from './icons/Shuffle.svelte'
 
   export let shouldSaveDraft: boolean = true
 
   const mDraftController = new MultipleDraftController(recruit.mixin.Candidate)
   const id: Ref<Candidate> = generateId()
   const draftController = new DraftController<CandidateDraft>(
-    shouldSaveDraft ? mDraftController.getNext() ?? id : undefined,
+    shouldSaveDraft ? (mDraftController.getNext() ?? id) : undefined,
     recruit.mixin.Candidate
   )
 
@@ -454,7 +457,6 @@
       object.skills = [...object.skills, ...newSkills]
     } catch (err: any) {
       Analytics.handleError(err)
-      console.error(err)
     }
   }
 
@@ -462,8 +464,8 @@
     if (object.resumeUuid) {
       try {
         await deleteFile(object.resumeUuid)
-      } catch (err) {
-        console.error(err)
+      } catch (err: any) {
+        Analytics.handleError(err)
       }
     }
   }
@@ -472,8 +474,9 @@
     loading = true
     try {
       const uploadFile = await getResource(attachment.helper.UploadFile)
+      const { uuid } = await uploadFile(file)
 
-      object.resumeUuid = await uploadFile(file)
+      object.resumeUuid = uuid
       object.resumeName = file.name
       object.resumeSize = file.size
       object.resumeType = file.type
@@ -481,7 +484,6 @@
 
       await recognize(file)
     } catch (err: any) {
-      Analytics.handleError(err)
       setPlatformStatus(unknownError(err))
     } finally {
       loading = false
@@ -515,7 +517,7 @@
         collection: 'skills',
         space: core.space.Workspace,
         modifiedOn: 0,
-        modifiedBy: '' as Ref<Account>,
+        modifiedBy: '' as PersonId,
         title: tag.title,
         tag: tag._id,
         color: tag.color
@@ -575,6 +577,9 @@
       )
     }
   }
+
+  const onsite = hierarchy.findAttribute(recruit.mixin.Candidate, 'onsite')
+  const remote = hierarchy.findAttribute(recruit.mixin.Candidate, 'remote')
 </script>
 
 <FocusHandler {manager} />
@@ -631,7 +636,7 @@
         maxWidth={'30rem'}
       />
     </div>
-    <div class="ml-4">
+    <div class="flex-col items-center flex-gap-2 ml-4">
       <EditableAvatar
         disabled={loading}
         bind:this={avatarEditor}
@@ -641,6 +646,16 @@
         }}
         size={'large'}
         name={combineName(object?.firstName?.trim() ?? '', object?.lastName?.trim() ?? '')}
+      />
+      <ActionIcon
+        icon={IconShuffle}
+        label={recruit.string.SwapFirstAndLastNames}
+        size={'medium'}
+        action={() => {
+          const first = object.firstName
+          object.firstName = object.lastName
+          object.lastName = first
+        }}
       />
     </div>
   </div>
@@ -653,24 +668,28 @@
       kind={'regular'}
       size={'large'}
     />
-    <YesNo
-      disabled={loading}
-      focusIndex={100}
-      label={recruit.string.Onsite}
-      tooltip={recruit.string.WorkLocationPreferences}
-      bind:value={object.onsite}
-      kind={'regular'}
-      size={'large'}
-    />
-    <YesNo
-      disabled={loading}
-      focusIndex={101}
-      label={recruit.string.Remote}
-      tooltip={recruit.string.WorkLocationPreferences}
-      bind:value={object.remote}
-      kind={'regular'}
-      size={'large'}
-    />
+    {#if onsite?.hidden !== true}
+      <YesNo
+        disabled={loading}
+        focusIndex={100}
+        label={recruit.string.Onsite}
+        tooltip={recruit.string.WorkLocationPreferences}
+        bind:value={object.onsite}
+        kind={'regular'}
+        size={'large'}
+      />
+    {/if}
+    {#if remote?.hidden !== true}
+      <YesNo
+        disabled={loading}
+        focusIndex={101}
+        label={recruit.string.Remote}
+        tooltip={recruit.string.WorkLocationPreferences}
+        bind:value={object.remote}
+        kind={'regular'}
+        size={'large'}
+      />
+    {/if}
     <Component
       is={tags.component.TagsDropdownEditor}
       props={{
@@ -690,7 +709,7 @@
         addTagRef(evt.detail)
       }}
       on:delete={(evt) => {
-        object.skills = object.skills.filter((it) => it._id !== evt.detail)
+        object.skills = object.skills.filter((it) => it.tag !== evt.detail._id)
       }}
     />
     {#if object.skills.length > 0}

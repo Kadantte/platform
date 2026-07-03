@@ -13,19 +13,29 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import core, { AnyAttribute, Class, Doc, Ref, Type } from '@hcengineering/core'
-  import { Asset, IntlString } from '@hcengineering/platform'
+  import core, {
+    AnyAttribute,
+    Association,
+    AssociationQuery,
+    Class,
+    Client,
+    Doc,
+    Ref,
+    TxOperations,
+    Type
+  } from '@hcengineering/core'
+  import { Asset, getEmbeddedLabel, IntlString, translate } from '@hcengineering/platform'
   import { createQuery, getAttributePresenterClass, getClient, hasResource } from '@hcengineering/presentation'
-  import { Loading, resizeObserver } from '@hcengineering/ui'
-  import DropdownLabelsIntl from '@hcengineering/ui/src/components/DropdownLabelsIntl.svelte'
+  import { DropdownLabelsIntl, Loading, resizeObserver } from '@hcengineering/ui'
   import { BuildModelKey, Viewlet, ViewletPreference } from '@hcengineering/view'
   import { deepEqual } from 'fast-equals'
   import { createEventDispatcher } from 'svelte'
   import view from '../plugin'
-  import { buildConfigLookup, getKeyLabel } from '../utils'
+  import { buildConfigLookup, canResolveAttribute, getKeyLabel } from '../utils'
   import ViewletClassSettings from './ViewletClassSettings.svelte'
 
   export let viewlet: Viewlet
+  export let defaultConfig: (BuildModelKey | string)[] | undefined = undefined
 
   const dispatch = createEventDispatcher()
 
@@ -97,20 +107,38 @@
     }
   }
 
+  function getAssociationLabel (client: TxOperations, param: string): IntlString {
+    return getKeyLabel(client, viewlet.attachTo, param, undefined)
+  }
+
   function getBaseConfig (viewlet: Viewlet): Config[] {
-    const lookup = buildConfigLookup(hierarchy, viewlet.attachTo, viewlet.config, viewlet.options?.lookup)
+    const config = defaultConfig ?? viewlet.config
+    const lookup = buildConfigLookup(hierarchy, viewlet.attachTo, config, viewlet.options?.lookup)
     const result: Config[] = []
     const clazz = hierarchy.getClass(viewlet.attachTo)
     let wasOptional = false
-    for (const param of viewlet.config) {
+
+    for (const param of config) {
       if (typeof param === 'string') {
         if (viewlet.configOptions?.hiddenKeys?.includes(param)) continue
         if (param.length === 0) {
           result.push(getObjectConfig(viewlet.attachTo, param))
-        } else {
-          const attrCfg: AttributeConfig = {
+        } else if (param.startsWith('$associations.')) {
+          const assocConfig: AttributeConfig = {
             type: 'attribute',
             value: param,
+            enabled: true,
+            label: getAssociationLabel(client, param),
+            _class: viewlet.attachTo,
+            icon: clazz.icon
+          }
+          result.push(assocConfig)
+        } else {
+          if (!canResolveAttribute(hierarchy, viewlet.attachTo, param, lookup)) continue
+          const paramValue = param.startsWith('custom') ? { key: param, displayProps: { optional: true } } : param
+          const attrCfg: AttributeConfig = {
+            type: 'attribute',
+            value: paramValue,
             enabled: true,
             label: getKeyLabel(client, viewlet.attachTo, param, lookup),
             _class: viewlet.attachTo,
@@ -133,6 +161,7 @@
               value: ''
             })
           }
+          if (!canResolveAttribute(hierarchy, viewlet.attachTo, param.key, lookup)) continue
           const attrCfg: AttributeConfig = {
             type: 'attribute',
             value: param,
@@ -160,16 +189,16 @@
   }
 
   function processAttribute (attribute: AnyAttribute, result: Config[], useMixinProxy = false): void {
-    if (attribute.hidden === true || attribute.label === undefined) return
+    if (attribute.hidden || attribute.label === undefined) return
     if (viewlet.configOptions?.hiddenKeys?.includes(attribute.name)) return
     if (hierarchy.isDerived(attribute.type._class, core.class.Collection)) return
-    const { attrClass, category } = getAttributePresenterClass(hierarchy, attribute)
+    const { attrClass, category } = getAttributePresenterClass(hierarchy, attribute.type)
     const value = getValue(attribute.name, attribute.type, attrClass)
     for (const res of result) {
-      const key = typeof res.value === 'string' ? res.value : res.value?.key
-      if (key === undefined) return
-      if (key === attribute.name) return
-      if (key === value) return
+      const key = getKey(res.value)
+      if (key === undefined) continue
+      if (key === attribute.name || key === value) return
+      if (key === '' && isAttribute(res) && res.label === attribute.label) return
     }
     const mixin =
       category === 'object'
@@ -198,9 +227,12 @@
         result.push(newValue)
       }
     } else {
+      const isCustomAttribute = attribute.name.startsWith('custom')
+      const attributeValue = isCustomAttribute ? { key: value, displayProps: { optional: true } } : value
+
       const newValue: AttributeConfig = {
         type: 'attribute',
-        value: extraProps ? { ...extraProps, key: value } : value,
+        value: extraProps != null ? { ...extraProps, key: value } : attributeValue,
         label: attribute.label,
         enabled: false,
         _class: attribute.attributeOf,
@@ -216,19 +248,127 @@
     return val.type === 'attribute'
   }
 
+  function getKey (value: string | BuildModelKey | undefined): string | undefined {
+    return typeof value === 'string' ? value : value?.key
+  }
+
   function isExist (result: Config[], newValue: Config): boolean {
+    if (!isAttribute(newValue)) return false
+    const newValueKey = getKey(newValue.value)
+    if (newValueKey === undefined) return false
+
     for (const res of result) {
-      if (!isAttribute(res)) continue
-      if (!isAttribute(newValue)) continue
-      if (res._class !== newValue._class) continue
-      if (typeof res.value === 'string') {
-        if (res.value === newValue.value) return true
+      if (!isAttribute(res)) {
+        continue
+      }
+      if (getKey(res.value) === newValueKey) {
+        return true
+      }
+      if (newValueKey === '' && res.label === newValue.label) {
+        return true
       }
     }
     return false
   }
 
-  function getConfig (viewlet: Viewlet, preference: ViewletPreference | undefined): Config[] {
+  function getParentsString (parents: AssociationQuery[]): string {
+    return parents.map(([assocId, direction]) => `$associations.${assocId}_${direction === 1 ? 'a' : 'b'}`).join('.')
+  }
+
+  async function processAssociation (
+    association: Association,
+    direction: 'a' | 'b',
+    result: Config[],
+    preference: ViewletPreference | undefined,
+    parents: AssociationQuery[]
+  ): Promise<void> {
+    const associationName = `$associations.${association._id}_${direction}`
+    const resultName = parents.length > 0 ? `${getParentsString(parents)}.${associationName}` : associationName
+
+    const name = direction === 'a' ? association.nameA : association.nameB
+    const targetClass = direction === 'a' ? association.classA : association.classB
+
+    if (name.trim().length === 0) return
+    const model = client.getModel()
+
+    const resultLabels = parents
+      .map((r) => {
+        const assoc = model.findObject(r[0])
+        if (assoc === undefined) return ''
+        return r[1] === 1 ? assoc.nameA : assoc.nameB
+      })
+      .filter((it) => it.length > 0)
+    resultLabels.push(name)
+    const fullLabel = resultLabels.join(' › ')
+
+    const clazz = hierarchy.getClass(targetClass)
+    const newValue: AttributeConfig = {
+      type: 'attribute',
+      value: resultName,
+      label: getEmbeddedLabel(fullLabel),
+      enabled: false,
+      _class: targetClass,
+      icon: clazz.icon
+    }
+
+    if (!isExist(result, newValue)) {
+      result.push(newValue)
+    }
+
+    if (preference === undefined) return
+    const exists = preference.config.find((p) => {
+      const key = typeof p === 'string' ? p : p.key
+      return key === resultName
+    })
+    if (exists) {
+      addAssociations(result, targetClass, preference, [...parents, [association._id, direction === 'a' ? 1 : -1]])
+      await addAssociationAttributes(result, targetClass, resultName, fullLabel)
+    }
+  }
+
+  async function addAssociationAttributes (
+    result: Config[],
+    targetClass: Ref<Class<Doc>>,
+    associationKey: string,
+    associationLabel: string
+  ): Promise<void> {
+    const allAttributes = hierarchy.getAllAttributes(targetClass)
+    for (const [, attribute] of allAttributes) {
+      if (attribute.hidden || attribute.label === undefined) continue
+      if (hierarchy.isDerived(attribute.type._class, core.class.Collection)) continue
+      const { attrClass, category } = getAttributePresenterClass(hierarchy, attribute.type)
+      const mixin =
+        category === 'object'
+          ? view.mixin.ObjectPresenter
+          : category === 'collection'
+            ? view.mixin.CollectionPresenter
+            : view.mixin.AttributePresenter
+      const presenter = hierarchy.classHierarchyMixin(
+        attrClass,
+        mixin,
+        (m) => hasResource(m.presenter) ?? false
+      )?.presenter
+      if (presenter === undefined) continue
+
+      const fieldKey = `${associationKey}.${attribute.name}`
+      const fieldLabel = getAssociationLabel(client, fieldKey)
+      const translatedLabel = await translate(fieldLabel, {})
+      const clazz = hierarchy.getClass(targetClass)
+      const newValue: AttributeConfig = {
+        type: 'attribute',
+        value: fieldKey,
+        label: getEmbeddedLabel(associationLabel + ' > ' + translatedLabel),
+        enabled: false,
+        _class: targetClass,
+        icon: clazz.icon
+      }
+      if (!isExist(result, newValue)) {
+        result.push(newValue)
+      }
+    }
+  }
+
+  async function getConfig (viewlet: Viewlet, preference: ViewletPreference | undefined): Promise<Config[]> {
     const result = getBaseConfig(viewlet)
 
     if (viewlet.configOptions?.strict !== true) {
@@ -237,27 +377,50 @@
         processAttribute(attribute, result)
       }
 
-      hierarchy.getDescendants(viewlet.attachTo).forEach((it) => {
-        hierarchy.getOwnAttributes(it).forEach((attr) => {
+      const desc = hierarchy.getDescendants(viewlet.attachTo)
+      for (const d of desc) {
+        if (!hierarchy.isMixin(d)) continue
+        hierarchy.getOwnAttributes(d).forEach((attr) => {
           processAttribute(attr, result, true)
         })
-      })
+      }
 
-      const ancestors = new Set(hierarchy.getAncestors(viewlet.attachTo))
-      const parent = hierarchy.getParentClass(viewlet.attachTo)
-      const parentMixins = hierarchy
-        .getDescendants(parent)
-        .map((p) => hierarchy.getClass(p))
-        .filter((p) => hierarchy.isMixin(p._id) && p.extends && ancestors.has(p.extends))
-
-      parentMixins.forEach((it) => {
-        hierarchy.getOwnAttributes(it._id).forEach((attr) => {
-          processAttribute(attr, result, true)
-        })
-      })
+      await addAssociations(result, viewlet.attachTo, preference)
     }
 
     return preference === undefined ? result : setStatus(result, preference)
+  }
+
+  async function addAssociations (
+    result: Config[],
+    _class: Ref<Class<Doc>>,
+    preference: ViewletPreference | undefined,
+    parents: AssociationQuery[] = []
+  ): Promise<void> {
+    const ancestors = new Set(hierarchy.getAncestors(_class))
+    const parent = hierarchy.getParentClass(_class)
+    const parentMixins = hierarchy
+      .getDescendants(parent)
+      .map((p) => hierarchy.getClass(p))
+      .filter((p) => hierarchy.isMixin(p._id) && ancestors.has(hierarchy.getBaseClass(p._id)))
+
+    parentMixins.forEach((it) => {
+      hierarchy.getOwnAttributes(it._id).forEach((attr) => {
+        processAttribute(attr, result, true)
+      })
+    })
+
+    const allClasses = [...ancestors, ...parentMixins.map((it) => it._id)]
+
+    const associationsB = client.getModel().findAllSync(core.class.Association, { classA: { $in: allClasses } })
+    const associationsA = client.getModel().findAllSync(core.class.Association, { classB: { $in: allClasses } })
+
+    for (const a of associationsB) {
+      await processAssociation(a, 'b', result, preference, parents)
+    }
+    for (const a of associationsA) {
+      await processAssociation(a, 'a', result, preference, parents)
+    }
   }
 
   async function save (viewletId: Ref<Viewlet>, items: Array<Config | AttributeConfig>): Promise<void> {
@@ -267,7 +430,13 @@
         ((p.type === 'divider' && typeof p.value === 'object' && p.value.displayProps?.grow) ||
           (p.type === 'attribute' && (p as AttributeConfig).enabled))
     )
-    const config = configValues.map((p) => p.value as string | BuildModelKey)
+    const config = configValues.map((p) => {
+      const value = p.value as string | BuildModelKey
+      if (typeof value === 'string' && value.startsWith('custom')) {
+        return { key: value, displayProps: { optional: true } }
+      }
+      return value
+    })
     const preference = preferences.find((p) => p.attachedTo === viewletId)
     if (preference !== undefined) {
       await client.update(preference, {
@@ -331,17 +500,20 @@
         {@const selectedViewlet = viewlets.find((it) => it._id === selected)}
         {@const selectedPreferece = preferences.find((it) => it.attachedTo === selected)}
         {#if selectedViewlet}
-          {@const citems = getConfig(selectedViewlet, selectedPreferece)}
-          <ViewletClassSettings
-            {viewlet}
-            items={citems}
-            on:restoreDefaults={() => {
-              restoreDefault(selected)
-            }}
-            on:save={(evt) => {
-              save(selected, evt.detail)
-            }}
-          />
+          {#await getConfig(selectedViewlet, selectedPreferece)}
+            <Loading />
+          {:then citems}
+            <ViewletClassSettings
+              {viewlet}
+              items={citems}
+              on:restoreDefaults={() => {
+                restoreDefault(selected)
+              }}
+              on:save={(evt) => {
+                save(selected, evt.detail)
+              }}
+            />
+          {/await}
         {/if}
       {/if}
     </div>

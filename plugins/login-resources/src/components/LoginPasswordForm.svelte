@@ -13,7 +13,8 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { OK, Severity, Status } from '@hcengineering/platform'
+  import { type IntlString, OK, Severity, Status } from '@hcengineering/platform'
+  import { type LoginInfo } from '@hcengineering/account-client'
 
   import { doLogin, doLoginNavigate } from '../utils'
   import Form from './Form.svelte'
@@ -21,9 +22,14 @@
   import login from '../plugin'
 
   export let navigateUrl: string | undefined = undefined
+  export let signUpDisabled = false
+  export let email: string | undefined = undefined
+  export let caption: IntlString = login.string.LogIn
+  export let subtitle: string | undefined = undefined
+  export let onLogin: ((loginInfo: LoginInfo | null, status: Status) => void | Promise<void>) | undefined = undefined
 
-  const fields = [
-    { id: 'email', name: 'username', i18n: login.string.Email },
+  $: fields = [
+    { id: 'email', name: 'username', i18n: login.string.Email, disabled: email !== undefined && email !== '' },
     {
       id: 'current-password',
       name: 'password',
@@ -37,31 +43,49 @@
     password: ''
   }
 
+  $: if (email !== undefined && email !== '' && object.username === '') {
+    object.username = email
+  }
+
   let status = OK
+  let isLoading = false
 
   const action = {
     i18n: login.string.LogIn,
     func: async () => {
-      status = new Status(Severity.INFO, login.status.ConnectingToServer, {})
-      const [loginStatus, result] = await doLogin(object.username, object.password)
-      status = loginStatus
-      await doLoginNavigate(
-        result,
-        (st) => {
-          status = st
-        },
-        navigateUrl
-      )
+      isLoading = true
+      try {
+        status = new Status(Severity.INFO, login.status.ConnectingToServer, {})
+        const [loginStatus, result] = await doLogin(object.username, object.password)
+        status = loginStatus
+
+        if (onLogin !== undefined) {
+          void onLogin(result, status)
+        } else {
+          await doLoginNavigate(
+            result,
+            (st) => {
+              status = st
+            },
+            navigateUrl
+          )
+        }
+      } finally {
+        isLoading = false
+      }
     }
   }
 </script>
 
 <Form
-  caption={login.string.LogIn}
+  {caption}
+  {subtitle}
   {status}
   {fields}
   {object}
   {action}
+  {signUpDisabled}
+  {isLoading}
   bottomActions={[recoveryAction]}
   ignoreInitialValidation
   withProviders

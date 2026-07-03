@@ -21,6 +21,7 @@
   import { getMixinStyle } from '../utils'
 
   export let value: Doc
+  export let fullSize: boolean = false
 
   const client = getClient()
   const hierarchy = client.getHierarchy()
@@ -28,17 +29,7 @@
   let mixins: Array<Mixin<Doc>> = []
 
   $: if (value !== undefined) {
-    const baseDomain = hierarchy.getDomain(value._class)
-    const ancestors = hierarchy.getAncestors(value._class)
-    let parentClass: Ref<Class<Doc>> = value._class
-    for (const ancestor of ancestors) {
-      try {
-        const domain = hierarchy.getClass(ancestor).domain
-        if (domain === baseDomain) {
-          parentClass = ancestor
-        }
-      } catch {}
-    }
+    const parentClass: Ref<Class<Doc>> = hierarchy.getParentClass(value._class)
 
     mixins = hierarchy
       .getDescendants(parentClass)
@@ -56,11 +47,11 @@
       {@const userMixin = hierarchy.hasMixin(mixin, setting.mixin.UserMixin)}
       <div
         class="mixin-selector"
-        class:user-selector={userMixin}
+        class:user-selector={userMixin && !fullSize}
         style={getMixinStyle(mixin._id, true, $themeStore.dark)}
       >
-        {#if !userMixin}
-          <Label label={mixin.label} />
+        {#if !userMixin || fullSize}
+          <span class="overflow-label"><Label label={mixin.label} /></span>
         {:else}
           <div use:tooltip={{ label: mixin.label }}>
             {#if mixin.icon}
@@ -78,11 +69,14 @@
 <style lang="scss">
   .mixin-container {
     display: flex;
+    min-width: 0;
     .mixin-selector {
       margin-left: 8px;
+      padding-inline: 0.25rem;
       cursor: pointer;
       height: 24px;
       min-width: 84px;
+      max-width: 12rem;
 
       border-radius: 8px;
 
@@ -94,6 +88,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
     }
     .user-selector {
       min-width: 24px;

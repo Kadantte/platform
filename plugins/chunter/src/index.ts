@@ -14,7 +14,7 @@
 //
 
 import { ActivityMessage, ActivityMessageViewlet } from '@hcengineering/activity'
-import type { AttachedDoc, Class, Doc, Markup, Mixin, Ref, Space, Timestamp } from '@hcengineering/core'
+import type { Class, Doc, Markup, Mixin, Ref, Space, Timestamp } from '@hcengineering/core'
 import { NotificationType } from '@hcengineering/notification'
 import type { Asset, Plugin, Resource } from '@hcengineering/platform'
 import { IntlString, plugin } from '@hcengineering/platform'
@@ -28,6 +28,12 @@ import { Widget, WidgetTab } from '@hcengineering/workbench'
  */
 export interface ChunterSpace extends Space {
   messages?: number
+
+  __migratedToCard?: {
+    card?: Ref<Doc>
+    space?: Ref<Space>
+  }
+  __migratedUntil?: Timestamp
 }
 
 /**
@@ -46,6 +52,7 @@ export interface DirectMessage extends ChunterSpace {}
  * @public
  */
 export interface ObjectChatPanel extends Class<Doc> {
+  openByDefault?: boolean
   ignoreKeys: string[]
 }
 
@@ -57,7 +64,6 @@ export interface ChatMessage extends ActivityMessage {
   attachments?: number
   editedOn?: Timestamp
   provider?: Ref<SocialChannelProvider>
-  inlineButtons?: number
 }
 
 /**
@@ -83,22 +89,6 @@ export interface ChatSyncInfo extends Doc {
   timestamp: Timestamp
 }
 
-export interface TypingInfo extends Doc {
-  objectId: Ref<Doc>
-  objectClass: Ref<Class<Doc>>
-  person: Ref<Person>
-  lastTyping: Timestamp
-}
-
-export type InlineButtonAction = (button: InlineButton, message: Ref<ChatMessage>, channel: Ref<Doc>) => Promise<void>
-
-export interface InlineButton extends AttachedDoc {
-  name: string
-  titleIntl?: IntlString
-  title?: string
-  action: Resource<InlineButtonAction>
-}
-
 export interface ChatWidgetTab extends WidgetTab {
   data: {
     _id?: Ref<Doc>
@@ -106,6 +96,7 @@ export interface ChatWidgetTab extends WidgetTab {
     thread?: Ref<ActivityMessage>
     channelName: string
     selectedMessageId?: Ref<ActivityMessage>
+    props?: Record<string, any>
   }
 }
 
@@ -139,7 +130,9 @@ export default plugin(chunterId, {
     ChatMessagePresenter: '' as AnyComponent,
     ThreadMessagePresenter: '' as AnyComponent,
     ChatMessagePreview: '' as AnyComponent,
-    ThreadMessagePreview: '' as AnyComponent
+    ThreadMessagePreview: '' as AnyComponent,
+    DirectIcon: '' as AnyComponent,
+    InlineCommentThread: '' as AnyComponent
   },
   activity: {
     MembersChangedMessage: '' as AnyComponent
@@ -151,9 +144,7 @@ export default plugin(chunterId, {
     DirectMessage: '' as Ref<Class<DirectMessage>>,
     ChatMessage: '' as Ref<Class<ChatMessage>>,
     ChatMessageViewlet: '' as Ref<Class<ChatMessageViewlet>>,
-    ChatSyncInfo: '' as Ref<Class<ChatSyncInfo>>,
-    InlineButton: '' as Ref<Class<InlineButton>>,
-    TypingInfo: '' as Ref<Class<TypingInfo>>
+    ChatSyncInfo: '' as Ref<Class<ChatSyncInfo>>
   },
   mixin: {
     ObjectChatPanel: '' as Ref<Mixin<ObjectChatPanel>>
@@ -187,7 +178,7 @@ export default plugin(chunterId, {
     AllChannels: '' as IntlString,
     AllContacts: '' as IntlString,
     NewChannel: '' as IntlString,
-    DescriptionOptional: '' as IntlString,
+    TopicOptional: '' as IntlString,
     Visibility: '' as IntlString,
     Public: '' as IntlString,
     Private: '' as IntlString,
@@ -217,7 +208,9 @@ export default plugin(chunterId, {
     Translating: '' as IntlString,
     StartConversation: '' as IntlString,
     ViewingThreadFromArchivedChannel: '' as IntlString,
-    ViewingArchivedChannel: '' as IntlString
+    ViewingArchivedChannel: '' as IntlString,
+    OpenChatInSidebar: '' as IntlString,
+    SummarizeMessages: '' as IntlString
   },
   ids: {
     DMNotification: '' as Ref<NotificationType>,
@@ -235,12 +228,23 @@ export default plugin(chunterId, {
     LeaveChannel: '' as Ref<Action>,
     RemoveChannel: '' as Ref<Action>,
     TranslateMessage: '' as Ref<Action>,
+    SummarizeMessages: '' as Ref<Action>,
     ShowOriginalMessage: '' as Ref<Action>,
     CloseConversation: '' as Ref<Action>
   },
   function: {
     CanTranslateMessage: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
-    OpenThreadInSidebar: '' as Resource<(_id: Ref<ActivityMessage>, msg?: ActivityMessage, doc?: Doc) => Promise<void>>,
+    CanSummarizeMessages: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
+    OpenThreadInSidebar: '' as Resource<
+    (
+      _id: Ref<ActivityMessage>,
+      msg?: ActivityMessage,
+      doc?: Doc,
+      selectedId?: Ref<ActivityMessage>,
+      props?: Record<string, any>,
+      force?: boolean
+    ) => Promise<void>
+    >,
     OpenChannelInSidebar: '' as Resource<
     (
       _id: Ref<Doc>,

@@ -49,6 +49,12 @@
     "RemovedObject": "Eliminado {object}",
     "ChangedObject": "Cambiado {object}",
     "UnsetObject": "No establecido {object}",
-    "UpdatedObject": "Actualizado {object}"
+    "UpdatedObject": "Actualizado {object}",
+    "NewObjectType": "Nuevo {type}: {title}",
+    "RemovedObjectType": "Eliminado {type} : {title}",
+    "AttributeSetTo": "{name} establecido en {value}",
+    "AddedTag": "Etiqueta añadida: {title}",
+    "RemovedTag": "Etiqueta eliminada: {title}",
+    "ValueTooLarge": "Valor demasiado grande para mostrar"
   }
 }

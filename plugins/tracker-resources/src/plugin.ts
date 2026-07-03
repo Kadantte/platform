@@ -15,9 +15,10 @@
 import { type StatusCategory, type Client, type Doc, type Ref, type Space } from '@hcengineering/core'
 import type { Asset, IntlString, Metadata, Resource } from '@hcengineering/platform'
 import { mergeIds } from '@hcengineering/platform'
-import { type ProjectType } from '@hcengineering/task'
+import type { ObjectSearchCategory, ObjectSearchFactory } from '@hcengineering/presentation/src/types'
+import { type ProjectType, type TaskType } from '@hcengineering/task'
 import tracker, { trackerId, type IssueDraft, type Issue } from '@hcengineering/tracker'
-import { type AnyComponent, type Location } from '@hcengineering/ui'
+import { type AnyComponent, type Location } from '@hcengineering/ui/src/types'
 import {
   type CreateAggregationManagerFunc,
   type GetAllValuesFunc,
@@ -28,6 +29,7 @@ import {
   type Viewlet,
   type ViewletDescriptor
 } from '@hcengineering/view'
+import type { ValueFormatter } from '@hcengineering/converter'
 
 export default mergeIds(trackerId, tracker, {
   viewlet: {
@@ -36,6 +38,10 @@ export default mergeIds(trackerId, tracker, {
     Kanban: '' as Ref<ViewletDescriptor>,
     MilestoneIssuesList: '' as Ref<Viewlet>,
     ComponentIssuesList: '' as Ref<Viewlet>
+  },
+  completion: {
+    IssueQuery: '' as Resource<ObjectSearchFactory>,
+    IssueCategory: '' as Ref<ObjectSearchCategory>
   },
   string: {
     More: '' as IntlString,
@@ -291,6 +297,7 @@ export default mergeIds(trackerId, tracker, {
     SevenHoursLength: '' as IntlString,
     EightHoursLength: '' as IntlString,
     HourLabel: '' as IntlString,
+    MinuteLabel: '' as IntlString,
     Saved: '' as IntlString,
     CreatedIssue: '' as IntlString,
     CreatedSubIssue: '' as IntlString,
@@ -300,12 +307,10 @@ export default mergeIds(trackerId, tracker, {
     UnsetParent: '' as IntlString,
     PreviousAssigned: '' as IntlString,
     EditRelatedTargets: '' as IntlString,
-    RelatedIssueTargetDescription: '' as IntlString,
-    RoleLabel: '' as IntlString
+    RelatedIssueTargetDescription: '' as IntlString
   },
   component: {
     NopeComponent: '' as AnyComponent,
-    Inbox: '' as AnyComponent,
     MyIssues: '' as AnyComponent,
     Views: '' as AnyComponent,
     Issues: '' as AnyComponent,
@@ -394,7 +399,9 @@ export default mergeIds(trackerId, tracker, {
     IsProjectJoined: '' as Resource<(space: Space) => Promise<boolean>>,
     IssueChatTitleProvider: '' as Resource<(object: Doc) => string>,
     GetIssueStatusCategories: '' as Resource<(project: ProjectType) => Array<Ref<StatusCategory>>>,
-    GetIssueIdByIdentifier: '' as Resource<(id: string) => Promise<Ref<Issue> | undefined>>
+    GetIssueIdByIdentifier: '' as Resource<(id: string) => Promise<Ref<Issue> | undefined>>,
+    OpenIssuesOfTaskType: '' as Resource<(taskType: TaskType) => Promise<void>>,
+    FormatIssueMarkdownValue: '' as Resource<ValueFormatter>
   },
   aggregation: {
     CreateComponentAggregationManager: '' as CreateAggregationManagerFunc,

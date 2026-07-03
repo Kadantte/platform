@@ -12,7 +12,7 @@ export class TalentsPage extends CommonRecruitingPage {
   }
 
   pageHeader = (): Locator => this.page.locator('span[class*="header"]', { hasText: 'Talents' })
-  buttonCreateTalent = (): Locator => this.page.getByRole('button', { name: 'Talent', exact: true })
+  buttonCreateTalent = (): Locator => this.page.getByRole('button', { name: 'New Talent', exact: true })
 
   textVacancyMatchingTalent = (): Locator =>
     this.page.locator(
@@ -41,14 +41,14 @@ export class TalentsPage extends CommonRecruitingPage {
 
   recruitApplicationButton = (): Locator => this.page.locator('[id="app-recruit\\:string\\:RecruitApplication"]')
 
-  talentsTab = (): Locator => this.page.locator('text=Talents')
+  talentsTab = (): Locator => this.page.locator('.antiPanel-navigator').locator('text=Talents')
   newTalentButton = (): Locator => this.page.locator('button:has-text("New Talent")')
-  addSocialLinksButton = (): Locator => this.page.locator('[id="presentation\\:string\\:AddSocialLinks"]')
+  addSocialLinksButton = (): Locator => this.page.locator('[id="presentation\\:string\\:AddSocialLinks"]').last()
   emailSelectorButton = (): Locator => this.page.locator('.antiPopup').locator('text=Email')
   confirmEmailButton = (): Locator => this.page.locator('#channel-ok.antiButton')
   createTalentButton = (): Locator => this.page.locator('.antiCard button:has-text("Create")')
   popupPanel = (): Locator => this.page.locator('.popupPanel')
-  talentsLink = (): Locator => this.page.locator('text=Talents')
+  talentsLink = (): Locator => this.page.locator('.antiPanel-navigator').locator('text=Talents')
   firstNameInput = (): Locator => this.page.locator('[placeholder="First name"]')
   lastNameInput = (): Locator => this.page.locator('[placeholder="Last name"]')
   skillsButton = (): Locator =>
@@ -62,7 +62,7 @@ export class TalentsPage extends CommonRecruitingPage {
   selectSkillButton = (skillName: string): Locator => this.page.locator(`button:has-text("${skillName}") .check`)
   createCandidateButton = (): Locator => this.page.locator('button:has-text("Create")')
   openOtherSkills = (): Locator => this.page.getByText('Other')
-  skillsLink = (): Locator => this.page.locator('text=Skills')
+  skillsLink = (): Locator => this.page.locator('.antiPanel-navigator').locator('text=Skills')
   newSkillButton = (): Locator => this.page.getByRole('button', { name: 'Skill', exact: true })
   emailContact = (): Locator =>
     this.page.locator('div[class^="popupPanel-body__header"] button[id="gmail:string:Email"]')
@@ -216,11 +216,6 @@ export class TalentsPage extends CommonRecruitingPage {
       .locator('tr', { hasText: `${talentName.lastName} ${talentName.firstName}` })
       .click({ button: 'right' })
     await this.selectFromDropdown(this.page, action)
-  }
-
-  async checkMatchVacancy (talentName: string, score: string): Promise<void> {
-    await expect(this.textVacancyMatchingTalent()).toContainText(talentName, { ignoreCase: true })
-    await expect(this.textVacancyMatchingScore()).toContainText(score)
   }
 
   async searchTalentByTalentName (talentName: TalentName): Promise<void> {

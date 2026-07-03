@@ -16,7 +16,7 @@
 import lead, { leadId } from '@hcengineering/lead'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
 import { type Client, type Doc, type Ref } from '@hcengineering/core'
-import { type AnyComponent } from '@hcengineering/ui'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
 
 export default mergeIds(leadId, lead, {
   string: {
@@ -44,7 +44,6 @@ export default mergeIds(leadId, lead, {
     Assignee: '' as IntlString,
     UnAssign: '' as IntlString,
     FunnelMembers: '' as IntlString,
-    RoleLabel: '' as IntlString,
     EditFunnel: '' as IntlString
   },
   component: {

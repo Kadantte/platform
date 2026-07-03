@@ -15,22 +15,18 @@
 -->
 <script lang="ts">
   import { NewMessage, SharedMessage } from '@hcengineering/gmail'
-  import Button from '@hcengineering/ui/src/components/Button.svelte'
+  import { Button, IconArrowLeft, Label, Scroller, tooltip } from '@hcengineering/ui'
   import { createEventDispatcher } from 'svelte'
-  import { IconArrowLeft, Label, Scroller, tooltip } from '@hcengineering/ui'
   import gmail from '../plugin'
   import FullMessageContent from './FullMessageContent.svelte'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import attachment, { Attachment } from '@hcengineering/attachment'
   import { AttachmentPresenter } from '@hcengineering/attachment-resources'
   import { getEmbeddedLabel } from '@hcengineering/platform'
-  import core, { Ref } from '@hcengineering/core'
+  import { Ref } from '@hcengineering/core'
 
   export let currentMessage: SharedMessage
   export let newMessage: boolean
-
-  let editor: HTMLDivElement
-  $: if (editor) editor.innerHTML = currentMessage.content
 
   const dispatch = createEventDispatcher()
   const hasError = (currentMessage as unknown as NewMessage)?.status === 'error'

@@ -14,18 +14,20 @@
 // limitations under the License.
 -->
 <script lang="ts">
+  import { IntlString } from '@hcengineering/platform'
   import NumberEditor from './NumberEditor.svelte'
-  import { getEmbeddedLabel, IntlString } from '@hcengineering/platform'
+  import { AnyAttribute } from '@hcengineering/core'
 
   export let value: number | undefined
+  export let label: IntlString
   export let onChange: ((value: number | undefined) => void) | undefined = undefined
-  export let placeholder: IntlString = getEmbeddedLabel(' ')
-  export let kind: 'no-border' | 'link' | 'button' = 'link'
+  export let kind: 'no-border' | 'link' | 'list' = 'link'
   export let readonly = false
+  export let attribute: AnyAttribute | undefined = undefined
 </script>
 
 {#if onChange !== undefined && !readonly}
-  <NumberEditor {onChange} {value} {placeholder} {kind} />
+  <NumberEditor {onChange} {value} {label} {kind} {attribute} />
 {:else}
-  <span>{value || ''}</span>
+  <span>{value != null ? value : ''}</span>
 {/if}

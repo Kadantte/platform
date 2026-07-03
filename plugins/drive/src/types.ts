@@ -27,7 +27,7 @@ export interface Drive extends TypedSpace {}
 
 /** @public */
 export interface Resource extends Doc<Drive> {
-  name: string
+  title: string
   parent: Ref<Resource>
   path: Ref<Resource>[]
 
@@ -57,7 +57,7 @@ export interface File extends Resource {
 
 /** @public */
 export interface FileVersion extends AttachedDoc<File, 'versions', Drive> {
-  name: string
+  title: string
   file: Ref<Blob>
   size: number
   type: string

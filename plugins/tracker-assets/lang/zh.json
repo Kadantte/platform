@@ -264,6 +264,7 @@
     "SevenHoursLength": "七小时",
     "EightHoursLength": "八小时",
     "HourLabel": "小时",
+    "MinuteLabel": "分",
     "Saved": "已保存...",
     "CreatedIssue": "已创建问题",
     "CreatedSubIssue": "已创建子问题",
@@ -280,13 +281,16 @@
     "IssueNotificationChangedProperty": "{senderName} 将 {property} 更改为 \"{newValue}\"",
     "IssueNotificationMessage": "{senderName}：{message}",
     "PreviousAssigned": "以前分配的",
-    "IssueAssigneedToYou": "分配给您",
+    "IssueAssignedToYou": "分配给您",
     "RelatedIssueTargetDescription": "相关问题项目目标用于类别或空间",
     "MapRelatedIssues": "配置相关问题默认项目",
     "DefaultIssueStatus": "默认问题状态",
     "IssueStatus": "状态",
     "Extensions": "扩展",
-    "RoleLabel": "角色：{role}"
+    "UnsetParentIssue": "取消父问题",
+    "ForbidCreateProjectPermission": "禁止创建项目",
+    "ForbidCreateProjectPermissionDescription": "禁止用户创建新项目",
+    "AllowCreatingIssues": "允许创建问题"
   },
   "status": {}
 }

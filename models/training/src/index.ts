@@ -16,7 +16,7 @@
 import activity from '@hcengineering/activity'
 import notification, { type NotificationType } from '@hcengineering/notification'
 import { type Asset, type IntlString } from '@hcengineering/platform'
-import type { BuildModelKey, Viewlet, ViewletDescriptor } from '@hcengineering/view'
+import type { BuildModelKey, KeyFilterPreset, Viewlet, ViewletDescriptor } from '@hcengineering/view'
 import questions from '@hcengineering/model-questions'
 import contact from '@hcengineering/contact'
 import tracker from '@hcengineering/model-tracker'
@@ -31,7 +31,14 @@ import {
   TrainingSpecialIds
 } from '@hcengineering/training'
 
-import { AccountRole, type Data, type FindOptions, type Permission, type Ref } from '@hcengineering/core'
+import {
+  AccountRole,
+  ClassCollaborators,
+  type Data,
+  type FindOptions,
+  type Permission,
+  type Ref
+} from '@hcengineering/core'
 import { Prop, type Builder } from '@hcengineering/model'
 
 import contacts from '@hcengineering/model-contact'
@@ -40,7 +47,6 @@ import view, { classPresenter, createAction } from '@hcengineering/model-view'
 import workbench from '@hcengineering/model-workbench'
 import training from './plugin'
 import {
-  TSequence,
   TTraining,
   TTrainingAttempt,
   TTrainingAttemptState,
@@ -91,8 +97,6 @@ function defineBase (builder: Builder): void {
     },
     presenter: training.component.TrainingRequestNotificationPresenter
   })
-
-  builder.createModel(TSequence)
 }
 
 function defineSpaceType (builder: Builder): void {
@@ -185,6 +189,10 @@ function defineTraining (builder: Builder): void {
     component: training.component.TrainingPanel
   })
 
+  builder.mixin(training.class.Training, core.class.Class, view.mixin.ObjectPresenter, {
+    presenter: training.component.TrainingPresenter
+  })
+
   builder.createDoc(view.class.Viewlet, core.space.Model, {
     attachTo: training.class.Training,
     descriptor: view.viewlet.Table,
@@ -197,7 +205,8 @@ function defineTraining (builder: Builder): void {
       },
       {
         ...columns.trainingTitle,
-        key: 'title'
+        key: '',
+        presenter: training.component.TrainingTitlePresenter
       },
       {
         ...columns.trainingRevision,
@@ -345,18 +354,22 @@ function defineTraining (builder: Builder): void {
 
   definePermission(builder, training.permission.ChangeSomeoneElsesTrainingOwner, {
     label: training.string.Permission_ChangeSomeoneElsesTrainingOwner,
+    scope: 'space',
     description: training.string.Permission_ChangeSomeoneElsesTrainingOwner_Description
   })
   definePermission(builder, training.permission.CreateTraining, {
     label: training.string.Permission_CreateTraining,
+    scope: 'space',
     description: training.string.Permission_CreateTraining_Description
   })
   definePermission(builder, training.permission.ViewSomeoneElsesTrainingOverview, {
     label: training.string.Permission_ViewSomeoneElsesTrainingOverview,
+    scope: 'space',
     description: training.string.Permission_ViewSomeoneElsesTrainingOverview_Description
   })
   definePermission(builder, training.permission.ViewSomeoneElsesTrainingQuestions, {
     label: training.string.Permission_ViewSomeoneElsesTrainingQuestions,
+    scope: 'space',
     description: training.string.Permission_ViewSomeoneElsesTrainingQuestions_Description
   })
 }
@@ -482,14 +495,17 @@ function defineTrainingRequest (builder: Builder): void {
 
     definePermission(builder, training.permission.ChangeSomeoneElsesSentRequestOwner, {
       label: training.string.Permission_ChangeSomeoneElsesSentRequestOwner,
+      scope: 'space',
       description: training.string.Permission_ChangeSomeoneElsesSentRequestOwner_Description
     })
     definePermission(builder, training.permission.CreateRequestOnSomeoneElsesTraining, {
       label: training.string.Permission_CreateRequestOnSomeoneElsesTraining,
+      scope: 'space',
       description: training.string.Permission_CreateRequestOnSomeoneElsesTraining_Description
     })
     definePermission(builder, training.permission.ViewSomeoneElsesSentRequest, {
       label: training.string.Permission_ViewSomeoneElsesSentRequest,
+      scope: 'space',
       description: training.string.Permission_ViewSomeoneElsesSentRequest_Description
     })
   })()
@@ -572,8 +588,9 @@ function defineTrainingRequest (builder: Builder): void {
     titleProvider: training.function.TrainingRequestObjectTitleProvider
   })
 
-  builder.mixin(training.class.TrainingRequest, core.class.Class, notification.mixin.ClassCollaborators, {
-    fields: ['trainees'] as Array<keyof TrainingRequest>
+  builder.createDoc<ClassCollaborators<TrainingRequest>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: training.class.TrainingRequest,
+    fields: ['trainees']
   })
 
   builder.createDoc<NotificationType>(
@@ -662,9 +679,19 @@ function defineTrainingAttempt (builder: Builder): void {
     sortingKey: 'state',
     displayProps: { align: 'center' }
   }
-  const columnOwner: BuildModelKey = {
-    ...columns.owner,
-    key: 'owner'
+  const columnTrainee: BuildModelKey = {
+    key: 'owner',
+    label: training.string.TrainingRequestTrainee,
+    presenter: contacts.component.EmployeePresenter,
+    props: { shouldShowName: true },
+    displayProps: { align: 'center' }
+  }
+
+  const columnTraineeFilter: KeyFilterPreset = {
+    _class: training.class.TrainingAttempt,
+    component: contacts.component.EmployeeFilter,
+    key: 'owner',
+    label: training.string.TrainingRequestTrainee
   }
 
   defineTableBrowserViewletDescriptor(
@@ -696,7 +723,7 @@ function defineTrainingAttempt (builder: Builder): void {
       columnScore,
       'createdOn',
       'submittedOn',
-      columnOwner
+      columnTrainee
     ],
     configOptions: {
       strict: true,
@@ -723,7 +750,7 @@ function defineTrainingAttempt (builder: Builder): void {
   })
 
   builder.mixin(training.class.TrainingAttempt, core.class.Class, view.mixin.ClassFilters, {
-    filters: ['state', 'owner', 'submittedOn'] as Array<keyof TrainingAttempt>,
+    filters: ['state', 'submittedOn', columnTraineeFilter] as Array<keyof TrainingAttempt>,
     strict: true
   })
 
@@ -733,6 +760,7 @@ function defineTrainingAttempt (builder: Builder): void {
 
   definePermission(builder, training.permission.ViewSomeoneElsesTraineesResults, {
     label: training.string.Permission_ViewSomeoneElsesTraineesResults,
+    scope: 'space',
     description: training.string.Permission_ViewSomeoneElsesTraineesResults_Description
   })
 }
@@ -865,9 +893,47 @@ function defineSettings (builder: Builder): void {
       icon: training.icon.Training,
       component: training.component.Settings,
       order: 1150,
+      feature: 'trainings',
       role: AccountRole.Maintainer
     },
     training.setting.Trainings
+  )
+
+  builder.createDoc(
+    core.class.ClassPermission,
+    core.space.Model,
+    {
+      label: training.string.AllowToTakeTraining,
+      scope: 'space',
+      targetClass: training.class.TrainingAttempt
+    },
+    training.ids.GuestTrainingAttemptClassPermission
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: training.app.Training,
+      role: AccountRole.Guest,
+      permissions: [training.ids.GuestTrainingAttemptClassPermission],
+      enabled: true,
+      order: 25
+    },
+    training.ids.ModulePermissionGroup
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: training.app.Training,
+      role: AccountRole.ReadOnlyGuest,
+      permissions: [],
+      enabled: false,
+      order: 25
+    },
+    training.ids.ModulePermissionGroupReadOnlyGuest
   )
 }
 
@@ -875,8 +941,7 @@ const columns = {
   trainingTitle: {
     key: 'title',
     label: training.string.TrainingTitle,
-    props: { accent: true },
-    displayProps: { grow: true, align: 'left' }
+    displayProps: { align: 'left' }
   },
   trainingRevision: {
     key: 'revision',

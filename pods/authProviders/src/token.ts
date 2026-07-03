@@ -1,7 +1,6 @@
-import { getAccountInfoByToken } from '@hcengineering/account'
+import { type AccountDB, getLoginInfoByToken } from '@hcengineering/account'
 import { BrandingMap, concatLink, MeasureContext, getBranding } from '@hcengineering/core'
 import Router from 'koa-router'
-import { Db } from 'mongodb'
 import qs from 'querystringify'
 import { Strategy as CustomStrategy } from 'passport-custom'
 import { Passport } from '.'
@@ -12,9 +11,10 @@ export function registerToken (
   passport: Passport,
   router: Router<any, any>,
   accountsUrl: string,
-  dbPromise: Promise<Db>,
+  dbPromise: Promise<AccountDB>,
   frontUrl: string,
-  brandings: BrandingMap
+  brandings: BrandingMap,
+  signUpDisabled?: boolean
 ): string | undefined {
   passport.use(
     'token',
@@ -22,7 +22,7 @@ export function registerToken (
       const token = req.body.token ?? req.query.token
 
       void dbPromise.then((db) => {
-        getAccountInfoByToken(measureCtx, db, null, token)
+        getLoginInfoByToken(measureCtx, db, null, token)
           .then((user: any) => done(null, user))
           .catch((err: any) => done(err))
       })
@@ -34,7 +34,7 @@ export function registerToken (
     async (ctx, next) => {
       measureCtx.info('try auth via', { provider: 'token' })
       const host = getHost(ctx.request.headers)
-      const branding = host !== undefined ? brandings[host]?.key ?? undefined : undefined
+      const branding = host !== undefined ? (brandings[host]?.key ?? undefined) : undefined
       const state = encodeURIComponent(
         JSON.stringify({
           inviteId: ctx.query?.inviteId,

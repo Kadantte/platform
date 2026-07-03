@@ -1,20 +1,17 @@
 import { Analytics } from '@hcengineering/analytics'
 import core, {
-  Account,
-  AnyAttribute,
   AttachedDoc,
   Class,
   Doc,
   DocumentQuery,
   DocumentUpdate,
   MeasureContext,
+  PersonId,
   Ref,
   SortingOrder,
   Status,
   Timestamp,
-  TxOperations,
-  Type,
-  toIdMap
+  TxOperations
 } from '@hcengineering/core'
 import github, {
   DocSyncInfo,
@@ -23,11 +20,11 @@ import github, {
   GithubProject
 } from '@hcengineering/github'
 import { PlatformError, unknownStatus } from '@hcengineering/platform'
-import task, { TaskType, calculateStatuses, createState, findStatusAttr } from '@hcengineering/task'
-import tracker, { IssueStatus } from '@hcengineering/tracker'
+import task from '@hcengineering/task'
+import { IssueStatus } from '@hcengineering/tracker'
 import { deepEqual } from 'fast-equals'
-import { IntegrationManager, githubExternalSyncVersion } from '../types'
-import { GithubDataType } from './githubTypes'
+import { Octokit } from 'octokit'
+import { ContainerFocus, githubExternalSyncVersion } from '../types'
 
 /**
  * Return if github write operations are allowed.
@@ -37,6 +34,31 @@ export function isGHWriteAllowed (): boolean {
     return false
   }
   return true
+}
+
+/**
+ * Ensures an Octokit instance has the graphql method available.
+ * If the provided okit doesn't have graphql, falls back to container.octokit which is guaranteed to have it.
+ * @param okit - The Octokit instance to check (may be undefined)
+ * @param container - The ContainerFocus containing the fallback octokit instance
+ * @returns An Octokit instance with graphql method available
+ */
+export function ensureGraphQLOctokit (okit: Octokit | undefined, container: ContainerFocus): Octokit {
+  if (okit !== undefined && typeof (okit as any).graphql === 'function') {
+    return okit
+  }
+  return container.container.octokit
+}
+
+/**
+ * Ensures an Octokit instance has the REST API available.
+ * If the provided okit doesn't have rest.issues, falls back to container.octokit which is guaranteed to have it.
+ */
+export function ensureRESTOctokit (okit: Octokit | undefined, container: ContainerFocus): Octokit {
+  if (okit !== undefined && typeof (okit as any).rest?.issues?.createComment === 'function') {
+    return okit
+  }
+  return container.container.octokit
 }
 
 /**
@@ -127,6 +149,9 @@ export async function getSinceRaw (
 export function gqlp (params: Record<string, string | number | string[] | undefined>): string {
   let result = ''
   let first = true
+  function escape (str: string): string {
+    return str.replace(/"/g, '\\"')
+  }
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined) {
       if (!first) {
@@ -136,9 +161,9 @@ export function gqlp (params: Record<string, string | number | string[] | undefi
       if (typeof v === 'number') {
         result += `${k}: ${v}`
       } else if (Array.isArray(v)) {
-        result += `${k}: [${v.map((it) => `"${it}"`).join(', ')}]`
+        result += `${k}: [${v.map((it) => `"${escape(it)}"`).join(', ')}]`
       } else {
-        result += `${k}: "${v}"`
+        result += `${k}: "${escape(v)}"`
       }
     }
   }
@@ -148,93 +173,8 @@ export function gqlp (params: Record<string, string | number | string[] | undefi
 /**
  * @public
  */
-export async function getCreateStatus (
-  ctx: MeasureContext,
-  provider: IntegrationManager,
-  client: TxOperations,
-  prj: GithubProject,
-  name: string,
-  description: string,
-  colorStr: string,
-  taskType: TaskType
-): Promise<string> {
-  const color = hashCode(colorStr)
-
-  const states = await provider.getStatuses(taskType._id)
-
-  for (const s of states) {
-    if (s.name.toLowerCase().trim() === name.toLowerCase().trim()) {
-      return s._id
-    }
-  }
-  ctx.error('Create new project Status', { name, colorStr, category: 'Backlog' })
-  // No status found, let's create one.
-  const id = await createState(client, taskType.statusClass, {
-    name,
-    description,
-    color,
-    ofAttribute: findStatusAttr(client.getHierarchy(), taskType.statusClass)._id,
-    category: task.statusCategory.UnStarted
-  })
-  const type = await client.findOne(task.class.ProjectType, { _id: prj.type })
-  if (type === undefined) {
-    return id
-  }
-
-  if (!taskType.statuses.includes(id)) {
-    await client.update(taskType, {
-      $push: { statuses: id }
-    })
-    const taskTypes = toIdMap(await client.findAll(task.class.TaskType, { parent: type._id }))
-
-    const index = type.statuses.findIndex((it) => it._id === id)
-    if (index === -1) {
-      await client.update(type, {
-        statuses: calculateStatuses(type, taskTypes, [{ taskTypeId: taskType._id, statuses: taskType.statuses }])
-      })
-    }
-  }
-  return id
-}
-
-/**
- * @public
- */
 export function hashCode (str: string): number {
   return str.split('').reduce((prevHash, currVal) => ((prevHash << 5) - prevHash + currVal.charCodeAt(0)) | 0, 0)
-}
-
-export function getType (attr: AnyAttribute): GithubDataType | undefined {
-  if (attr.type._class === core.class.TypeString) {
-    return 'TEXT'
-  }
-  if (
-    attr.type._class === core.class.TypeNumber ||
-    attr.type._class === tracker.class.TypeReportedTime ||
-    attr.type._class === tracker.class.TypeEstimation ||
-    attr.type._class === tracker.class.TypeRemainingTime
-  ) {
-    return 'NUMBER'
-  }
-  if (attr.type._class === core.class.TypeDate) {
-    return 'DATE'
-  }
-  if (attr.type._class === core.class.EnumOf) {
-    return 'SINGLE_SELECT'
-  }
-}
-
-export function getPlatformType (dataType: GithubDataType): Ref<Class<Type<any>>> | undefined {
-  switch (dataType) {
-    case 'TEXT':
-      return core.class.TypeString
-    case 'NUMBER':
-      return core.class.TypeNumber
-    case 'DATE':
-      return core.class.TypeDate
-    case 'SINGLE_SELECT':
-      return core.class.EnumOf
-  }
 }
 
 export async function guessStatus (
@@ -282,9 +222,11 @@ export class SyncRunner {
       id,
       promise.then(() => {})
     )
-    const result = await promise
-    this.eventSync.delete(id)
-    return result
+    try {
+      return await promise
+    } finally {
+      this.eventSync.delete(id)
+    }
   }
 }
 
@@ -297,7 +239,7 @@ export async function deleteObjects (
   ctx: MeasureContext,
   client: TxOperations,
   objects: Doc[],
-  account: Ref<Account>
+  account: PersonId
 ): Promise<void> {
   const ops = client.apply()
   for (const object of objects) {
@@ -340,19 +282,20 @@ export async function syncDerivedDocuments<T extends { url: string }> (
   extra?: any
 ): Promise<void> {
   const childDocsOfClass = await derivedClient.findAll(github.class.DocSyncInfo, {
+    space: prj._id,
     objectClass,
     parent: (parentDoc.url ?? '').toLowerCase(),
     ...query
   })
 
   const processed = new Set<Ref<DocSyncInfo>>()
-  const _docs = docs(ext)
+  const _docs = docs(ext).filter((it) => it != null)
   for (const r of _docs) {
     const existing = childDocsOfClass.find((it) => it.url.toLowerCase() === r.url.toLowerCase())
     if (existing === undefined) {
       await derivedClient.createDoc<DocSyncInfo>(github.class.DocSyncInfo, prj._id, {
         objectClass,
-        url: r.url.toLowerCase(),
+        url: (r.url ?? '').toLowerCase(),
         needSync: '', // we need to sync to retrieve patch in background
         githubNumber: 0,
         repository: repo._id,
@@ -360,18 +303,19 @@ export async function syncDerivedDocuments<T extends { url: string }> (
         externalVersion: githubExternalSyncVersion,
         derivedVersion: '',
         lastModified: new Date(r.updatedAt ?? r.createdAt).getTime(),
-        parent: ext.url,
+        parent: (ext.url ?? '').toLowerCase(),
         attachedTo: parentDoc._id,
         ...extra
       })
     } else {
       processed.add(existing._id)
-      if (!deepEqual(existing.external, r)) {
+      if (!deepEqual(existing.external, r) || existing.repository !== repo._id) {
         // Only update if had changes.
         await derivedClient.update(existing, {
           external: r,
           needSync: '', // We need to check if we had any changes.
           derivedVersion: '',
+          repository: repo._id,
           externalVersion: githubExternalSyncVersion,
           lastModified: new Date(r.updatedAt ?? r.createdAt).getTime(),
           ...extra
@@ -412,13 +356,20 @@ export function compareMarkdown (a: string, b: string): boolean {
   return na === nb
 }
 
-export async function syncChilds (info: DocSyncInfo, client: TxOperations, derivedClient: TxOperations): Promise<void> {
-  const childInfos = await client.findAll(github.class.DocSyncInfo, { parent: info.url.toLowerCase() })
+export async function syncChilds (
+  ctx: MeasureContext,
+  info: DocSyncInfo,
+  client: TxOperations,
+  derivedClient: TxOperations
+): Promise<void> {
+  const childInfos = await ctx.with('syncChilds-find', {}, () =>
+    client.findAll(github.class.DocSyncInfo, { parent: info.url.toLowerCase() })
+  )
   if (childInfos.length > 0) {
     const ops = derivedClient.apply()
     for (const child of childInfos) {
       await ops?.update(child, { needSync: '' })
     }
-    await ops.commit()
+    await ctx.with('sync-child-trigger', {}, () => ops.commit())
   }
 }

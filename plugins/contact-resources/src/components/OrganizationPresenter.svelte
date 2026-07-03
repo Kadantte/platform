@@ -34,22 +34,16 @@
 
 {#if value}
   {#if inline}
-    <ObjectMention
-      object={value}
-      {disabled}
-      {accent}
-      {noUnderline}
-      component={contact.component.EditOrganizationPanel}
-    />
+    <ObjectMention object={value} {disabled} component={contact.component.EditOrganizationPanel} />
   {:else if type === 'link'}
     <DocNavLink {disabled} object={value} {accent} {noUnderline} component={contact.component.EditOrganizationPanel}>
       <div class="flex-presenter" style:max-width={maxWidth} use:tooltip={{ label: getEmbeddedLabel(value.name) }}>
         <div class="icon circle">
           <Company size={'small'} />
         </div>
-        <span class="overflow-label label" class:no-underline={noUnderline || disabled} class:fs-bold={accent}
-          >{value.name}</span
-        >
+        <span class="overflow-label label" class:no-underline={noUnderline || disabled} class:fs-bold={accent}>
+          {value.name}
+        </span>
       </div>
     </DocNavLink>
   {:else if type === 'text'}

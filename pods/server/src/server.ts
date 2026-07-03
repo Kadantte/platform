@@ -14,41 +14,71 @@
 // limitations under the License.
 //
 
-import { type Branding, type BrandingMap, type Tx, type WorkspaceIdWithUrl } from '@hcengineering/core'
-import { buildStorageFromConfig, getMetricsContext } from '@hcengineering/server'
+import { type BrandingMap, type MeasureContext, type Tx, type WorkspaceIds } from '@hcengineering/core'
+import { buildStorageFromConfig } from '@hcengineering/server-storage'
 
-import { ClientSession, startSessionManager, type ServerFactory, type Session } from '@hcengineering/server'
-import { type Pipeline, type StorageConfiguration } from '@hcengineering/server-core'
-import { type Token } from '@hcengineering/server-token'
+import { startSessionManager } from '@hcengineering/server'
+import {
+  type CommunicationCallbacks,
+  type PlatformQueue,
+  type SessionManager,
+  type StorageConfiguration
+} from '@hcengineering/server-core'
 
-import { serverAiBotId } from '@hcengineering/server-ai-bot'
-import { createAIBotAdapter } from '@hcengineering/server-ai-bot-resources'
-import { createServerPipeline, registerServerPlugins, registerStringLoaders } from '@hcengineering/server-pipeline'
+import { Api as CommunicationApi } from '@hcengineering/communication-server'
+import {
+  createServerPipeline,
+  isAdapterSecurity,
+  registerAdapterFactory,
+  registerDestroyFactory,
+  registerServerPlugins,
+  registerStringLoaders,
+  registerTxAdapterFactory,
+  setAdapterSecurity
+} from '@hcengineering/server-pipeline'
 
-import builder from '@hcengineering/model-all'
-
-const enabled = (process.env.MODEL_ENABLED ?? '*').split(',').map((it) => it.trim())
-const disabled = (process.env.MODEL_DISABLED ?? '').split(',').map((it) => it.trim())
-
-const model = JSON.parse(JSON.stringify(builder(enabled, disabled).getTxes())) as Tx[]
+import {
+  createMongoAdapter,
+  createMongoDestroyAdapter,
+  createMongoTxAdapter,
+  shutdownMongo
+} from '@hcengineering/mongo'
+import {
+  createPostgreeDestroyAdapter,
+  createPostgresAdapter,
+  createPostgresTxAdapter,
+  setDBExtraOptions,
+  shutdownPostgres
+} from '@hcengineering/postgres'
+import { readFileSync } from 'node:fs'
+import { startHttpServer } from './server_http'
+import type { ServerApi } from '@hcengineering/communication-sdk-types'
+const model = JSON.parse(readFileSync(process.env.MODEL_JSON ?? 'model.json').toString()) as Tx[]
 
 registerStringLoaders()
 
+// Register close on process exit.
+process.on('exit', () => {
+  shutdownPostgres().catch((err) => {
+    console.error(err)
+  })
+  shutdownMongo().catch((err) => {
+    console.error(err)
+  })
+})
 /**
  * @public
  */
 export function start (
-  dbUrls: string,
+  metrics: MeasureContext,
+  dbUrl: string,
   opt: {
-    fullTextUrl: string
+    queue: PlatformQueue
+    fulltextUrl: string
     storageConfig: StorageConfiguration
-    rekoniUrl: string
     port: number
     brandingMap: BrandingMap
-    serverFactory: ServerFactory
-
-    indexProcessing: number // 1000
-    indexParallel: number // 2
+    communicationApiEnabled: boolean
 
     enableCompression?: boolean
 
@@ -58,53 +88,83 @@ export function start (
       start: () => void
       stop: () => Promise<string | undefined>
     }
+
+    mongoUrl?: string
   }
-): () => Promise<void> {
-  const metrics = getMetricsContext()
+): { shutdown: () => Promise<void>, sessionManager: SessionManager } {
+  registerTxAdapterFactory('mongodb', createMongoTxAdapter)
+  registerAdapterFactory('mongodb', createMongoAdapter)
+  registerDestroyFactory('mongodb', createMongoDestroyAdapter)
+
+  registerTxAdapterFactory('postgresql', createPostgresTxAdapter, true)
+  registerAdapterFactory('postgresql', createPostgresAdapter, true)
+  registerDestroyFactory('postgresql', createPostgreeDestroyAdapter, true)
+  setAdapterSecurity('postgresql', true)
+
+  const usePrepare = (process.env.DB_PREPARE ?? 'true') === 'true'
+
+  setDBExtraOptions({
+    prepare: usePrepare // We override defaults
+  })
 
   registerServerPlugins()
 
-  const [mainDbUrl, rawDbUrl] = dbUrls.split(';')
+  const externalStorage = buildStorageFromConfig(opt.storageConfig)
 
-  const externalStorage = buildStorageFromConfig(opt.storageConfig, rawDbUrl ?? mainDbUrl)
-
-  const pipelineFactory = createServerPipeline(
-    metrics,
-    dbUrls,
-    model,
-    { ...opt, externalStorage, adapterSecurity: rawDbUrl !== undefined },
-    {
-      serviceAdapters: {
-        [serverAiBotId]: {
-          factory: createAIBotAdapter,
-          db: '%ai-bot',
-          url: rawDbUrl ?? mainDbUrl
-        }
+  const communicationApiFactory = async (
+    ctx: MeasureContext,
+    workspace: WorkspaceIds,
+    broadcastSessions: CommunicationCallbacks
+  ): Promise<ServerApi> => {
+    if (dbUrl.startsWith('mongodb') || !opt.communicationApiEnabled) {
+      return {
+        findMessagesMeta: async () => [],
+        findMessagesGroups: async () => [],
+        findNotificationContexts: async () => [],
+        findCollaborators: async () => [],
+        findNotifications: async () => [],
+        findLabels: async () => [],
+        findPeers: async () => [],
+        subscribeCard: () => {},
+        unsubscribeCard: () => {},
+        event: async () => {
+          return {}
+        },
+        closeSession: async () => {},
+        close: async () => {}
       }
     }
-  )
-  const sessionFactory = (
-    token: Token,
-    pipeline: Pipeline,
-    workspaceId: WorkspaceIdWithUrl,
-    branding: Branding | null
-  ): Session => {
-    return new ClientSession(token, pipeline, workspaceId, branding, token.extra?.mode === 'backup')
-  }
 
-  const onClose = startSessionManager(getMetricsContext(), {
+    return await CommunicationApi.create(
+      ctx.newChild('💬 communication api', {}, { span: false }),
+      workspace.uuid,
+      dbUrl,
+      broadcastSessions
+    )
+  }
+  const pipelineFactory = createServerPipeline(
+    metrics,
+    dbUrl,
+    model,
+    { ...opt, externalStorage, adapterSecurity: isAdapterSecurity(dbUrl), queue: opt.queue, communicationApiFactory },
+    {}
+  )
+
+  const sessionManager = startSessionManager(metrics, {
     pipelineFactory,
-    sessionFactory,
-    port: opt.port,
     brandingMap: opt.brandingMap,
-    serverFactory: opt.serverFactory,
     enableCompression: opt.enableCompression,
     accountsUrl: opt.accountsUrl,
-    externalStorage,
-    profiling: opt.profiling
+    profiling: opt.profiling,
+    queue: opt.queue
   })
-  return async () => {
-    await externalStorage.close()
-    await onClose()
+  const shutdown = startHttpServer(metrics, sessionManager, opt.port, opt.accountsUrl, externalStorage)
+  return {
+    shutdown: async () => {
+      await externalStorage.close()
+      await sessionManager.closeWorkspaces(metrics)
+      await shutdown()
+    },
+    sessionManager
   }
 }

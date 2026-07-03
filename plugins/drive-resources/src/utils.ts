@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 Hardcore Engineering Inc.
+// Copyright © 2024-2025 Hardcore Engineering Inc.
 //
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
@@ -13,21 +13,23 @@
 // limitations under the License.
 //
 
-import { type Class, type Doc, type Ref, toIdMap } from '@hcengineering/core'
-import {
+import { type Class, type Doc, type Ref, type Space, toIdMap } from '@hcengineering/core'
+import drive, {
   type Drive,
   type FileVersion,
   type Folder,
+  type File,
   type Resource,
+  createFile,
   createFolder,
   DriveEvents
 } from '@hcengineering/drive'
-import drive, { createFile } from '@hcengineering/drive'
 import { type Asset, setPlatformStatus, unknownError } from '@hcengineering/platform'
 import { getClient } from '@hcengineering/presentation'
 import { type AnySvelteComponent, showPopup } from '@hcengineering/ui'
 import {
   type FileUploadCallback,
+  type FileUploadOptions,
   getDataTransferFiles,
   showFilesUploadPopup,
   uploadFiles
@@ -38,12 +40,12 @@ import CreateDrive from './components/CreateDrive.svelte'
 import CreateFolder from './components/CreateFolder.svelte'
 import RenamePopup from './components/RenamePopup.svelte'
 
+import { Analytics } from '@hcengineering/analytics'
 import FileTypeAudio from './components/icons/FileTypeAudio.svelte'
 import FileTypeImage from './components/icons/FileTypeImage.svelte'
-import FileTypeVideo from './components/icons/FileTypeVideo.svelte'
 import FileTypePdf from './components/icons/FileTypePdf.svelte'
 import FileTypeText from './components/icons/FileTypeText.svelte'
-import { Analytics } from '@hcengineering/analytics'
+import FileTypeVideo from './components/icons/FileTypeVideo.svelte'
 
 async function navigateToDoc (_id: Ref<Doc>, _class: Ref<Class<Doc>>): Promise<void> {
   const client = getClient()
@@ -58,7 +60,7 @@ export function formatFileVersion (version: number): string {
 }
 
 export async function showCreateFolderPopup (
-  space: Ref<Drive> | undefined,
+  space: Ref<Space> | undefined,
   parent: Ref<Folder>,
   open = false
 ): Promise<void> {
@@ -82,10 +84,10 @@ export async function showEditDrivePopup (drive: Drive): Promise<void> {
 }
 
 export async function showRenameResourcePopup (resource: Resource): Promise<void> {
-  showPopup(RenamePopup, { value: resource.name, format: 'text' }, undefined, async (res) => {
-    if (res != null && res !== resource.name) {
+  showPopup(RenamePopup, { value: resource.title }, undefined, async (res) => {
+    if (res != null && res !== resource.title) {
       const client = getClient()
-      await client.update(resource, { name: res })
+      await client.update(resource, { title: res })
     }
   })
 }
@@ -167,17 +169,73 @@ export async function resolveParents (object: Resource): Promise<Doc[]> {
   return parents.reverse()
 }
 
-export async function uploadFilesToDrive (dt: DataTransfer, space: Ref<Drive>, parent: Ref<Folder>): Promise<void> {
-  const files = await getDataTransferFiles(dt)
+export async function findAllChildren (resource: Resource, maxDepth: number = 10): Promise<Array<Ref<Folder>>> {
+  const client = getClient()
+  const hierarchy = client.getHierarchy()
 
+  if (!hierarchy.isDerived(resource._class, drive.class.Folder)) {
+    return []
+  }
+
+  const allChildren: Array<Ref<Folder>> = []
+  let currentLevel: Array<Ref<Folder>> = [resource._id as Ref<Folder>]
+  let depth = 0
+
+  while (currentLevel.length > 0 && depth < maxDepth) {
+    const children = await client.findAll(
+      drive.class.Folder,
+      { space: resource.space, parent: { $in: currentLevel } },
+      { projection: { _id: 1 } }
+    )
+
+    if (children.length === 0) {
+      break
+    }
+
+    const childIds = children.map((p) => p._id)
+    allChildren.push(...childIds)
+    currentLevel = childIds
+    depth++
+  }
+
+  return allChildren
+}
+
+export async function getUploadOptionsByFragment (space: Ref<Drive>, fragment: string): Promise<FileUploadOptions> {
+  const [, _id, _class] = decodeURIComponent(fragment).split('|')
+  if (_class === drive.class.Folder) {
+    return await getUploadOptions(space, _id as Ref<Folder>)
+  }
+  if (_class === drive.class.File) {
+    const res = await getClient().findOne(drive.class.File, { _id: _id as Ref<File> })
+    return await getUploadOptions(res?.space as Ref<Drive>, res?.parent as Ref<Folder>)
+  }
+  return await getUploadOptions(space, drive.ids.Root)
+}
+
+export async function getUploadOptions (space: Ref<Drive>, parent: Ref<Folder>): Promise<FileUploadOptions> {
   const onFileUploaded = await fileUploadCallback(space, parent)
-
   const target =
     parent !== drive.ids.Root
       ? { objectId: parent, objectClass: drive.class.Folder }
       : { objectId: space, objectClass: drive.class.Drive }
 
-  await uploadFiles(files, target, {}, onFileUploaded)
+  const options = {
+    onFileUploaded,
+    showProgress: {
+      target
+    },
+    target
+  }
+
+  return options
+}
+
+export async function uploadFilesToDrive (dt: DataTransfer, space: Ref<Drive>, parent: Ref<Folder>): Promise<void> {
+  const files = await getDataTransferFiles(dt)
+  const options = await getUploadOptions(space, parent)
+
+  await uploadFiles(files, options)
 }
 
 export async function uploadFilesToDrivePopup (space: Ref<Drive>, parent: Ref<Folder>): Promise<void> {
@@ -189,12 +247,16 @@ export async function uploadFilesToDrivePopup (space: Ref<Drive>, parent: Ref<Fo
       : { objectId: space, objectClass: drive.class.Drive }
 
   await showFilesUploadPopup(
-    target,
-    {},
     {
-      fileManagerSelectionType: 'both'
+      onFileUploaded,
+      showProgress: {
+        target
+      },
+      target
     },
-    onFileUploaded
+    {
+      itemsType: 'files'
+    }
   )
 }
 
@@ -203,13 +265,12 @@ async function fileUploadCallback (space: Ref<Drive>, parent: Ref<Folder>): Prom
 
   const query = parent !== drive.ids.Root ? { space, path: parent } : { space }
   const folders = await client.findAll(drive.class.Folder, query)
-  const foldersByName = new Map(folders.map((folder) => [folder.name, folder]))
+  const foldersByName = new Map(folders.map((folder) => [folder.title, folder]))
 
   const findParent = async (path: string | undefined): Promise<Ref<Folder>> => {
     if (path == null || path.length === 0) {
       return parent
     }
-
     const segments = path.split('/').filter((p) => p.length > 0)
     if (segments.length <= 1) {
       return parent
@@ -217,16 +278,16 @@ async function fileUploadCallback (space: Ref<Drive>, parent: Ref<Folder>): Prom
 
     let current = parent
     while (segments.length > 1) {
-      const name = segments.shift()
-      if (name !== undefined) {
-        let folder = foldersByName.get(name)
+      const title = segments.shift()
+      if (title !== undefined) {
+        let folder = foldersByName.get(title)
         if (folder !== undefined) {
           current = folder._id
         } else {
-          current = await createFolder(client, space, { name, parent: current })
+          current = await createFolder(client, space, { title, parent: current })
           folder = await client.findOne(drive.class.Folder, { _id: current })
           if (folder !== undefined) {
-            foldersByName.set(folder.name, folder)
+            foldersByName.set(folder.title, folder)
           }
         }
       }
@@ -234,7 +295,7 @@ async function fileUploadCallback (space: Ref<Drive>, parent: Ref<Folder>): Prom
     return current
   }
 
-  const callback: FileUploadCallback = async (uuid, name, file, path, metadata) => {
+  const callback: FileUploadCallback = async ({ uuid, name, file, path, metadata }) => {
     const folder = await findParent(path)
     try {
       const data = {
@@ -242,15 +303,15 @@ async function fileUploadCallback (space: Ref<Drive>, parent: Ref<Folder>): Prom
         size: file.size,
         type: file.type,
         lastModified: file instanceof File ? file.lastModified : Date.now(),
-        name,
+        title: name,
         metadata
       }
 
       await createFile(client, space, folder, data)
+
       Analytics.handleEvent(DriveEvents.FileUploaded, { ok: true, type: file.type, size: file.size, name })
     } catch (err) {
       void setPlatformStatus(unknownError(err))
-      Analytics.handleEvent(DriveEvents.FileUploaded, { ok: false, name })
     }
   }
 
