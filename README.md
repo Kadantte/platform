@@ -5,32 +5,80 @@
 
 ⭐️ Your star shines on us. Star us on GitHub!
 
+> [!IMPORTANT]
+> **Hosted Huly is shutting down — please migrate your data.**
+>
+> The hosted Huly service is being discontinued because its hosting is no longer being funded. If you keep important data on the hosted platform, export and back it up, and migrate as soon as possible — we can help you move to either a [self-hosted setup](https://github.com/hcengineering/huly-selfhost) or a hosted option.
+>
+> Not sure how? Follow the [backup & restore guide](docs/guides/backup-restore.en.md) for step-by-step instructions on downloading your backup and restoring it elsewhere.
+>
+> The service shutdown is expected on **July 20**. Please make sure to export and migrate your data before then rather than wait until the last day.
+>
+> Have questions or want updates? Join the [Huly community](https://link.huly.io/slack) to discuss migration and stay informed, or email us at [artem@hardcoreeng.com](mailto:artem@hardcoreeng.com) with any questions. This affects only the hosted **Huly** service — self-hosted deployments are not affected.
+
 ## About
 
-The Huly Platform is a robust framework designed to accelerate the development of business applications, such as CRM systems. 
-This repository includes several applications, such as Chat, Project Management, CRM, HRM, and ATS. 
+The Huly Platform is a robust framework designed to accelerate the development of business applications, such as CRM systems.
+This repository includes several applications, such as Chat, Project Management, CRM, HRM, and ATS.
 Various teams are building products on top of the Platform, including [Huly](https://huly.io) and [TraceX](https://tracex.co).
 
 ![Huly](https://repository-images.githubusercontent.com/392073243/6d27d5cc-38cd-4d88-affe-bb88b393180c)
 
 ## Self-Hosting
 
-If you're primarily interested in self-hosting Huly without the intention to modify or contribute to its development, please use [huly-selfhost](https://github.com/hcengineering/huly-selfhost). 
+If you're primarily interested in self-hosting Huly without the intention to modify or contribute to its development, please use [huly-selfhost](https://github.com/hcengineering/huly-selfhost).
 This project offers a convenient method to host Huly using `docker`, designed for ease of use and quick setup. Explore this option to effortlessly enjoy Huly on your own server.
 
 ## Activity
 
-![Alt](https://repobeats.axiom.co/api/embed/c42c99e21691fa60ea61b5cdf11c2e0647621534.svg "Repobeats analytics image")
+![Alt](https://repobeats.axiom.co/api/embed/c42c99e21691fa60ea61b5cdf11c2e0647621534.svg 'Repobeats analytics image')
 
-## Table of Content
+## API Client
+
+If you want to interact with Huly programmatically, check out our [API Client](https://github.com/hcengineering/huly.core/tree/main/packages/api-client) documentation. The API client provides a typed interface for all Huly operations and can be used to build integrations and custom applications.
+
+You can find API usage examples in the [Huly examples](https://github.com/hcengineering/huly-examples) repository.
+
+## Changelog
+
+For detailed information about changes, improvements, and bug fixes in each version, see our [Changelog](./changelog.md).
+
+## Versions
+
+The Huly Platform uses two types of version tags to distinguish between production-ready and development releases:
+
+- **Production Versions (`v*`)** - Stable releases for end users
+  - Example: `v0.7.310`, `v0.7.307`, `v0.6.501`
+  - These versions are recommended for production deployments
+  - Suitable for self-hosted installations
+  - Published with release notes on [GitHub Releases](https://github.com/hcengineering/platform/releases)
+
+- **Development Versions (`s*`)** - Pre-release builds for developers
+  - Example: `s0.7.313`, `s0.7.292`, `s0.7.288`
+  - Used for development and testing purposes
+  - May contain experimental features or bug fixes
+  - Not recommended for production use
+
+## Architecture
+
+For detailed information about the platform architecture, services, and their interactions, see our [Architecture Overview](./ARCHITECTURE_OVERVIEW.md).
+
+## Table of Contents
 
 - [Huly Platform](#huly-platform)
   - [About](#about)
   - [Self-Hosting](#self-hosting)
   - [Activity](#activity)
-  - [Table of Content](#table-of-content)
+  - [API Client](#api-client)
+  - [Changelog](#changelog)
+  - [Versions](#versions)
+  - [Architecture](#architecture)
+  - [Table of Contents](#table-of-contents)
   - [Pre-requisites](#pre-requisites)
   - [Verification](#verification)
+  - [Branches \& Contributing](#branches--contributing)
+  - [Setup dev environment](#setup-dev-environment)
+  - [Fast start](#fast-start)
   - [Installation](#installation)
   - [Build and run](#build-and-run)
   - [Run in development mode](#run-in-development-mode)
@@ -42,6 +90,7 @@ This project offers a convenient method to host Huly using `docker`, designed fo
     - [UI tests](#ui-tests)
   - [Package publishing](#package-publishing)
   - [Additional testing](#additional-testing)
+  - [WSL build guide](#wsl-build-guide)
 
 ## Pre-requisites
 
@@ -50,14 +99,71 @@ This project offers a convenient method to host Huly using `docker`, designed fo
   - [Docker](https://docs.docker.com/get-docker/)
   - [Docker Compose](https://docs.docker.com/compose/install/)
 
+If you use `nvm`, run this after entering the repo to align your shell with the repository Node version:
+
+```bash
+nvm use
+```
+
 ## Verification
 
 To verify the installation, perform the following checks in your terminal:
 
 - Ensure that the `docker` commands are available:
-  ```bash
-  docker --version
-  docker compose version
+
+```bash
+docker --version
+docker compose version
+```
+
+## Branches & Contributing
+
+- The `main` branch is the default branch used for production deployments.
+  Changes to this branch are made from the `staging` branch once a version is ready for community use.
+
+- The `staging` branch is used for pre-release testing.
+  It is stable enough for testing but not yet ready for production deployment.
+
+- The `develop` branch is used for development and is the default branch for contributions.
+
+We periodically merge `develop` into `staging` to perform testing builds. Once we are satisfied with the build quality in our pre-release deployment, we merge changes into `main` and release a new version to the community.
+
+## Setup dev environment
+
+### To initialise the communication submodule
+
+```bash
+git submodule init
+git submodule update
+```
+
+### To update the communication submodule
+
+```bash
+git submodule update
+```
+
+### Authentication
+
+This project uses GitHub Packages for dependency management. To successfully download dependencies, you need to generate a GitHub personal access token and log in to npm using that token.
+
+Follow these steps:
+
+1. Generate a GitHub Token:
+- Log in to your GitHub account
+- Go to **Settings** > **Developer settings** > **Personal access tokens** (https://github.com/settings/personal-access-tokens)
+- Click **Generate new token**
+- Select the required scopes (at least `read:packages`)
+- Generate the token and copy it
+
+2. Authenticate with npm:
+```bash
+npm login --registry=https://npm.pkg.github.com
+```
+
+When prompted, enter your GitHub username, use the generated token as your password
+
+
 ## Fast start
 
 ```bash
@@ -66,15 +172,21 @@ sh ./scripts/fast-start.sh
 
 ## Installation
 
-You need Microsoft's [rush](https://rushjs.io) to install application.
+You need Microsoft's [rush](https://rushjs.io) to install the application.
 
 1. Install Rush globally using the command:
-   ```bash
-   npm install -g @microsoft/rush
+
+```bash
+npm install -g @microsoft/rush
+```
+
 2. Navigate to the repository root and run the following commands:
-   ```bash
-   rush install
-   rush build
+
+```bash
+rush install
+rush build
+```
+
 Alternatively, you can just execute:
 
 ```bash
@@ -89,7 +201,7 @@ Support is available for both amd64 and arm64 containers on Linux and macOS.
 
 ```bash
 cd ./dev/
-rush build    # Will build all the required packages. 
+rush build    # Will build all the required packages.
 # rush rebuild  # could be used to omit build cache.
 rush bundle   # Will prepare bundles.
 rush package  # Will build all webpack packages.
@@ -101,6 +213,8 @@ rush docker:up # Will set up all the containers
 
 Be aware `rush docker:build` will automatically execute all required phases like build, bundle, package.
 
+> **Note:** For resource-constrained machines, you can use the minified variants `rush docker:min` and `rush docker:up:min` to build and run only the required services (excludes hulypulse, redis, process, backup, rating, preview, link-preview, elastic, fulltext, payment, stats, print, sign, hulygun, hulykvs).
+
 Alternatively, you can just execute:
 
 ```bash
@@ -109,31 +223,17 @@ sh ./scripts/build.sh
 
 By default, Docker volumes named dev_db, dev_elastic, and dev_files will be created for the MongoDB, Elasticsearch, and MinIO instances.
 
-Before you can begin, you need to create a workspace and an account and associate it with the workspace.
+Add the following lines to your hosts file:
 
-```bash
-cd ./tool # dev/tool in the repository root
-rushx run-local create-workspace ws1 -w DevWorkspace # Create workspace
-rushx run-local create-account user1 -p 1234 -f John -l Appleseed # Create account
-rushx run-local configure ws1 --list --enable '*' # Enable all modules, even if they are not yet intended to be used by a wide audience.
-rushx run-local assign-workspace user1 ws1 # Assign workspace to user.
-rushx run-local confirm-email user1 # To allow the creation of additional test workspaces.
+- **macOS / Linux:** `/etc/hosts`
+- **Windows:** `C:\Windows\System32\drivers\etc\hosts`
 
+```plain
+127.0.0.1 huly.local
+::1 huly.local
 ```
 
-Alternatively, you can just execute:
-
-```bash
-sh ./scripts/create-workspace.sh
-```
-
-Add the following line to your /etc/hosts file
-
-```
-127.0.0.1 host.docker.internal
-```
-
-Accessing the URL http://host.docker.internal:8087 will lead you to the app in development mode.
+Accessing the URL <http://huly.local:8087> will lead you to the app in development mode.
 
 Limitations:
 
@@ -149,15 +249,9 @@ rush validate
 rushx dev-server
 ```
 
-Then go to http://localhost:8080
+Then go to <http://localhost:8080>
 
-Click on "Login with password" link on the bottom of the right panel and use the following login credentials:
-
-```plain
-Email: user1
-Password: 1234
-Workspace: ws1
-```
+Select "Sign up" on the right panel and click the "Sign up with password" link at the bottom. Enter the new user's credentials, then proceed to create a workspace for them.
 
 ## Update project structure and database
 
@@ -166,13 +260,6 @@ If the project's structure is updated, it may be necessary to relink and rebuild
 ```bash
 rush update
 rush build
-```
-
-It may also be necessary to upgrade the running database.
-
-```bash
-cd ./dev/tool
-rushx upgrade -f
 ```
 
 ## Troubleshooting
@@ -233,5 +320,79 @@ node ./common/scripts/bump.js -p projectName
 
 This project is tested with BrowserStack.
 
-<sub><sup>&copy; 2024 <a href="https://hardcoreeng.com">Hardcore Engineering Inc</a>.</sup></sub>
+## WSL build guide
 
+This guide describes the nuances of building and running the application from source code located on your NTFS drive, which is accessible from both Windows and WSL.
+
+### Prerequisites
+
+#### Disk Space Requirements
+
+Ensure you have sufficient disk space available:
+- A fully deployed local application in clean Docker will consume slightly more than **35 GB** of WSL virtual disk space
+- The application folder after build (sources + artifacts) will occupy **4.5 GB**
+
+If there's insufficient space on your system drive (usually `C:\`), you can change the virtual disk location in Docker Settings → Resources → Advanced.
+
+#### Docker WSL Integration
+
+Make sure Docker is accessible from WSL:
+
+1. Go to Docker Settings → Resources → Advanced → WSL Integration
+2. Select the distribution where you'll be building and running the application
+3. Verify integration works by running this command in WSL:
+   ```bash
+   docker run hello-world
+   ```
+
+### Common Issues and Solutions
+
+#### Git Line Endings on Windows
+
+Windows Git often automatically replaces line endings. Since most build scripts are `.sh` files, ensure your Windows checkout doesn't break them.
+
+**Solution options:**
+- Checkout from WSL instead of Windows
+- Configure Git on Windows to disable auto-replacement:
+  ```bash
+  git config --global core.autocrlf false
+  ```
+  This disables auto-replacement for all repositories on your machine.
+
+#### Elevated Privileges in WSL
+
+Some commands in the instructions require elevated privileges when working in WSL. If you're using Ubuntu distribution, prefix commands with `sudo`:
+
+```bash
+sudo npm install -g @microsoft/rush
+```
+
+#### WSL Configuration
+
+If the source code is located on a Windows NTFS drive, then edit the `/etc/wsl.conf` file in WSL (e.g., `sudo nano /etc/wsl.conf`) and add the following content if it doesn't exist:
+
+```ini
+[automount]
+enabled = true
+root = /mnt/
+options = "metadata,umask=22,fmask=11"
+
+[interop]
+appendWindowsPath = false
+```
+
+However, we recommend storing the repository on a WSL disk, as this dramatically improves build and maintenance operations.
+
+### Running the Application
+
+After these preparations, the build instructions should work without issues.
+
+#### Port Conflicts
+
+When starting the application (`rush docker:up`), some network ports in Windows might be occupied. You can fix port mapping in the `\dev\docker-compose.yaml` file.
+
+**Important:** Depending on which port you change, you'll need to:
+1. Find what's using that port
+2. Update the new address in the corresponding service configuration
+
+<sub><sup>&copy; 2025 <a href="https://hardcoreeng.com">Hardcore Engineering Inc</a>.</sup></sub>

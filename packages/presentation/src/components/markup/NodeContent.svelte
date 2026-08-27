@@ -13,15 +13,26 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Class, Doc, Ref } from '@hcengineering/core'
+  import { Class, Doc, Ref, Blob } from '@hcengineering/core'
   import { AttrValue, MarkupNode, MarkupNodeType } from '@hcengineering/text'
 
   import CodeBlockNode from './CodeBlockNode.svelte'
   import ObjectNode from './ObjectNode.svelte'
+  import MarkdownNode from './MarkdownNode.svelte'
   import Node from './Node.svelte'
+  import { getBlobRef } from '../../preview'
+  import { ParsedTextWithEmojis } from '@hcengineering/emoji'
 
   export let node: MarkupNode
+  export let singleTextNode = false
   export let preview = false
+  export let parseEmojisFunction: ((text: string) => ParsedTextWithEmojis) | undefined = undefined
+
+  let parsedTextWithEmojis: ParsedTextWithEmojis | undefined = undefined
+
+  function toRefBlob (blobId: AttrValue): Ref<Blob> {
+    return blobId as Ref<Blob>
+  }
 
   function toRef (objectId: string): Ref<Doc> {
     return objectId as Ref<Doc>
@@ -35,7 +46,7 @@
   }
 
   function toString (value: AttrValue | undefined): string | undefined {
-    return value !== undefined ? `${value}` : undefined
+    return value != null ? `${value}` : undefined
   }
 
   function toNumber (value: AttrValue | undefined): number | undefined {
@@ -43,7 +54,11 @@
       return value ? 1 : 0
     }
 
-    return value !== undefined ? (typeof value === 'string' ? parseInt(value) : value) : undefined
+    return value != null ? (typeof value === 'string' ? parseInt(value) : value) : undefined
+  }
+
+  $: if (node.type === MarkupNodeType.text && parseEmojisFunction) {
+    parsedTextWithEmojis = parseEmojisFunction(node.text ?? '')
   }
 </script>
 
@@ -54,16 +69,53 @@
   {#if node.type === MarkupNodeType.doc}
     {#if nodes.length > 0}
       {#each nodes as node}
-        <Node {node} {preview} />
+        <Node {parseEmojisFunction} {node} {preview} singleTextNode={nodes.length === 1} />
       {/each}
     {/if}
   {:else if node.type === MarkupNodeType.text}
-    {node.text}
+    {#if parsedTextWithEmojis === undefined}
+      {node.text}
+    {:else}
+      {#each parsedTextWithEmojis.nodes as textOrEmoji}
+        {#if typeof textOrEmoji === 'string'}
+          {textOrEmoji}
+        {:else}
+          <span
+            class="emoji"
+            style="display: inline-block"
+            class:emojiOnly={parsedTextWithEmojis.emojisOnly && singleTextNode}
+            class:custom={'image' in textOrEmoji}
+          >
+            {#if 'image' in textOrEmoji}
+              {@const blob = toRefBlob(textOrEmoji.image)}
+              {@const alt = toString(textOrEmoji.emoji)}
+              {#await getBlobRef(blob) then blobSrc}
+                <img src={blobSrc.src} {alt} />
+              {/await}
+            {:else}
+              {textOrEmoji.emoji}
+            {/if}
+          </span>
+        {/if}
+      {/each}
+    {/if}
+  {:else if node.type === MarkupNodeType.emoji}
+    <span class="emoji" class:emojiOnly={singleTextNode}>
+      {#if node.attrs?.kind === 'image'}
+        {@const blob = toRefBlob(attrs.image)}
+        {@const alt = toString(attrs.emoji)}
+        {#await getBlobRef(blob) then blobSrc}
+          <img src={blobSrc.src} {alt} />
+        {/await}
+      {:else}
+        {node.attrs?.emoji}
+      {/if}
+    </span>
   {:else if node.type === MarkupNodeType.paragraph}
     <p class="p-inline contrast" class:overflow-label={preview}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} singleTextNode={singleTextNode && nodes.length === 1} />
         {/each}
       {/if}
     </p>
@@ -71,7 +123,7 @@
     <blockquote class="proseBlockQuote" style:margin={preview ? '0' : null}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </blockquote>
@@ -106,7 +158,7 @@
       <ObjectNode _id={toRef(objectId)} _class={toClassRef(objectClass)} title={objectLabel} />
     {:else if nodes.length > 0}
       {#each nodes as node}
-        <Node {node} {preview} />
+        <Node {parseEmojisFunction} {node} {preview} />
       {/each}
     {/if}
   {:else if node.type === MarkupNodeType.hard_break}
@@ -116,7 +168,7 @@
     <ol style:margin={preview ? '0' : null} {start}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </ol>
@@ -124,7 +176,7 @@
     <ul style:margin={preview ? '0' : null}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </ul>
@@ -132,7 +184,7 @@
     <li>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </li>
@@ -144,7 +196,7 @@
     <sub>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </sub>
@@ -153,7 +205,7 @@
       <tbody>
         {#if nodes.length > 0}
           {#each nodes as node}
-            <Node {node} {preview} />
+            <Node {parseEmojisFunction} {node} {preview} />
           {/each}
         {/if}
       </tbody>
@@ -162,7 +214,7 @@
     <tr>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </tr>
@@ -172,7 +224,7 @@
     <td {colspan} {rowspan}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </td>
@@ -182,17 +234,21 @@
     <th {colspan} {rowspan}>
       {#if nodes.length > 0}
         {#each nodes as node}
-          <Node {node} {preview} />
+          <Node {parseEmojisFunction} {node} {preview} />
         {/each}
       {/if}
     </th>
+  {:else if node.type === MarkupNodeType.markdown}
+    <MarkdownNode {node} {preview} />
+  {:else if node.type === MarkupNodeType.mermaid}
+    <!-- TODO -->
   {:else if node.type === MarkupNodeType.comment}
     <!-- Ignore -->
   {:else}
     unknown node: "{node.type}"
     {#if nodes.length > 0}
       {#each nodes as node}
-        <Node {node} {preview} />
+        <Node {parseEmojisFunction} {node} {preview} />
       {/each}
     {/if}
   {/if}
@@ -201,6 +257,14 @@
 <style lang="scss">
   .imgContainer {
     display: inline;
+  }
+  .emojiOnly {
+    font-size: 2rem;
+    line-height: 115%;
+
+    &.custom {
+      min-height: 2.625rem;
+    }
   }
 
   .img {

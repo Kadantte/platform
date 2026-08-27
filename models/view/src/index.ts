@@ -1,6 +1,8 @@
 //
 // Copyright © 2020 Anticrm Platform Contributors.
 //
+// Copyright © 2025 Hardcore Engineering Inc.
+//
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
 // obtain a copy of the License at https://www.eclipse.org/legal/epl-2.0
@@ -14,7 +16,8 @@
 //
 
 import {
-  type Account,
+  type AccountUuid,
+  type AnyAttribute,
   type Class,
   type Client,
   DOMAIN_MODEL,
@@ -24,32 +27,41 @@ import {
   type DocumentQuery,
   type Domain,
   type Ref,
-  type Space,
-  type AnyAttribute
+  type Space
 } from '@hcengineering/core'
-import { type Builder, Mixin, Model, UX } from '@hcengineering/model'
+import { type Builder, Mixin, Model, Prop, TypeRecord, TypeRef, TypeString, UX } from '@hcengineering/model'
 import core, { TClass, TDoc } from '@hcengineering/model-core'
 import preference, { TPreference } from '@hcengineering/model-preference'
 import presentation from '@hcengineering/model-presentation'
-import { type Asset, type IntlString, type Resource, type Status } from '@hcengineering/platform'
-import { type AnyComponent, type LabelAndProps, type Location } from '@hcengineering/ui/src/types'
+import { type Asset, getEmbeddedLabel, type IntlString, type Resource, type Status } from '@hcengineering/platform'
 import {
+  type AnyComponent,
+  type ComponentExtensionId,
+  type LabelAndProps,
+  type Location
+} from '@hcengineering/ui/src/types'
+import {
+  type TypeEditor,
   type Action,
   type ActionCategory,
   type ActivityAttributePresenter,
   type Aggregation,
   type AllValuesFunc,
   type ArrayEditor,
+  type AttrPresenter,
+  type AttributeCategory,
   type AttributeEditor,
   type AttributeFilter,
   type AttributeFilterPresenter,
   type AttributePresenter,
+  type BaseQuery,
   type BuildModelKey,
   type ClassFilters,
   type ClassSortFuncs,
   type CollectionEditor,
   type CollectionPresenter,
   type CreateAggregationManagerFunc,
+  type CustomObjectLinkProvider,
   type Filter,
   type FilterMode,
   type FilteredView,
@@ -61,6 +73,7 @@ import {
   type KeyBinding,
   type KeyFilter,
   type KeyFilterPreset,
+  type LinkIdProvider,
   type LinkPresenter,
   type LinkProvider,
   type ListHeaderExtra,
@@ -69,11 +82,18 @@ import {
   type ObjectEditorFooter,
   type ObjectEditorHeader,
   type ObjectFactory,
+  type ObjectIcon,
+  type ObjectIdentifier,
   type ObjectPanel,
+  type ObjectPanelFooter,
   type ObjectPresenter,
   type ObjectTitle,
+  type ObjectTooltip,
   type ObjectValidator,
   type PreviewPresenter,
+  type ReferenceObjectProvider,
+  type ReferenceVersion,
+  type ReferenceVersionsProvider,
   type SortFunc,
   type SpaceHeader,
   type SpaceName,
@@ -87,12 +107,7 @@ import {
   type Viewlet,
   type ViewletDescriptor,
   type ViewletPreference,
-  type ObjectIdentifier,
-  type ObjectIcon,
-  type ObjectTooltip,
-  type AttrPresenter,
-  type AttributeCategory,
-  type LinkIdProvider
+  type ViewletViewAction
 } from '@hcengineering/view'
 
 import view from './plugin'
@@ -115,7 +130,7 @@ export class TFilteredView extends TDoc implements FilteredView {
   viewOptions?: ViewOptions
   filterClass?: Ref<Class<Doc>>
   viewletId?: Ref<Viewlet> | null
-  users!: Ref<Account>[]
+  users!: AccountUuid[]
   attachedTo!: string
   sharable?: boolean
 }
@@ -206,6 +221,11 @@ export class TObjectEditor extends TClass implements ObjectEditor {
   pinned?: boolean
 }
 
+@Mixin(view.mixin.TypeEditor, core.class.Class)
+export class TTypeEditor extends TClass implements TypeEditor {
+  editor!: AnyComponent
+}
+
 @Mixin(view.mixin.ObjectEditorHeader, core.class.Class)
 export class TObjectEditorHeader extends TClass implements ObjectEditorHeader {
   editor!: AnyComponent
@@ -213,6 +233,11 @@ export class TObjectEditorHeader extends TClass implements ObjectEditorHeader {
 
 @Mixin(view.mixin.ObjectEditorFooter, core.class.Class)
 export class TObjectEditorFooter extends TClass implements ObjectEditorFooter {
+  editor!: AnyComponent
+}
+
+@Mixin(view.mixin.ObjectPanelFooter, core.class.Class)
+export class TObjectPanelFooter extends TClass implements ObjectPanelFooter {
   editor!: AnyComponent
 }
 
@@ -234,7 +259,7 @@ export class TObjectValidator extends TClass implements ObjectValidator {
 @Mixin(view.mixin.ObjectFactory, core.class.Class)
 export class TObjectFactory extends TClass implements ObjectFactory {
   component?: AnyComponent
-  create?: Resource<() => Promise<void>>
+  create?: Resource<(props?: Record<string, any>) => Promise<Ref<Doc> | undefined>>
 }
 
 @Mixin(view.mixin.ObjectTitle, core.class.Class)
@@ -245,6 +270,16 @@ export class TObjectTitle extends TClass implements ObjectTitle {
 @Mixin(view.mixin.ObjectIdentifier, core.class.Class)
 export class TObjectIdentifier extends TClass implements ObjectIdentifier {
   provider!: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<string>>
+}
+
+@Mixin(view.mixin.ReferenceObjectProvider, core.class.Class)
+export class TReferenceObjectProvider extends TClass implements ReferenceObjectProvider {
+  provider!: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<Doc | undefined>>
+}
+
+@Mixin(view.mixin.ReferenceVersionsProvider, core.class.Class)
+export class TReferenceVersionsProvider extends TClass implements ReferenceVersionsProvider {
+  provider!: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<ReferenceVersion[]>>
 }
 
 @Mixin(view.mixin.ObjectTooltip, core.class.Class)
@@ -296,6 +331,28 @@ export class TViewletDescriptor extends TDoc implements ViewletDescriptor {
   label!: IntlString
 }
 
+@Model(view.class.ViewletViewAction, core.class.Doc, DOMAIN_MODEL)
+@UX(view.string.ViewletViewAction)
+export class TViewletViewAction extends TDoc implements ViewletViewAction {
+  @Prop(TypeRef(view.class.Viewlet), getEmbeddedLabel('Viewlet'))
+  declare viewlet?: Ref<Viewlet>
+
+  @Prop(TypeRef(view.class.ViewletDescriptor), getEmbeddedLabel('Descriptor'))
+  declare descriptor?: Ref<ViewletDescriptor>
+
+  @Prop(TypeString(), getEmbeddedLabel('Extension'))
+  declare extension: ComponentExtensionId
+
+  @Prop(TypeRecord(), getEmbeddedLabel('Config'))
+  declare config?: Record<string, any>
+
+  @Prop(TypeRef(core.class.Class), getEmbeddedLabel('ApplicableToClass'))
+  declare applicableToClass?: Ref<Class<Doc>>
+
+  @Prop(TypeRef(core.class.Class), getEmbeddedLabel('DisabledForClass'))
+  declare disabledForClass?: Ref<Class<Doc>>
+}
+
 @Model(view.class.Viewlet, core.class.Doc, DOMAIN_MODEL)
 export class TViewlet extends TDoc implements Viewlet {
   attachTo!: Ref<Class<Doc>>
@@ -305,6 +362,7 @@ export class TViewlet extends TDoc implements Viewlet {
   hiddenKeys?: string[]
   viewOptions?: ViewOptionsModel
   props?: Record<string, any>
+  title?: IntlString
 }
 
 @Model(view.class.Action, core.class.Doc, DOMAIN_MODEL)
@@ -375,6 +433,17 @@ export class TAttrPresenter extends TDoc implements AttrPresenter {
   component!: AnyComponent
 }
 
+@Mixin(view.mixin.CustomObjectLinkProvider, core.class.Class)
+export class TCustomObjectLinkProvider extends TClass implements CustomObjectLinkProvider {
+  match!: Resource<(doc: Doc) => boolean>
+  encode!: Resource<(doc: Doc) => Location>
+}
+
+@Mixin(view.mixin.BaseQuery, core.class.Class)
+export class TBaseQuery extends TClass implements BaseQuery<Doc> {
+  baseQuery!: DocumentQuery<Doc>
+}
+
 export type ActionTemplate = Partial<Data<Action>>
 
 /**
@@ -438,6 +507,7 @@ export function createModel (builder: Builder): void {
     TViewletPreference,
     TViewletDescriptor,
     TViewlet,
+    TViewletViewAction,
     TAction,
     TActionCategory,
     TObjectValidator,
@@ -445,6 +515,7 @@ export function createModel (builder: Builder): void {
     TObjectTitle,
     TObjectEditorHeader,
     TObjectEditorFooter,
+    TObjectPanelFooter,
     TSpaceHeader,
     TSpaceName,
     TSpacePresenter,
@@ -458,10 +529,15 @@ export function createModel (builder: Builder): void {
     TAggregation,
     TGroupping,
     TObjectIdentifier,
+    TReferenceObjectProvider,
+    TReferenceVersionsProvider,
     TObjectTooltip,
     TObjectIcon,
     TAttrPresenter,
-    TLinkIdProvider
+    TLinkIdProvider,
+    TCustomObjectLinkProvider,
+    TBaseQuery,
+    TTypeEditor
   )
 
   classPresenter(
@@ -481,6 +557,7 @@ export function createModel (builder: Builder): void {
   )
   classPresenter(builder, core.class.TypeIntlString, view.component.IntlStringPresenter)
   classPresenter(builder, core.class.TypeNumber, view.component.NumberPresenter, view.component.NumberEditor)
+  classPresenter(builder, core.class.TypeIdentifier, view.component.IdPresenter, view.component.IdPresenter)
   classPresenter(
     builder,
     core.class.TypeMarkup,
@@ -505,10 +582,6 @@ export function createModel (builder: Builder): void {
 
   builder.mixin(core.class.TypeCollaborativeDoc, core.class.Class, view.mixin.ActivityAttributePresenter, {
     presenter: view.component.MarkupDiffPresenter
-  })
-
-  builder.mixin(core.class.TypeCollaborativeDocVersion, core.class.Class, view.mixin.InlineAttributEditor, {
-    editor: view.component.CollaborativeDocEditor
   })
 
   classPresenter(builder, core.class.TypeBoolean, view.component.BooleanPresenter, view.component.BooleanEditor)
@@ -580,11 +653,55 @@ export function createModel (builder: Builder): void {
     view.class.ViewletDescriptor,
     core.space.Model,
     {
+      label: view.string.RelationshipTable,
+      icon: view.icon.Table2,
+      component: view.component.RelationshipTableBrowser
+    },
+    view.viewlet.RelationshipTable
+  )
+
+  builder.createDoc(
+    view.class.ViewletDescriptor,
+    core.space.Model,
+    {
       label: view.string.List,
       icon: view.icon.List,
       component: view.component.ListView
     },
     view.viewlet.List
+  )
+
+  builder.createDoc(
+    view.class.ViewletDescriptor,
+    core.space.Model,
+    {
+      label: view.string.MasterDetail,
+      icon: view.icon.MasterDetail,
+      component: view.component.MasterDetailView
+    },
+    view.viewlet.MasterDetail
+  )
+
+  builder.createDoc(
+    view.class.ViewletDescriptor,
+    core.space.Model,
+    {
+      label: view.string.Tree,
+      icon: view.icon.Tree,
+      component: view.component.TreeView
+    },
+    view.viewlet.Tree
+  )
+
+  builder.createDoc(
+    view.class.ViewletDescriptor,
+    core.space.Model,
+    {
+      label: view.string.Document,
+      icon: view.icon.Document,
+      component: view.component.EditDoc
+    },
+    view.viewlet.Document
   )
 
   builder.createDoc(
@@ -603,6 +720,15 @@ export function createModel (builder: Builder): void {
       createPresentationMiddleware: view.function.AnalyticsMiddleware
     },
     view.pipeline.AnalyticsMiddleware
+  )
+
+  builder.createDoc(
+    presentation.class.PresentationMiddlewareFactory,
+    core.space.Model,
+    {
+      createPresentationMiddleware: view.function.ReadOnlyAccessMiddleware
+    },
+    view.pipeline.ReadOnlyAccessMiddleware
   )
 
   builder.createDoc(
@@ -634,7 +760,7 @@ export function createModel (builder: Builder): void {
     presentation.class.FilePreviewExtension,
     core.space.Model,
     {
-      contentType: ['video/*'],
+      contentType: ['video/*', 'application/x-mpegURL'],
       alignment: 'centered',
       component: view.component.VideoViewer,
       metadataProvider: view.function.BlobVideoMetadata,
@@ -681,6 +807,43 @@ export function createModel (builder: Builder): void {
       visibilityTester: view.function.CanDeleteObject
     },
     view.action.Delete
+  )
+
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.CopyTextToClipboard,
+      actionProps: {
+        textProvider: view.function.GetLink
+      },
+      label: view.string.CopyLink,
+      icon: view.icon.CopyLink,
+      category: view.category.General,
+      input: 'any',
+      target: core.class.Doc,
+      context: { mode: ['context', 'browser'] },
+      visibilityTester: view.function.CanCopyLink
+    },
+    view.action.CopyLink
+  )
+
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.Delete,
+      actionProps: {
+        confirmation: view.string.RemoveRelationConfirmation
+      },
+      label: view.string.RemoveRelation,
+      icon: view.icon.Delete,
+      keyBinding: ['Meta + Backspace'],
+      category: view.category.General,
+      override: [view.action.Delete],
+      input: 'any',
+      target: core.class.Relation,
+      context: { mode: ['context', 'browser'], group: 'remove' }
+    },
+    view.action.RemoveRelation
   )
 
   createAction(
@@ -738,6 +901,29 @@ export function createModel (builder: Builder): void {
   createAction(
     builder,
     {
+      action: view.actionImpl.ShowPopup as ViewAction<Record<string, any>>,
+      actionProps: {
+        component: view.component.AddRelationPopup,
+        fillProps: {
+          _objects: 'value'
+        }
+      },
+      label: core.string.AddRelation,
+      input: 'any',
+      icon: view.icon.CopyLink,
+      category: view.category.Editor,
+      target: core.class.Doc,
+      context: {
+        mode: ['context', 'browser'],
+        group: 'associate'
+      }
+    },
+    view.action.AddRelation
+  )
+
+  createAction(
+    builder,
+    {
       action: view.actionImpl.Leave,
       label: view.string.Leave,
       icon: view.icon.Leave,
@@ -788,7 +974,7 @@ export function createModel (builder: Builder): void {
       category: view.category.GeneralNavigation,
       input: 'none',
       target: core.class.Doc,
-      context: { mode: 'browser' }
+      context: { mode: ['browser'] }
     },
     view.action.MoveLeft
   )
@@ -802,7 +988,7 @@ export function createModel (builder: Builder): void {
       category: view.category.GeneralNavigation,
       input: 'none',
       target: core.class.Doc,
-      context: { mode: 'browser' }
+      context: { mode: ['browser'] }
     },
     view.action.MoveRight
   )
@@ -863,7 +1049,7 @@ export function createModel (builder: Builder): void {
       category: view.category.GeneralNavigation,
       input: 'none',
       target: core.class.Doc,
-      allowedForEditableContent: true,
+      allowedForEditableContent: 'noSelection',
       context: {
         mode: ['workbench', 'browser', 'panel', 'editor', 'input']
       }
@@ -931,6 +1117,10 @@ export function createModel (builder: Builder): void {
   builder.mixin(core.class.TypeTimestamp, core.class.Class, view.mixin.AttributeFilter, {
     component: view.component.DateFilter,
     group: 'bottom'
+  })
+
+  builder.mixin(core.class.TypeAccountUuid, core.class.Class, view.mixin.AttributeFilter, {
+    component: view.component.ValueFilter
   })
 
   builder.createDoc(
@@ -1169,6 +1359,10 @@ export function createModel (builder: Builder): void {
     presenter: view.component.StringFilterPresenter
   })
 
+  builder.mixin(core.class.TypeAccountUuid, core.class.Class, view.mixin.AttributeFilterPresenter, {
+    presenter: view.component.StringFilterPresenter
+  })
+
   classPresenter(builder, core.class.EnumOf, view.component.EnumPresenter, view.component.EnumEditor)
 
   createAction(
@@ -1208,6 +1402,39 @@ export function createModel (builder: Builder): void {
 
   builder.mixin(core.class.Space, core.class.Class, view.mixin.IgnoreActions, {
     actions: [view.action.Open, view.action.OpenInNewTab, view.action.Delete]
+  })
+  builder.mixin(view.class.FilteredView, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
+  })
+
+  builder.mixin(core.class.TypePersonId, core.class.Class, view.mixin.AttributeEditor, {
+    inlineEditor: view.component.PersonIdPresenter
+  })
+
+  builder.mixin(core.class.TypePersonId, core.class.Class, view.mixin.AttributePresenter, {
+    presenter: view.component.PersonIdPresenter,
+    arrayPresenter: view.component.PersonArrayEditor
+  })
+
+  builder.mixin(core.class.TypePersonId, core.class.Class, view.mixin.AttributeFilterPresenter, {
+    presenter: view.component.PersonIdFilterValuePresenter
+  })
+
+  builder.mixin(core.class.TypePersonId, core.class.Class, view.mixin.AttributeFilter, {
+    component: view.component.PersonIdFilter
+  })
+
+  builder.mixin(core.class.TypeAccountUuid, core.class.Class, view.mixin.AttributeFilterPresenter, {
+    presenter: view.component.PersonIdFilterValuePresenter
+  })
+
+  builder.mixin(core.class.Association, core.class.Class, view.mixin.ObjectPresenter, {
+    presenter: view.component.AssociationPresenter
+  })
+
+  builder.mixin(view.class.ViewletDescriptor, core.class.Class, view.mixin.ObjectPresenter, {
+    presenter: view.component.BaseDocPresenter
   })
 }
 

@@ -13,11 +13,17 @@
 // limitations under the License.
 //
 
-import { type Blob, type Doc, type Ref } from '@hcengineering/core'
+import { type Blob, type BlobMetadata, type Doc, type Ref } from '@hcengineering/core'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
 import { type AnyComponent } from '@hcengineering/ui/src/types'
-import { type FilterFunction, type ViewAction, type ViewCategoryAction, viewId } from '@hcengineering/view'
-import { type BlobMetadata, type FileOrBlob, type FilePreviewExtension } from '@hcengineering/presentation/src/types'
+import {
+  type FilterFunction,
+  type ViewAction,
+  type ViewCategoryAction,
+  viewId,
+  type ViewOptionsAction
+} from '@hcengineering/view'
+import { type FileOrBlob, type FilePreviewExtension } from '@hcengineering/presentation/src/types'
 import { type PresentationMiddlewareFactory } from '@hcengineering/presentation/src/pipeline'
 import view from '@hcengineering/view-resources/src/plugin'
 
@@ -55,17 +61,14 @@ export default mergeIds(viewId, view, {
     HyperlinkEditorPopup: '' as AnyComponent,
     IntlStringPresenter: '' as AnyComponent,
     FileSizePresenter: '' as AnyComponent,
-    NumberEditor: '' as AnyComponent,
-    NumberPresenter: '' as AnyComponent,
     MarkupDiffPresenter: '' as AnyComponent,
     MarkupPresenter: '' as AnyComponent,
     BooleanPresenter: '' as AnyComponent,
     BooleanEditor: '' as AnyComponent,
     TimestampPresenter: '' as AnyComponent,
-    DateEditor: '' as AnyComponent,
-    DatePresenter: '' as AnyComponent,
+    DateTimePresenter: '' as AnyComponent,
     TableBrowser: '' as AnyComponent,
-    RolePresenter: '' as AnyComponent,
+    RelationshipTableBrowser: '' as AnyComponent,
     YoutubePresenter: '' as AnyComponent,
     GithubPresenter: '' as AnyComponent,
     ClassPresenter: '' as AnyComponent,
@@ -78,21 +81,28 @@ export default mergeIds(viewId, view, {
     MarkupEditor: '' as AnyComponent,
     MarkupEditorPopup: '' as AnyComponent,
     ListView: '' as AnyComponent,
-    IndexedDocumentPreview: '' as AnyComponent,
     SpaceRefPresenter: '' as AnyComponent,
     EnumPresenter: '' as AnyComponent,
     StatusPresenter: '' as AnyComponent,
     StatusRefPresenter: '' as AnyComponent,
+    PersonArrayEditor: '' as AnyComponent,
+    PersonIdFilterValuePresenter: '' as AnyComponent,
     DateFilterPresenter: '' as AnyComponent,
     StringFilterPresenter: '' as AnyComponent,
     AudioViewer: '' as AnyComponent,
     ImageViewer: '' as AnyComponent,
     VideoViewer: '' as AnyComponent,
     PDFViewer: '' as AnyComponent,
-    TextViewer: '' as AnyComponent
+    TextViewer: '' as AnyComponent,
+    BaseDocPresenter: '' as AnyComponent,
+    MasterDetailView: '' as AnyComponent,
+    AssociationPresenter: '' as AnyComponent,
+    TreeView: '' as AnyComponent,
+    AddRelationPopup: '' as AnyComponent
   },
   string: {
     Table: '' as IntlString,
+    RelationshipTable: '' as IntlString,
     Role: '' as IntlString,
     // Keybaord actions
     MoveUp: '' as IntlString,
@@ -110,7 +120,9 @@ export default mergeIds(viewId, view, {
     General: '' as IntlString,
     Navigation: '' as IntlString,
     Editor: '' as IntlString,
-    MarkdownFormatting: '' as IntlString
+    MarkdownFormatting: '' as IntlString,
+    HideArchived: '' as IntlString,
+    CopyLink: '' as IntlString
   },
   function: {
     FilterArrayAllResult: '' as FilterFunction,
@@ -134,6 +146,7 @@ export default mergeIds(viewId, view, {
     FilterDateNotSpecified: '' as FilterFunction,
     FilterDateCustom: '' as FilterFunction,
     ShowEmptyGroups: '' as ViewCategoryAction,
+    HideArchived: '' as ViewOptionsAction,
     CanDeleteObject: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
     CanEditSpace: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
     CanArchiveSpace: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
@@ -142,11 +155,14 @@ export default mergeIds(viewId, view, {
     CanLeaveSpace: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
     IsClipboardAvailable: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>,
     BlobImageMetadata: '' as Resource<(file: FileOrBlob, blob: Ref<Blob>) => Promise<BlobMetadata | undefined>>,
-    BlobVideoMetadata: '' as Resource<(file: FileOrBlob, blob: Ref<Blob>) => Promise<BlobMetadata | undefined>>
+    BlobVideoMetadata: '' as Resource<(file: FileOrBlob, blob: Ref<Blob>) => Promise<BlobMetadata | undefined>>,
+    GetLink: '' as Resource<(doc?: Doc | Doc[]) => Promise<string>>,
+    CanCopyLink: '' as Resource<(doc?: Doc | Doc[]) => Promise<boolean>>
   },
   pipeline: {
     PresentationMiddleware: '' as Ref<PresentationMiddlewareFactory>,
-    AnalyticsMiddleware: '' as Ref<PresentationMiddlewareFactory>
+    AnalyticsMiddleware: '' as Ref<PresentationMiddlewareFactory>,
+    ReadOnlyAccessMiddleware: '' as Ref<PresentationMiddlewareFactory>
   },
   extension: {
     Audio: '' as Ref<FilePreviewExtension>,

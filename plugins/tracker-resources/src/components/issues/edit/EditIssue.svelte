@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { AttachmentStyleBoxCollabEditor } from '@hcengineering/attachment-resources'
-  import { Class, Doc, Ref, WithLookup } from '@hcengineering/core'
+  import { Class, Doc, Ref, SortingOrder, WithLookup } from '@hcengineering/core'
   import { Panel } from '@hcengineering/panel'
   import presentation, {
     ActionContext,
@@ -37,15 +37,21 @@
     Label,
     createFocusManager,
     getCurrentResolvedLocation,
-    navigate
+    navigate,
+    showPopup
   } from '@hcengineering/ui'
+  import SetParentIssueActionPopup from '../../SetParentIssueActionPopup.svelte'
+  import HierarchyAddPopup from '../HierarchyAddPopup.svelte'
+  import { makeRank } from '@hcengineering/task'
   import view from '@hcengineering/view'
-  import { DocNavLink, ParentsNavigator, showMenu } from '@hcengineering/view-resources'
+  import { DocNavLink, ParentsNavigator, showMenu, RelationsEditor } from '@hcengineering/view-resources'
+  import ProjectPresenter from '../../projects/ProjectPresenter.svelte'
   import { InboxNotificationsClientImpl } from '@hcengineering/notification-resources'
   import { Analytics } from '@hcengineering/analytics'
 
   import { createEventDispatcher, onDestroy } from 'svelte'
   import { generateIssueShortLink, getIssueIdByIdentifier } from '../../../issues'
+  import { canEditIssue } from '../../../utils'
   import tracker from '../../../plugin'
   import IssueStatusActivity from '../IssueStatusActivity.svelte'
   import ControlPanel from './ControlPanel.svelte'
@@ -71,6 +77,18 @@
   let descriptionBox: AttachmentStyleBoxCollabEditor
   let showAllMixins: boolean
 
+  let effectiveReadonly = true
+  $: if (issue !== undefined) {
+    const currentIssue = issue
+    void canEditIssue(currentIssue).then((canEdit) => {
+      if (issue === currentIssue) {
+        effectiveReadonly = readonly || !canEdit
+      }
+    })
+  } else {
+    effectiveReadonly = readonly
+  }
+
   const inboxClient = InboxNotificationsClientImpl.getClient()
 
   let issueId: Ref<Issue> | undefined
@@ -89,13 +107,13 @@
     if (_id && lastId && lastId !== _id) {
       const prev = lastId
       lastId = _id
-      void inboxClient.readDoc(getClient(), prev)
+      void inboxClient.readDoc(prev)
     }
   }
 
   onDestroy(async () => {
     if (issueId === undefined) return
-    void inboxClient.readDoc(getClient(), issueId)
+    void inboxClient.readDoc(issueId)
   })
 
   $: if (issueId !== undefined && _class !== undefined) {
@@ -175,6 +193,46 @@
   $: taskType = issue?.kind !== undefined ? $taskTypeStore.get(issue?.kind) : undefined
 
   $: projectType = taskType?.parent !== undefined ? $typeStore.get(taskType.parent) : undefined
+
+  async function unsetParentIssue (): Promise<void> {
+    if (issue === undefined || readonly) return
+
+    await client.update(issue, { attachedTo: tracker.ids.NoParent })
+    Analytics.handleEvent(TrackerEvents.IssueParentUnset, { issue: issue.identifier ?? issue._id })
+  }
+
+  /**
+   * Open the two-option chooser for adding a parent issue, then route the
+   * user's choice to CreateIssue (new) or SetParentIssueActionPopup (link).
+   * For 'create', wait for CreateIssue's close-with-id (added in this PR
+   * to the upstream CreateIssue) and re-rank the current issue to the end
+   * of the new parent's children — matches LinkSubIssueActionPopup.onClose.
+   */
+  function openParentChooser (): void {
+    if (issue === undefined || effectiveReadonly) return
+    const target: Issue = issue
+    showPopup(HierarchyAddPopup, { direction: 'parent' }, 'top', (mode?: 'create' | 'link') => {
+      if (mode === 'link') {
+        showPopup(SetParentIssueActionPopup, { value: target }, 'top')
+      } else if (mode === 'create') {
+        showPopup(
+          tracker.component.CreateIssue,
+          { space: target.space, shouldSaveDraft: true },
+          'top',
+          async (newId?: Ref<Issue>) => {
+            if (newId === undefined) return
+            const lastAttached = await client.findOne(
+              tracker.class.Issue,
+              { attachedTo: newId },
+              { sort: { rank: SortingOrder.Descending } }
+            )
+            const rank = makeRank(lastAttached?.rank, undefined)
+            await client.update(target, { attachedTo: newId, rank })
+          }
+        )
+      }
+    })
+  }
 </script>
 
 {#if !embedded}
@@ -190,7 +248,7 @@
   <Panel
     object={issue}
     isHeader={false}
-    withoutInput={readonly}
+    withoutInput={effectiveReadonly}
     allowClose={!embedded}
     isAside={true}
     isSub={false}
@@ -205,6 +263,10 @@
     on:select
   >
     <svelte:fragment slot="title">
+      {#if !embedded && issue.space}
+        <ProjectPresenter value={issue.space} openIssues={true} />
+        <span class="breadcrumb-separator">›</span>
+      {/if}
       {#if !embedded && issue.attachedTo !== tracker.ids.NoParent}
         <ParentsNavigator element={issue} />
       {/if}
@@ -221,13 +283,17 @@
       {/if}
       <ComponentExtensions
         extension={tracker.extensions.EditIssueTitle}
-        props={{ size: 'medium', kind: 'ghost', space: issue.space, value: issue, readonly }}
+        props={{ size: 'medium', kind: 'ghost', space: issue.space, value: issue, readonly: effectiveReadonly }}
       />
     </svelte:fragment>
     <svelte:fragment slot="pre-utils">
       <ComponentExtensions
+        extension={view.extensions.EditDocTitleExtension}
+        props={{ size: 'medium', kind: 'ghost', _id, _class, value: issue, readonly: effectiveReadonly }}
+      />
+      <ComponentExtensions
         extension={tracker.extensions.EditIssueHeader}
-        props={{ size: 'medium', kind: 'ghost', space: issue.space, readonly, value: issue }}
+        props={{ size: 'medium', kind: 'ghost', space: issue.space, readonly: effectiveReadonly, value: issue }}
       />
       {#if saved}
         <Label label={presentation.string.Saved} />
@@ -235,7 +301,7 @@
     </svelte:fragment>
 
     <svelte:fragment slot="utils">
-      {#if !readonly}
+      {#if !effectiveReadonly}
         <Button
           icon={IconMoreH}
           iconProps={{ size: 'medium' }}
@@ -276,14 +342,41 @@
     </svelte:fragment>
 
     {#if hasParentIssue}
-      <div class="mb-6">
+      <div class="mb-6 flex-row-center">
         <SubIssueSelector {issue} />
+        {#if !effectiveReadonly}
+          <div class="ml-2">
+            <Button
+              icon={tracker.icon.UnsetParent}
+              iconProps={{ size: 'medium' }}
+              kind={'regular'}
+              showTooltip={{ label: tracker.string.UnsetParentIssue }}
+              dataId={'btnUnsetParent'}
+              on:click={() => {
+                void unsetParentIssue()
+              }}
+            />
+          </div>
+        {/if}
+      </div>
+    {:else if !effectiveReadonly && issue !== undefined}
+      <div class="mb-6 flex-row-center">
+        <Button
+          icon={tracker.icon.Parent}
+          iconProps={{ size: 'medium' }}
+          label={tracker.string.AddParentIssue}
+          kind={'ghost'}
+          dataId={'btnSetParent'}
+          on:click={(e) => {
+            openParentChooser()
+          }}
+        />
       </div>
     {/if}
     <EditBox
       focusIndex={1}
       bind:value={title}
-      disabled={readonly}
+      disabled={effectiveReadonly}
       placeholder={tracker.string.IssueTitlePlaceholder}
       kind="large-style"
       on:blur={save}
@@ -292,7 +385,7 @@
       <AttachmentStyleBoxCollabEditor
         focusIndex={30}
         object={issue}
-        {readonly}
+        readonly={effectiveReadonly}
         key={{ key: 'description', attr: descriptionKey }}
         bind:this={descriptionBox}
         identifier={issue?.identifier}
@@ -309,9 +402,14 @@
       {/key}
     </div>
 
+    <RelationsEditor object={issue} readonly={effectiveReadonly} />
+
     {#if editorFooter}
       <div class="step-tb-6">
-        <Component is={editorFooter.footer} props={{ object: issue, _class, ...editorFooter.props, readonly }} />
+        <Component
+          is={editorFooter.footer}
+          props={{ object: issue, _class, ...editorFooter.props, readonly: effectiveReadonly }}
+        />
       </div>
     {/if}
 
@@ -322,7 +420,7 @@
     <svelte:fragment slot="custom-attributes">
       {#if issue !== undefined}
         <div class="space-divider" />
-        <ControlPanel {issue} {showAllMixins} {readonly} />
+        <ControlPanel {issue} {showAllMixins} readonly={effectiveReadonly} />
       {/if}
 
       <div class="popupPanel-body__aside-grid">
@@ -332,3 +430,10 @@
     </svelte:fragment>
   </Panel>
 {/if}
+
+<style>
+  .breadcrumb-separator {
+    margin: 0 0.5rem;
+    color: var(--theme-caption-color);
+  }
+</style>

@@ -22,8 +22,18 @@ import { type Attachment } from '@hcengineering/attachment'
 import contact from '@hcengineering/contact'
 import chunter from '@hcengineering/chunter'
 import { getRoleAttributeProps } from '@hcengineering/setting'
-import type { Type, CollectionSize, Markup, Arr, RolesAssignment, Permission, Role } from '@hcengineering/core'
-import { IndexKind, Ref, Account } from '@hcengineering/core'
+import type {
+  Type,
+  Ref,
+  CollectionSize,
+  Markup,
+  RolesAssignment,
+  Permission,
+  Role,
+  Class,
+  Doc
+} from '@hcengineering/core'
+import { AccountRole, IndexKind, AccountUuid } from '@hcengineering/core'
 import {
   type Builder,
   Model,
@@ -39,7 +49,8 @@ import {
   ArrOf,
   TypeAny,
   ReadOnly,
-  Mixin
+  Mixin,
+  TypeAccountUuid
 } from '@hcengineering/model'
 import attachment from '@hcengineering/model-attachment'
 import core, { TType } from '@hcengineering/model-core'
@@ -78,8 +89,8 @@ export class TTypeProductVersionState extends TType {}
 @Model(products.class.Product, documents.class.ExternalSpace)
 @UX(products.string.Product, products.icon.Product, 'Product', 'name', undefined, products.string.Products)
 export class TProduct extends TExternalSpace implements Product {
-  @Prop(ArrOf(TypeRef(core.class.Account)), core.string.Members)
-  declare members: Arr<Ref<Account>>
+  @Prop(ArrOf(TypeAccountUuid()), core.string.Members)
+  declare members: AccountUuid[]
 
   @Prop(TypeMarkup(), products.string.Description)
   @Index(IndexKind.FullText)
@@ -114,6 +125,10 @@ export class TProductVersion extends TProject implements ProductVersion {
   @ReadOnly()
     minor!: number
 
+  @Prop(TypeNumber(), products.string.Patch)
+  @ReadOnly()
+    patch!: number
+
   @Prop(TypeString(), products.string.Codename)
     codename?: string
 
@@ -145,7 +160,7 @@ export class TProductVersion extends TProject implements ProductVersion {
 @Mixin(products.mixin.ProductTypeData, products.class.Product)
 @UX(getEmbeddedLabel('Default Products'), products.icon.ProductVersion)
 export class TProductTypeData extends TProduct implements RolesAssignment {
-  [key: Ref<Role>]: Ref<Account>[]
+  [key: Ref<Role>]: AccountUuid[]
 }
 
 function defineProduct (builder: Builder): void {
@@ -159,7 +174,7 @@ function defineProduct (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: products.class.Product,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.mixin(products.class.Product, core.class.Class, view.mixin.ObjectEditor, {
@@ -239,6 +254,21 @@ function defineProduct (builder: Builder): void {
   builder.mixin(products.class.Product, core.class.Class, view.mixin.IgnoreActions, {
     actions: [tracker.action.NewRelatedIssue]
   })
+
+  createAction(
+    builder,
+    {
+      action: products.actionImpl.CreateProductVersion,
+      label: products.string.CreateProductVersion,
+      icon: products.icon.ProductVersion,
+      visibilityTester: products.function.CanCreateProductVersion,
+      category: view.category.General,
+      input: 'focus',
+      target: products.class.Product,
+      context: { mode: ['context', 'browser'], group: 'create' }
+    },
+    products.action.CreateProductVersion
+  )
 }
 
 function defineSpaceType (builder: Builder): void {
@@ -299,7 +329,7 @@ function defineProductVersion (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: products.class.ProductVersion,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.mixin(products.class.ProductVersion, core.class.Class, view.mixin.ObjectEditor, {
@@ -413,6 +443,25 @@ function defineProductVersionState (builder: Builder): void {
   })
 }
 
+function defineRelationMetadata (builder: Builder): void {
+  const rel = (
+    sourceClass: Ref<Class<Doc>>,
+    field: string,
+    targetClass: Ref<Class<Doc>>,
+    direction: 'forward' | 'inverse' = 'forward'
+  ): void => {
+    builder.createDoc(core.class.RelationMetadata, core.space.Model, {
+      sourceClass,
+      field,
+      targetClass,
+      direction
+    })
+  }
+
+  // Product → ProductVersion via `space` (inverse: versions that belong to this product)
+  rel(products.class.Product, 'space', products.class.ProductVersion, 'inverse')
+}
+
 function defineApplication (builder: Builder): void {
   builder.createDoc(
     workbench.class.Application,
@@ -462,7 +511,38 @@ export function createModel (builder: Builder): void {
   defineProduct(builder)
   defineProductVersion(builder)
   defineProductVersionState(builder)
+  defineRelationMetadata(builder)
   defineApplication(builder)
+
+  // Module permissions for guests/anonymous guests.
+  // Product should appear after Controlled Docs in the guest modules list and be disabled by default.
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: products.app.Products,
+      role: AccountRole.Guest,
+      permissions: [],
+      spaceClass: products.class.Product,
+      enabled: false,
+      order: 45
+    },
+    products.ids.ModulePermissionGroup
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: products.app.Products,
+      role: AccountRole.ReadOnlyGuest,
+      permissions: [],
+      spaceClass: products.class.Product,
+      enabled: false,
+      order: 45
+    },
+    products.ids.ModulePermissionGroupReadOnlyGuest
+  )
 }
 
 export { productsOperation } from './migration'

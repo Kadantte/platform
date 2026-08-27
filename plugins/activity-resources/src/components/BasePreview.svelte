@@ -15,9 +15,9 @@
 
 <script lang="ts">
   import { ComponentExtensions, getClient, LiteMessageViewer } from '@hcengineering/presentation'
-  import { Person, type PersonAccount } from '@hcengineering/contact'
-  import { Avatar, personAccountByIdStore, personByIdStore, SystemAvatar } from '@hcengineering/contact-resources'
-  import core, { Account, Doc, Ref, Timestamp, type WithLookup } from '@hcengineering/core'
+  import { Person } from '@hcengineering/contact'
+  import { Avatar, getPersonByPersonIdCb, SystemAvatar } from '@hcengineering/contact-resources'
+  import core, { PersonId, Doc, Timestamp } from '@hcengineering/core'
   import { Icon, Label, resizeObserver, TimeSince, tooltip } from '@hcengineering/ui'
   import { Asset, getEmbeddedLabel, IntlString } from '@hcengineering/platform'
   import activity, { ActivityMessage, ActivityMessagePreviewType } from '@hcengineering/activity'
@@ -30,41 +30,31 @@
   export let readonly = false
   export let type: ActivityMessagePreviewType = 'full'
   export let timestamp: Timestamp
-  export let account: Ref<Account> | undefined = undefined
+  export let account: PersonId | undefined = undefined
   export let isCompact = false
   export let headerObject: Doc | undefined = undefined
   export let headerIcon: Asset | undefined = undefined
   export let header: IntlString | undefined = undefined
   export let headerParams: Record<string, any> = {}
+  export let color: 'primary' | 'secondary' = 'primary'
+  export let lower = false
 
   const client = getClient()
   const limit = 300
+  const tooltipLimit = 512
 
   let isActionsOpened = false
-  let person: WithLookup<Person> | undefined = undefined
+  let person: Person | undefined = undefined
 
   let width: number
 
   $: isCompact = width < limit
-
-  $: person = getPerson(account, $personAccountByIdStore, $personByIdStore)
-
-  function getPerson (
-    _id: Ref<Account> | undefined,
-    accountById: Map<Ref<PersonAccount>, PersonAccount>,
-    personById: Map<Ref<Person>, Person>
-  ): WithLookup<Person> | undefined {
-    if (_id === undefined) {
-      return undefined
-    }
-
-    const personAccount = accountById.get(_id as Ref<PersonAccount>)
-
-    if (personAccount === undefined) {
-      return undefined
-    }
-
-    return personById.get(personAccount.person)
+  $: if (account !== undefined) {
+    getPersonByPersonIdCb(account, (p) => {
+      person = p ?? undefined
+    })
+  } else {
+    person = undefined
   }
 
   export function onActionsOpened (): void {
@@ -82,6 +72,14 @@
     tooltipLabel = getEmbeddedLabel(person.name)
   } else {
     tooltipLabel = core.string.System
+  }
+
+  function getTooltipText (markup: string): string {
+    const text = markupToText(markup)
+    if (text.length > tooltipLimit) {
+      return text.substring(0, tooltipLimit) + '...'
+    }
+    return text
   }
 </script>
 
@@ -136,9 +134,10 @@
 
     {#if text || intlLabel}
       <span
-        class="textContent overflow-label font-normal"
+        class="textContent overflow-label font-normal {color}"
         class:contentOnly={type === 'content-only'}
-        use:tooltip={{ label: text ? getEmbeddedLabel(markupToText(text)) : intlLabel }}
+        class:lower
+        use:tooltip={{ label: text ? getEmbeddedLabel(getTooltipText(text)) : intlLabel }}
       >
         {#if intlLabel}
           <Label label={intlLabel} />
@@ -253,6 +252,9 @@
     max-height: 1.25rem;
     color: var(--global-primary-TextColor);
 
+    &.secondary {
+      color: var(--global-secondary-TextColor);
+    }
     &.contentOnly {
       margin-left: 0;
     }

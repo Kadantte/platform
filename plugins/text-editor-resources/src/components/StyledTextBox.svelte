@@ -18,19 +18,15 @@
     registerFocus,
     resizeObserver
   } from '@hcengineering/ui'
-  import type { AnyExtension } from '@tiptap/core'
   import { createEventDispatcher } from 'svelte'
 
-  import { Completion } from '../Completion'
   import StyledTextEditor from './StyledTextEditor.svelte'
 
+  import { EditorKitOptions } from '../kits/editor-kit'
   import { addTableHandler } from '../utils'
-  import { EmojiExtension } from './extension/emoji'
-  import { FocusExtension } from './extension/focus'
-  import { ImageUploadExtension } from './extension/imageUploadExt'
-  import { InlineCommandsExtension } from './extension/inlineCommands'
+  import view from '@hcengineering/view'
   import { type FileAttachFunction } from './extension/types'
-  import { completionConfig, inlineCommandsConfig } from './extensions'
+  import { inlineCommandsConfig } from './extensions'
 
   export let label: IntlString | undefined = undefined
   export let content: Markup
@@ -47,12 +43,11 @@
   export let previewUnlimit: boolean = false
   export let focusable: boolean = false
   export let autofocus = false
-  export let enableBackReferences: boolean = false
-  export let enableEmojiReplace: boolean = true
   export let enableInlineCommands: boolean = true
   export let isScrollable: boolean = true
   export let boundary: HTMLElement | undefined = undefined
   export let readonly: boolean = false
+  export let kitOptions: Partial<EditorKitOptions> = {}
 
   export let attachFile: FileAttachFunction | undefined = undefined
 
@@ -131,7 +126,7 @@
   export let focusIndex = -1
   const { idx, focusManager } = registerFocus(focusIndex, {
     focus: () => {
-      const editable = editor?.isEditable() ?? false
+      const editable: boolean = editor != null ? editor.isEditable() : false
       if (editable) {
         focused = true
         focus()
@@ -173,42 +168,6 @@
     editor.removeAttachment(id)
   }
 
-  function configureExtensions (): AnyExtension[] {
-    const imageUploadPlugin = ImageUploadExtension.configure({
-      attachFile,
-      getFileUrl
-    })
-
-    const completionPlugin = Completion.configure({
-      ...completionConfig,
-      showDoc (event: MouseEvent, _id: string, _class: string) {
-        dispatch('open-document', { event, _id, _class })
-      }
-    })
-
-    const extensions: AnyExtension[] = []
-    if (enableBackReferences) {
-      extensions.push(completionPlugin)
-    }
-    extensions.push(
-      imageUploadPlugin,
-      FocusExtension.configure({ onCanBlur: (value: boolean) => (canBlur = value), onFocus: handleFocus })
-    )
-    if (enableEmojiReplace) {
-      extensions.push(EmojiExtension.configure())
-    }
-
-    if (enableInlineCommands) {
-      extensions.push(
-        InlineCommandsExtension.configure(
-          inlineCommandsConfig(handleCommandSelected, attachFile === undefined ? ['image'] : [])
-        )
-      )
-    }
-
-    return extensions
-  }
-
   async function handleCommandSelected (id: string, pos: number, targetItem?: MouseEvent | HTMLElement): Promise<void> {
     switch (id) {
       case 'image':
@@ -221,15 +180,17 @@
             targetItem instanceof MouseEvent ? getEventPositionElement(targetItem) : getPopupPositionElement(targetItem)
         }
 
-        addTableHandler(editor.editorHandler.insertTable, position)
+        void addTableHandler(editor.editorHandler.insertTable, position)
         break
       }
       case 'code-block':
         editor.editorHandler.insertCodeBlock(pos)
-
         break
       case 'separator-line':
         editor.editorHandler.insertSeparatorLine()
+        break
+      case 'mermaid':
+        editor.getEditor()?.commands.insertContentAt(pos, { type: 'mermaid' })
         break
     }
   }
@@ -277,8 +238,6 @@
     }
     inputImage.value = ''
   }
-
-  const extensions = configureExtensions()
 </script>
 
 <input
@@ -320,9 +279,48 @@
       {focusable}
       {autofocus}
       {isScrollable}
-      {extensions}
       {extraActions}
       {boundary}
+      kitOptions={{
+        emoji: true,
+        textColorStyling: true,
+        hooks: {
+          focus: {
+            onCanBlur: (value) => (canBlur = value),
+            onFocus: handleFocus
+          }
+        },
+        shortcuts: {
+          imageUpload: {
+            attachFile,
+            getFileUrl
+          }
+        },
+        inlineCommands: inlineCommandsConfig(
+          handleCommandSelected,
+          attachFile == null ? ['drawing-board', 'todo-list', 'image'] : ['drawing-board', 'todo-list']
+        ),
+        ...kitOptions,
+        leftMenu: {
+          width: 20,
+          height: 20,
+          marginX: 8,
+          className: 'tiptap-left-menu',
+          icon: view.icon.Add,
+          iconProps: {
+            className: 'svg-tiny',
+            fill: 'currentColor'
+          },
+          items: [
+            { id: 'image', label: textEditor.string.Image, icon: view.icon.Image },
+            { id: 'table', label: textEditor.string.Table, icon: view.icon.Table2 },
+            { id: 'code-block', label: textEditor.string.CodeBlock, icon: view.icon.CodeBlock },
+            { id: 'separator-line', label: textEditor.string.SeparatorLine, icon: view.icon.SeparatorLine },
+            { id: 'mermaid', label: textEditor.string.MermaidDiargram, icon: view.icon.Model }
+          ],
+          handleSelect: handleCommandSelected
+        }
+      }}
       bind:content={rawValue}
       bind:this={editor}
       on:value={(evt) => {
@@ -333,6 +331,7 @@
         dispatch('changeContent', evt.detail)
       }}
     >
+      <slot name="actions" slot="actions" />
       {#if !alwaysEdit && !hideExtraButtons}
         <div class="flex flex-reverse flex-grow gap-2 reverse">
           <ActionIcon
@@ -378,12 +377,52 @@
   .styled-box {
     flex-grow: 1;
 
+    :global(.tiptap-left-menu) {
+      display: flex;
+      color: var(--theme-trans-color);
+      width: 20px;
+      height: 20px;
+      border-radius: 20%;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition:
+        background-color 0.2s,
+        opacity 0.2s;
+      position: absolute;
+      cursor: pointer;
+      transform: translateX(34px); /* Сдвигаем внутрь видимой зоны */
+
+      &:hover {
+        background-color: var(--theme-button-hovered);
+        color: var(--theme-content-color);
+      }
+
+      &.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+    }
+
     .label {
       padding-bottom: 0.25rem;
       color: var(--theme-halfcontent-color);
       transition: top 200ms;
       pointer-events: none;
       user-select: none;
+      -webkit-user-select: none;
+    }
+
+    :global(.textInput),
+    :global(.inputMsg),
+    :global(.select-text),
+    :global(.inputMsg > div) {
+      overflow: visible !important;
+    }
+
+    :global(.select-text) {
+      padding-left: 40px; /* Увеличил отступ */
+      position: relative;
     }
   }
 </style>

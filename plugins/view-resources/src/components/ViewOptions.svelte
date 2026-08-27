@@ -4,12 +4,26 @@
   import { Viewlet, ViewOptions, ViewOptionsModel, ViewOptionModel } from '@hcengineering/view'
   import { createEventDispatcher } from 'svelte'
   import view from '../plugin'
-  import { buildConfigLookup, getKeyLabel } from '../utils'
+  import { buildConfigLookup, canResolveAttribute, getKeyLabel } from '../utils'
   import { isDropdownType, isToggleType, noCategory } from '../viewOptions'
+  import { SortingOrder } from '@hcengineering/core'
 
   export let viewlet: Viewlet
   export let config: ViewOptionsModel
   export let viewOptions: ViewOptions
+  // When the viewlet renders its own group-by/sort controls (e.g. the
+  // Gantt toolbar has dedicated Group-by + Order-by dropdowns), the
+  // shared View-Options popup must skip the grouping/ordering rows or
+  // the user sees the same control twice in two places without a wire
+  // between them.
+  export let hideGroupingAndOrdering: boolean = false
+  /**
+   * Other-toggle keys that should not render in this popup instance. Useful
+   * when a viewlet exposes the same ViewOption through its own toolbar (e.g.
+   * Gantt's group-by lives both in the toolbar and as a ViewOption) and the
+   * popup duplicate is undesired.
+   */
+  export let hideKeys: string[] = []
 
   const dispatch = createEventDispatcher()
 
@@ -24,6 +38,7 @@
   const lookup = buildConfigLookup(hierarchy, viewlet.attachTo, viewlet.config, viewlet.options?.lookup)
 
   const groupBy = config.groupBy
+    .filter((p) => canResolveAttribute(hierarchy, viewlet.attachTo, p, lookup))
     .map((p) => {
       return {
         id: p,
@@ -32,13 +47,15 @@
     })
     .concat({ id: noCategory, label: view.string.NoGrouping })
 
-  const orderBy = config.orderBy.map((p) => {
-    const key = p[0]
-    return {
-      id: key,
-      label: key === 'rank' ? view.string.Manual : getKeyLabel(client, viewlet.attachTo, key, lookup)
-    }
-  })
+  const orderBy = config.orderBy
+    .filter((p) => p[0] === 'rank' || canResolveAttribute(hierarchy, viewlet.attachTo, p[0], lookup))
+    .map((p) => {
+      const key = p[0]
+      return {
+        id: key,
+        label: key === 'rank' ? view.string.Manual : getKeyLabel(client, viewlet.attachTo, key, lookup)
+      }
+    })
 
   function selectGrouping (value: string, i: number) {
     groups[i] = value
@@ -61,8 +78,9 @@
   }
 
   const changeToggle = (model: ViewOptionModel) => {
-    viewOptions[model.key] = !viewOptions[model.key]
-    dispatch('update', { key: model.key, value: viewOptions[model.key] })
+    const value = !(viewOptions[model.key] ?? model.defaultValue)
+    viewOptions[model.key] = value
+    dispatch('update', { key: model.key, value })
   }
 
   // checking if selector provides multiple choice options
@@ -74,12 +92,20 @@
     return true
   }
 
-  $: visibleOthers = config.other.filter((p) => !p.hidden?.(viewOptions))
+  $: visibleOthers = config.other.filter((p) => {
+    if (p.hidden?.(viewOptions) === true) return false
+    if (hideKeys.includes(p.key)) return false
+    if (p.dependsOn != null) {
+      const parentValue = (viewOptions as Record<string, unknown>)?.[p.dependsOn]
+      if (parentValue !== true) return false
+    }
+    return true
+  })
 </script>
 
 <div class="antiCard dialog menu">
   <div class="antiCard-menu__spacer" />
-  {#if hasMultipleSelections(config.groupBy)}
+  {#if !hideGroupingAndOrdering && hasMultipleSelections(config.groupBy)}
     {#each groups as group, i}
       <div class="antiCard-menu__item grouping">
         <span class="overflow-label"><Label label={i === 0 ? view.string.Grouping : view.string.Then} /></span>
@@ -98,7 +124,7 @@
       </div>
     {/each}
   {/if}
-  {#if hasMultipleSelections(config.orderBy)}
+  {#if !hideGroupingAndOrdering && hasMultipleSelections(config.orderBy)}
     <div class="antiCard-menu__item ordering">
       <span class="overflow-label"><Label label={view.string.Ordering} /></span>
       <DropdownLabelsIntl
@@ -113,33 +139,47 @@
           const key = e.detail
           const value = config.orderBy.find((p) => p[0] === key)
           if (value !== undefined) {
-            viewOptions.orderBy = value
-            dispatch('update', { key: 'orderBy', value })
+            if (viewOptions.orderBy[0] === key) {
+              viewOptions.orderBy[1] =
+                viewOptions.orderBy[1] === SortingOrder.Ascending ? SortingOrder.Descending : SortingOrder.Ascending
+            } else {
+              viewOptions.orderBy = value
+            }
+            dispatch('update', { key: 'orderBy', value: viewOptions.orderBy })
           }
         }}
       />
     </div>
   {/if}
-  {#if visibleOthers.length > 0 && (hasMultipleSelections(config.groupBy) || hasMultipleSelections(config.orderBy))}
+  {#if visibleOthers.length > 0 && !hideGroupingAndOrdering && (hasMultipleSelections(config.groupBy) || hasMultipleSelections(config.orderBy))}
     <div class="antiCard-menu__divider" />
   {/if}
   {#each visibleOthers as model}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <!-- Generic view-option items (sub-issues, colours, search-scope, …).
+         These are NOT the Order-by control; the `.ordering` test-hook class
+         must stay unique to the real order-by dropdown above, otherwise a
+         dropdown-type option here (e.g. the search-scope dropdown added by
+         the filter-search redesign) makes `.ordering button` ambiguous. -->
     <div
-      class="antiCard-menu__item hoverable ordering"
+      class="antiCard-menu__item hoverable viewoption-other"
       on:click={() => {
         if (isToggleType(model)) changeToggle(model)
       }}
     >
       <span class="overflow-label"><Label label={model.label} /></span>
       {#if isToggleType(model)}
-        <Toggle
-          on={viewOptions[model.key] ?? model.defaultValue}
-          on:change={() => {
-            changeToggle(model)
-          }}
-        />
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <span on:click|stopPropagation>
+          <Toggle
+            on={viewOptions[model.key] ?? model.defaultValue}
+            on:change={() => {
+              changeToggle(model)
+            }}
+          />
+        </span>
       {:else if isDropdownType(model)}
         {@const items = model.values.filter(({ hidden }) => !hidden?.(viewOptions))}
         <DropdownLabelsIntl

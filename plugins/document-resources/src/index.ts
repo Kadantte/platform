@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-import core, {
+import {
   generateId,
   getCurrentAccount,
   type Class,
@@ -31,6 +31,7 @@ import { openDoc } from '@hcengineering/view-resources'
 
 import CreateDocument from './components/CreateDocument.svelte'
 import DocumentIcon from './components/DocumentIcon.svelte'
+import DocumentInlineEditor from './components/DocumentInlineEditor.svelte'
 import DocumentItem from './components/DocumentItem.svelte'
 import DocumentPresenter from './components/DocumentPresenter.svelte'
 import DocumentSearchIcon from './components/DocumentSearchIcon.svelte'
@@ -50,7 +51,6 @@ import {
   documentTitleProvider,
   getDocumentLink,
   getDocumentLinkId,
-  getDocumentUrl,
   parseDocumentId,
   resolveLocation
 } from './utils'
@@ -113,30 +113,13 @@ async function editTeamspace (teamspace: Teamspace | undefined): Promise<void> {
   }
 }
 
-export async function starDocument (doc: Document): Promise<void> {
-  const client = getClient()
-
-  await client.createDoc(document.class.SavedDocument, core.space.Workspace, {
-    attachedTo: doc._id
-  })
-}
-
-export async function unstarDocument (doc: Document): Promise<void> {
-  const client = getClient()
-
-  const current = await client.findOne(document.class.SavedDocument, { attachedTo: doc._id })
-  if (current !== undefined) {
-    await client.remove(current)
-  }
-}
-
 export async function lockContent (doc: Document | Document[]): Promise<void> {
   const client = getClient()
   const me = getCurrentAccount()
 
   const arr = Array.isArray(doc) ? doc : [doc]
   for (const doc of arr) {
-    await client.diffUpdate(doc, { lockedBy: me._id })
+    await client.diffUpdate(doc, { lockedBy: me.uuid })
   }
 }
 
@@ -163,6 +146,7 @@ export default async (): Promise<Resources> => ({
   component: {
     CreateDocument,
     CreateTeamspace,
+    DocumentInlineEditor,
     DocumentPresenter,
     Documents,
     EditDoc,
@@ -190,7 +174,6 @@ export default async (): Promise<Resources> => ({
     UnlockContent: unlockContent
   },
   function: {
-    GetDocumentLink: getDocumentUrl,
     GetObjectLinkFragment: getDocumentLink,
     DocumentTitleProvider: documentTitleProvider,
     CanLockDocument: canLockDocument,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Analytics } from '@hcengineering/analytics'
-  import core, { ClassifierKind, Ref, WithLookup, generateId } from '@hcengineering/core'
-  import { getEmbeddedLabel, getMetadata, translate } from '@hcengineering/platform'
+  import core, { Ref, WithLookup, generateId } from '@hcengineering/core'
+  import { getMetadata, translate } from '@hcengineering/platform'
   import { getClient } from '@hcengineering/presentation'
   import task, { TaskType, updateProjectType, type TaskStatusFactory } from '@hcengineering/task'
   import tracker, { Project, createStatesData } from '@hcengineering/tracker'
@@ -10,15 +10,21 @@
     IconChevronDown,
     PaletteColorIndexes,
     getEventPopupPositionElement,
-    showPopup
+    showPopup,
+    DropdownLabelsPopup
   } from '@hcengineering/ui'
-  import DropdownLabelsPopup from '@hcengineering/ui/src/components/DropdownLabelsPopup.svelte'
-  import { GithubIntegration, GithubIntegrationRepository, githubPullRequestStates } from '@hcengineering/github'
+  import {
+    GithubIntegration,
+    GithubIntegrationRepository,
+    githubPullRequestStates,
+    type GithubProject
+  } from '@hcengineering/github'
   import github from '../plugin'
 
   export let integration: WithLookup<GithubIntegration>
   export let repository: GithubIntegrationRepository
   export let projects: Project[] = []
+  export let orphanProjects: GithubProject[] = []
 
   /**
    * @public
@@ -57,13 +63,6 @@
 
     if (!client.getHierarchy().hasMixin(projectInst, github.mixin.GithubProject)) {
       // We need to add GithubProject mixin
-      const mixinId = await getClient().createDoc(core.class.Mixin, core.space.Model, {
-        extends: github.mixin.GithubIssue,
-        kind: ClassifierKind.MIXIN,
-        label: getEmbeddedLabel(projectInst.name),
-        hidden: false,
-        icon: github.icon.Github
-      })
       await getClient().createMixin(
         projectInst._id,
         tracker.class.Project,
@@ -71,9 +70,7 @@
         github.mixin.GithubProject,
         {
           integration: integration._id,
-          repositories: [],
-          mixinClass: mixinId,
-          mappings: []
+          repositories: []
         }
       )
     }
@@ -112,16 +109,23 @@
 
     const githubProject = client.getHierarchy().as(projectInst, github.mixin.GithubProject)
 
-    void getClient().update(githubProject, {
+    if (githubProject.integration !== integration._id) {
+      await getClient().update(githubProject, {
+        integration: integration._id
+      })
+    }
+    await getClient().update(githubProject, {
       $push: { repositories: repository._id }
     })
-    void getClient().update(repository, { githubProject: githubProject._id, enabled: true })
+    await getClient().update(repository, { githubProject: githubProject._id, enabled: true })
   }
 
-  $: allowedProjects = projects.filter(
-    (it) =>
-      (client.getHierarchy().asIf(it, github.mixin.GithubProject)?.integration ?? integration._id) === integration._id
-  )
+  $: allowedProjects = projects
+    .filter(
+      (it) =>
+        (client.getHierarchy().asIf(it, github.mixin.GithubProject)?.integration ?? integration._id) === integration._id
+    )
+    .concat(orphanProjects)
   async function selectProject (event: MouseEvent): Promise<void> {
     showPopup(
       DropdownLabelsPopup,

@@ -17,12 +17,13 @@
   import { afterUpdate, beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
   import { resizeObserver } from '../resize'
   import { closeTooltip, tooltipstore } from '../tooltips'
-  import type { FadeOptions, ScrollParams } from '../types'
+  import type { FadeOptions, ScrollParams, MouseTargetEvent } from '../types'
   import { defaultSP } from '../types'
   import { DelayedCaller } from '../utils'
   import IconDownOutline from './icons/DownOutline.svelte'
   import HalfUpDown from './icons/HalfUpDown.svelte'
   import IconUpOutline from './icons/UpOutline.svelte'
+  import IconNavPrev from './icons/NavPrev.svelte'
 
   export let padding: string | undefined = undefined
   export let bottomPadding: string | undefined = undefined
@@ -41,12 +42,19 @@
   export let shrink: boolean = false
   export let divScroll: HTMLElement | undefined | null = undefined
   export let divBox: HTMLElement | undefined | null = undefined
+  export let scrollSnap: boolean = false
   export let checkForHeaders: boolean = false
   export let stickedScrollBars: boolean = false
   export let thinScrollBars: boolean = false
+  export let showOverflowArrows: boolean = false
   export let disableOverscroll = false
+  export let disablePointerEventsOnScroll = false
   export let onScroll: ((params: ScrollParams) => void) | undefined = undefined
   export let onResize: (() => void) | undefined = undefined
+  export let containerName: string | undefined = undefined
+  export let containerType: 'size' | 'inline-size' | undefined = containerName !== undefined ? 'inline-size' : undefined
+  export let maxHeight: number | undefined = undefined
+  export let hideBar: boolean = false
 
   export function scroll (top: number, left?: number, behavior: 'auto' | 'smooth' = 'auto') {
     if (divScroll) {
@@ -68,11 +76,14 @@
   let topCrop: 'top' | 'bottom' | 'full' | 'none' = 'none'
   let topCropValue: number = 0
   let maskH: 'left' | 'right' | 'both' | 'none' = 'none'
+  let scrollArrows: boolean[] = [false, false, false, false] // [up, right, down, left]
 
   let divHScroll: HTMLElement
   let divBar: HTMLElement
   let divBarH: HTMLElement
-  let isScrolling: 'vertical' | 'horizontal' | false = false
+  let isScrollingByBar: 'vertical' | 'horizontal' | false = false
+  let isScrolling: boolean = false
+  let scrollTimer: any = 0
   let dXY: number
   let belowContent: number | undefined = undefined
   let beforeContent: number | undefined = undefined
@@ -99,35 +110,37 @@
     if (divBar && divScroll) {
       dispatch('divScrollTop', divScroll.scrollTop)
 
-      const trackH = divScroll.clientHeight - shiftTop - shiftBottom - 4
+      const visibleTrack = divScroll.clientHeight - shiftTop - shiftBottom - 4
       const scrollH = divScroll.scrollHeight
-      const proc = scrollH / trackH
+      const proc = scrollH / visibleTrack
 
-      const newHeight = (divScroll.clientHeight - 4) / proc
-      const newHeightPx = newHeight + 'px'
-      if (divBar.style.height !== 'newHeight') {
-        divBar.style.height = newHeightPx
-      }
+      const _newHeight = visibleTrack / proc
+      const newHeight = _newHeight < 2 * fz ? 2 * fz : _newHeight
+      const newHeightPx = `${newHeight}px`
+      const procSpace = (scrollH - divScroll.clientHeight) / (visibleTrack - newHeight)
 
       let newTop = '0px'
 
       if (scrollDirection === 'vertical-reverse') {
-        newTop = divScroll.clientHeight + divScroll.scrollTop / proc - newHeight - shiftTop - 2 + 'px'
+        newTop = divScroll.clientHeight + divScroll.scrollTop / procSpace - newHeight - shiftTop - 2 + 'px'
       } else {
-        newTop = divScroll.scrollTop / proc + shiftTop + 2 + 'px'
+        newTop = divScroll.scrollTop / procSpace + shiftTop + 2 + 'px'
       }
       if (divBar.style.top !== newTop) {
         divBar.style.top = newTop
+      }
+      if (divBar.style.height !== newHeightPx) {
+        divBar.style.height = newHeightPx
       }
       if (mask === 'none') {
         if (divBar.style.visibility !== 'hidden') {
           divBar.style.visibility = 'hidden'
         }
       } else {
-        if (divBar.style.visibility !== 'visible') {
+        if (!hideBar && divBar.style.visibility !== 'visible') {
           divBar.style.visibility = 'visible'
         }
-        if (divBar) {
+        if (divBar && !hideBar) {
           if (timer) {
             clearTimeout(timer)
             timer = undefined
@@ -177,14 +190,15 @@
   const handleScroll = (event: PointerEvent): void => {
     scrolling = false
     if (
-      (divBar == null && isScrolling === 'vertical') ||
-      (divBarH == null && isScrolling === 'horizontal') ||
+      (divBar == null && isScrollingByBar === 'vertical') ||
+      (divBarH == null && isScrollingByBar === 'horizontal') ||
       divScroll == null
     ) {
       return
     }
+
     const rectScroll = divScroll.getBoundingClientRect()
-    if (isScrolling === 'vertical') {
+    if (isScrollingByBar === 'vertical') {
       let Y = Math.round(event.clientY) - dXY
       if (Y < rectScroll.top + shiftTop + 2) Y = rectScroll.top + shiftTop + 2
       if (Y > rectScroll.bottom - divBar.clientHeight - shiftBottom - 2) {
@@ -200,7 +214,7 @@
       } else {
         divScroll.scrollTop = (divScroll.scrollHeight - divScroll.clientHeight) * procBar
       }
-    } else if (isScrolling === 'horizontal') {
+    } else if (isScrollingByBar === 'horizontal') {
       let X = Math.round(event.clientX) - dXY
       if (X < rectScroll.left + 2 + shiftLeft) X = rectScroll.left + 2 + shiftLeft
       if (X > rectScroll.right - divBarH.clientWidth - (mask !== 'none' ? 12 : 2) - shiftRight) {
@@ -219,7 +233,7 @@
     document.body.style.userSelect = 'auto'
     document.body.style.webkitUserSelect = 'auto'
     document.removeEventListener('pointerup', onScrollEnd)
-    isScrolling = false
+    isScrollingByBar = false
   }
   const onScrollStart = (event: PointerEvent, direction: 'vertical' | 'horizontal'): void => {
     if (divScroll == null) return
@@ -229,10 +243,18 @@
     document.addEventListener('pointermove', handleScroll)
     document.body.style.userSelect = 'none'
     document.body.style.webkitUserSelect = 'none'
-    isScrolling = direction
+    isScrollingByBar = direction
   }
 
-  const renderFade = () => {
+  const renderFade = (): void => {
+    if (showOverflowArrows) {
+      scrollArrows = [
+        mask === 'top' || mask === 'both',
+        maskH === 'left' || maskH === 'both',
+        mask === 'bottom' || mask === 'both',
+        maskH === 'right' || maskH === 'both'
+      ]
+    }
     if (divScroll && !noFade) {
       const th = shiftTop + (topCrop === 'top' ? 2 * fz - topCropValue : 0)
       const tf =
@@ -298,10 +320,10 @@
       renderFade()
     }
 
-    if (!isScrolling) {
+    if (!isScrollingByBar) {
       checkBar()
     }
-    if (!isScrolling && horizontal) {
+    if (!isScrollingByBar && horizontal) {
       checkBarH()
     }
   }
@@ -486,7 +508,7 @@
       (divBar == null && !horizontal) ||
       (divBarH == null && horizontal) ||
       divScroll == null ||
-      isScrolling !== false
+      isScrollingByBar !== false
     ) {
       return
     }
@@ -526,6 +548,24 @@
     }
   }
 
+  const tapToScroll = (event: MouseTargetEvent): void => {
+    const target = event.currentTarget as HTMLButtonElement
+    if (!target.hasAttribute('data-direct') || divScroll == null) return
+
+    const direct = target.getAttribute('data-direct')
+    const dir =
+      direct === 'up'
+        ? { top: -stepScroll }
+        : direct === 'down'
+          ? { top: stepScroll }
+          : direct === 'left'
+            ? { left: -stepScroll }
+            : direct === 'right'
+              ? { left: stepScroll }
+              : { top: 0, left: 0 }
+    if (!(dir?.top === 0 && dir?.left === 0)) divScroll.scrollBy({ ...dir, behavior: 'smooth' })
+  }
+
   $: topButton =
     (orientir === 'vertical' && (mask === 'top' || mask === 'both')) ||
     (orientir === 'horizontal' && (maskH === 'right' || maskH === 'both'))
@@ -547,11 +587,13 @@
   class:sticked={stickedScrollBars}
   class:thin={thinScrollBars}
   class:shrink
+  style:-webkit-user-select={isScrolling ? 'none' : 'inherit'}
   style:user-select={isScrolling ? 'none' : 'inherit'}
   style:--scroller-header-height={`${(fade.multipler?.top ?? 0) * fz + 2}px`}
   style:--scroller-footer-height={`${(fade.multipler?.bottom ?? 0) * fz + (stickedScrollBars ? 0 : 2)}px`}
   style:--scroller-left-offset={`${(fade.multipler?.left ?? 0) * fz + 2}px`}
   style:--scroller-right-offset={`${(fade.multipler?.right ?? 0) * fz + (mask !== 'none' ? 12 : 2)}px`}
+  style:max-height={maxHeight !== undefined ? `${maxHeight}rem` : undefined}
 >
   <div bind:this={divHScroll} class="horizontalBox flex-col flex-shrink">
     <div
@@ -563,6 +605,8 @@
       class="scroll relative flex-shrink flex-col"
       style:flex-direction={scrollDirection === 'vertical-reverse' ? 'column-reverse' : 'column'}
       class:disableOverscroll
+      class:scrollSnapX={scrollSnap && contentDirection === 'horizontal'}
+      class:scrollSnapY={scrollSnap && contentDirection === 'vertical'}
       style:overflow-x={horizontal ? 'auto' : 'hidden'}
       on:scroll={() => {
         if (onScroll) {
@@ -574,6 +618,11 @@
         ) {
           closeTooltip()
         }
+        clearTimeout(scrollTimer)
+        isScrolling = true
+        scrollTimer = setTimeout(() => {
+          isScrolling = false
+        }, 300)
       }}
     >
       <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -589,6 +638,9 @@
             : 'row'}
         style:height={contentDirection === 'vertical-reverse' ? 'max-content' : noStretch ? 'auto' : '100%'}
         style:align-items={align}
+        style:container-name={containerName}
+        style:container-type={containerType}
+        class:disableEvents={isScrolling && disablePointerEventsOnScroll}
         use:resizeObserver={() => {
           checkAutoScroll()
           checkFade()
@@ -655,7 +707,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
       class="track"
-      class:hovered={isScrolling === 'vertical'}
+      class:hovered={isScrollingByBar === 'vertical'}
       on:click|stopPropagation={(ev) => {
         clickOnTrack(ev)
       }}
@@ -663,7 +715,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
       class="bar"
-      class:hovered={isScrolling === 'vertical'}
+      class:hovered={isScrollingByBar === 'vertical'}
       class:reverse={scrollDirection === 'vertical-reverse'}
       bind:this={divBar}
       on:pointerdown|stopPropagation={(ev) => {
@@ -677,7 +729,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
       class="track-horizontal"
-      class:hovered={isScrolling === 'horizontal'}
+      class:hovered={isScrollingByBar === 'horizontal'}
       on:click|stopPropagation={(ev) => {
         clickOnTrack(ev, true)
       }}
@@ -685,7 +737,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
       class="bar-horizontal"
-      class:hovered={isScrolling === 'horizontal'}
+      class:hovered={isScrollingByBar === 'horizontal'}
       bind:this={divBarH}
       on:pointerdown|stopPropagation={(ev) => {
         onScrollStart(ev, 'horizontal')
@@ -693,9 +745,80 @@
       on:pointerleave={checkFade}
     />
   {/if}
+  {#if showOverflowArrows}
+    {#each ['up', 'right', 'down', 'left'] as dir, i}
+      <button class="scrollArrow" data-direct={dir} class:shown={scrollArrows[i]} on:click={tapToScroll}>
+        <IconNavPrev size={'full'} />
+      </button>
+    {/each}
+  {/if}
 </div>
 
 <style lang="scss">
+  .scrollArrow {
+    position: absolute;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    width: 1rem;
+    height: 2rem;
+    color: var(--theme-halfcontent-color);
+    background-color: var(--theme-popup-color);
+    border: 1px solid var(--theme-button-border);
+    border-radius: 0.25rem;
+    outline: none;
+    box-shadow: 0 0 0.375rem rgba($color: #000000, $alpha: 0.1);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    tap-highlight-color: transparent;
+
+    &.shown {
+      display: flex;
+    }
+    &:hover,
+    &:focus {
+      background-color: var(--theme-popup-hover);
+      color: var(--theme-content-color);
+    }
+    :global(> svg) {
+      width: 0.5rem;
+      height: 0.75rem;
+      pointer-events: none;
+    }
+  }
+  .scrollArrow[data-direct='up'] {
+    top: var(--scroller-header-height, 0);
+    left: calc(
+      (100% - var(--scroller-right-offset, 0) - var(--scroller-left-offset, 0)) / 2 + var(--scroller-left-offset, 0)
+    );
+    transform: translateX(-50%) rotate(90deg);
+  }
+  .scrollArrow[data-direct='right'] {
+    top: calc(
+      (100% - var(--scroller-header-height, 0) - var(--scroller-footer-height, 0)) / 2 +
+        var(--scroller-header-height, 0)
+    );
+    right: calc(var(--scroller-right-offset, 0) + 0.25rem);
+    transform: translateY(-50%) rotate(180deg);
+  }
+  .scrollArrow[data-direct='down'] {
+    bottom: var(--scroller-footer-height, 0);
+    left: calc(
+      (100% - var(--scroller-right-offset, 0) - var(--scroller-left-offset, 0)) / 2 + var(--scroller-left-offset, 0)
+    );
+    transform: translateX(-50%) rotate(-90deg);
+  }
+  .scrollArrow[data-direct='left'] {
+    top: calc(
+      (100% - var(--scroller-header-height, 0) - var(--scroller-footer-height, 0)) / 2 +
+        var(--scroller-header-height, 0)
+    );
+    left: calc(var(--scroller-left-offset, 0) + 0.25rem);
+    transform: translateY(-50%);
+  }
   .updown-container {
     position: absolute;
     display: flex;
@@ -863,6 +986,16 @@
     &.disableOverscroll {
       overscroll-behavior: none;
     }
+    &.scrollSnapY {
+      scroll-snap-type: y mandatory;
+    }
+    &.scrollSnapX {
+      scroll-snap-type: x mandatory;
+    }
+    &.scrollSnapX,
+    &.scrollSnapY {
+      scroll-padding-inline: var(--spacing-1);
+    }
     &::-webkit-scrollbar:vertical {
       display: none;
       width: 0;
@@ -892,7 +1025,6 @@
     border-radius: 0.125rem;
     box-shadow: 0 0 1px 1px var(--theme-overlay-color);
     opacity: 0;
-    z-index: 1;
     cursor: pointer;
 
     &.hovered {
@@ -1025,5 +1157,9 @@
     .track-horizontal {
       height: 6px;
     }
+  }
+
+  .disableEvents {
+    pointer-events: none !important;
   }
 </style>

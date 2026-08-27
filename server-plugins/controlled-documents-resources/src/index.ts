@@ -1,22 +1,28 @@
 //
 // Copyright © 2023-2024 Hardcore Engineering Inc.
 //
+import { Person, type Employee } from '@hcengineering/contact'
 import core, {
+  combineAttributes,
   DocumentQuery,
+  PersonId,
   Ref,
   SortingOrder,
   Tx,
-  TxCollectionCUD,
+  TxCreateDoc,
   TxFactory,
   TxUpdateDoc,
-  type Timestamp,
-  type Account,
+  pickPrimarySocialId,
+  type Doc,
   type RolesAssignment,
-  AccountRole,
-  TxCreateDoc
+  type Timestamp,
+  type TxCUD,
+  concatLink
 } from '@hcengineering/core'
-import contact, { type Employee, type PersonAccount } from '@hcengineering/contact'
-import { TriggerControl } from '@hcengineering/server-core'
+import { NotificationType } from '@hcengineering/notification'
+import { getEmployees, getSocialIds } from '@hcengineering/server-contact'
+import serverCore, { TriggerControl } from '@hcengineering/server-core'
+
 import documents, {
   ControlledDocument,
   ControlledDocumentState,
@@ -24,24 +30,25 @@ import documents, {
   DocumentApprovalRequest,
   DocumentState,
   DocumentTemplate,
-  type DocumentTraining,
-  getEffectiveDocUpdate,
-  getDocumentId,
-  type DocumentRequest
+  getEffectiveDocUpdates,
+  type DocumentRequest,
+  type DocumentTraining
 } from '@hcengineering/controlled-documents'
-import training, { type TrainingRequest, TrainingState } from '@hcengineering/training'
 import { RequestStatus } from '@hcengineering/request'
+import training, { TrainingState, type TrainingRequest } from '@hcengineering/training'
+import { getMetadata } from '@hcengineering/platform'
+import { workbenchId } from '@hcengineering/workbench'
+import slugify from 'slugify'
 
 async function getDocs (
   control: TriggerControl,
+  template: Ref<DocumentTemplate> | undefined | null,
   seqNumber: number,
   predicate: (doc: Document) => boolean,
-  template?: Ref<DocumentTemplate>,
   states?: DocumentState[],
   controlledStates?: ControlledDocumentState[]
 ): Promise<ControlledDocument[]> {
-  let query: DocumentQuery<ControlledDocument> = { template, seqNumber }
-  if (template != null) query = { ...query, template }
+  let query: DocumentQuery<ControlledDocument> = { template: (template ?? null) as Ref<DocumentTemplate>, seqNumber }
   if (states != null) query = { ...query, state: { $in: states } }
   if (controlledStates != null) query = { ...query, controlledState: { $in: controlledStates } }
 
@@ -52,8 +59,9 @@ async function getDocs (
   return allDocs.filter(predicate)
 }
 
-function makeDocEffective (doc: ControlledDocument, txFactory: TxFactory): Tx {
-  return txFactory.createTxUpdateDoc(doc._class, doc.space, doc._id, getEffectiveDocUpdate())
+function makeDocEffective (doc: ControlledDocument, txFactory: TxFactory): Tx[] {
+  const updates = getEffectiveDocUpdates()
+  return updates.map((u) => txFactory.createTxUpdateDoc(doc._class, doc.space, doc._id, u))
 }
 
 function archiveDocs (docs: ControlledDocument[], txFactory: TxFactory): Tx[] {
@@ -62,8 +70,10 @@ function archiveDocs (docs: ControlledDocument[], txFactory: TxFactory): Tx[] {
   for (const doc of docs) {
     res.push(
       txFactory.createTxUpdateDoc<ControlledDocument>(doc._class, doc.space, doc._id, {
-        state: DocumentState.Archived,
-        controlledState: undefined
+        state: DocumentState.Archived
+      }),
+      txFactory.createTxUpdateDoc<ControlledDocument>(doc._class, doc.space, doc._id, {
+        $unset: { controlledState: true }
       })
     )
   }
@@ -74,15 +84,7 @@ function archiveDocs (docs: ControlledDocument[], txFactory: TxFactory): Tx[] {
 function updateMeta (doc: ControlledDocument, txFactory: TxFactory): Tx[] {
   return [
     txFactory.createTxUpdateDoc(doc.attachedToClass, doc.space, doc.attachedTo, {
-      title: `${getDocumentId(doc)} ${doc.title}`
-    })
-  ]
-}
-
-function updateAuthor (doc: ControlledDocument, txFactory: TxFactory): Tx[] {
-  return [
-    txFactory.createTxUpdateDoc(doc._class, doc.space, doc._id, {
-      author: doc.owner
+      title: `${doc.code} ${doc.title}`
     })
   ]
 }
@@ -125,12 +127,14 @@ async function createDocumentTrainingRequest (doc: ControlledDocument, control: 
   const dueDate: Timestamp | null =
     documentTraining.dueDays === null ? null : doc.effectiveDate + documentTraining.dueDays * 24 * 60 * 60 * 1000
 
+  const ownerSocialIds = await getSocialIds(control, doc.owner)
+  if (ownerSocialIds.length === 0) {
+    console.error(`Owner ${doc.owner} has no social ids`)
+    return []
+  }
+
   // TODO: Encapsulate training request creation logic in training plugin?
-  const modifiedBy = (
-    await control.modelDb.findAll<Account>(contact.class.PersonAccount, {
-      person: doc.owner
-    })
-  ).shift()?._id
+  const modifiedBy = pickPrimarySocialId(ownerSocialIds)._id
 
   let trainees: Array<Ref<Employee>> = documentTraining.trainees
   const roles = documentTraining.roles
@@ -165,19 +169,8 @@ async function createDocumentTrainingRequest (doc: ControlledDocument, control: 
     }
 
     const mixin = control.hierarchy.as(space, spaceType.targetClass) as unknown as RolesAssignment
-    const accountRefs = roles.reduce<Array<Ref<Account>>>(
-      (accountRefs, roleId) => [...accountRefs, ...(mixin[roleId] ?? [])],
-      []
-    )
-
-    const personAccounts = await control.modelDb.findAll(contact.class.PersonAccount, {
-      _id: { $in: accountRefs as Array<Ref<PersonAccount>> }
-    })
-
-    const employeeRefs = personAccounts.map((personAccount) => personAccount.person as Ref<Employee>)
-    const employees = await control.findAll(control.ctx, contact.mixin.Employee, {
-      _id: { $in: employeeRefs }
-    })
+    const accounts = roles.map((roleId) => mixin[roleId] ?? []).flat()
+    const employees = await getEmployees(control, accounts)
 
     for (const employee of employees) {
       traineesMap.set(employee._id, true)
@@ -237,9 +230,9 @@ async function getDocsOlderThanDoc (
 ): Promise<ControlledDocument[]> {
   return await getDocs(
     control,
+    doc.template,
     doc.seqNumber,
     (another: Document) => doc.major > another.major || (doc.major === another.major && doc.minor > another.minor),
-    doc.template,
     states,
     controlledStates
   )
@@ -272,146 +265,217 @@ function updateTemplate (doc: ControlledDocument, olderEffective: ControlledDocu
 }
 
 export async function OnDocHasBecomeEffective (
-  tx: TxUpdateDoc<ControlledDocument>,
+  txes: TxUpdateDoc<ControlledDocument>[],
   control: TriggerControl
 ): Promise<Tx[]> {
-  const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId }, { limit: 1 })).shift()
-  if (doc === undefined) {
-    return []
+  const result: Tx[] = []
+  for (const tx of txes) {
+    const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId }, { limit: 1 })).shift()
+    if (doc === undefined) {
+      continue
+    }
+
+    const olderEffective = await getDocsOlderThanDoc(doc, control, [DocumentState.Effective])
+
+    result.push(
+      ...archiveDocs(olderEffective, control.txFactory),
+      ...updateMeta(doc, control.txFactory),
+      ...updateTemplate(doc, olderEffective, control),
+      ...(await createDocumentTrainingRequest(doc, control))
+    )
   }
-
-  const olderEffective = await getDocsOlderThanDoc(doc, control, [DocumentState.Effective])
-
-  return [
-    ...updateAuthor(doc, control.txFactory),
-    ...archiveDocs(olderEffective, control.txFactory),
-    ...updateMeta(doc, control.txFactory),
-    ...updateTemplate(doc, olderEffective, control),
-    ...(await createDocumentTrainingRequest(doc, control))
-  ]
+  return result
 }
 
-export async function OnDocDeleted (tx: TxUpdateDoc<ControlledDocument>, control: TriggerControl): Promise<Tx[]> {
-  const requests = await control.findAll(control.ctx, documents.class.DocumentRequest, {
-    attachedTo: tx.objectId,
-    status: RequestStatus.Active
-  })
-  const cancelTxes = requests.map((request) =>
-    control.txFactory.createTxUpdateDoc<DocumentRequest>(request._class, request.space, request._id, {
-      status: RequestStatus.Cancelled
-    })
-  )
-  await control.apply(control.ctx, [
-    ...cancelTxes,
-    control.txFactory.createTxUpdateDoc<ControlledDocument>(tx.objectClass, tx.objectSpace, tx.objectId, {
-      controlledState: undefined
-    })
-  ])
+export async function OnDocTitleChanged (
+  txes: TxUpdateDoc<ControlledDocument>[],
+  control: TriggerControl
+): Promise<Tx[]> {
+  const result: Tx[] = []
+  for (const tx of txes) {
+    if (tx.operations.code === undefined && tx.operations.title === undefined) {
+      continue
+    }
 
-  return []
+    const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId }, { limit: 1 })).shift()
+    if (doc === undefined) {
+      continue
+    }
+
+    const olderEffective = await getDocsOlderThanDoc(doc, control, [DocumentState.Effective])
+    if (olderEffective.length === 0 && doc.state === DocumentState.Draft) {
+      result.push(...updateMeta(doc, control.txFactory))
+    }
+  }
+  return result
+}
+
+export async function OnDocEnteredNonActionableState (
+  txes: TxUpdateDoc<ControlledDocument>[],
+  control: TriggerControl
+): Promise<Tx[]> {
+  const result: Tx[] = []
+  for (const tx of txes) {
+    const requests = await control.findAll(control.ctx, documents.class.DocumentRequest, {
+      attachedTo: tx.objectId
+    })
+    const cancelTxes = requests
+      .filter((request) => {
+        return request.status === RequestStatus.Active || tx.operations.state === DocumentState.Deleted
+      })
+      .map((request) =>
+        control.txFactory.createTxUpdateDoc<DocumentRequest>(request._class, request.space, request._id, {
+          status: RequestStatus.Cancelled
+        })
+      )
+    await control.apply(control.ctx, [
+      ...cancelTxes,
+      control.txFactory.createTxUpdateDoc<ControlledDocument>(tx.objectClass, tx.objectSpace, tx.objectId, {
+        $unset: { controlledState: true }
+      })
+    ])
+  }
+
+  return result
 }
 
 export async function OnDocPlannedEffectiveDateChanged (
-  tx: TxUpdateDoc<ControlledDocument>,
+  txes: TxUpdateDoc<ControlledDocument>[],
   control: TriggerControl
 ): Promise<Tx[]> {
-  if (!('plannedEffectiveDate' in tx.operations)) {
-    return []
+  const result: Tx[] = []
+  for (const tx of txes) {
+    if (!('plannedEffectiveDate' in tx.operations)) {
+      continue
+    }
+
+    const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId }, { limit: 1 })).shift()
+    if (doc === undefined) {
+      continue
+    }
+
+    // make doc effective immediately if required
+    if (tx.operations.plannedEffectiveDate === 0 && doc.controlledState === ControlledDocumentState.Approved) {
+      // Create with not derived tx factory in order for notifications to work
+      const factory = new TxFactory(control.txFactory.account)
+      await control.apply(control.ctx, makeDocEffective(doc, factory))
+    }
   }
 
-  const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId }, { limit: 1 })).shift()
-  if (doc === undefined) {
-    return []
-  }
-
-  // make doc effective immediately if required
-  if (tx.operations.plannedEffectiveDate === 0 && doc.controlledState === ControlledDocumentState.Approved) {
-    // Create with not derived tx factory in order for notifications to work
-    const factory = new TxFactory(control.txFactory.account)
-    await control.apply(control.ctx, [makeDocEffective(doc, factory)])
-  }
-
-  return []
+  return result
 }
 
 export async function OnDocApprovalRequestApproved (
-  tx: TxCollectionCUD<ControlledDocument, DocumentApprovalRequest>,
+  txes: TxUpdateDoc<DocumentApprovalRequest>[],
   control: TriggerControl
 ): Promise<Tx[]> {
-  const doc = (await control.findAll(control.ctx, tx.objectClass, { _id: tx.objectId })).shift()
-  if (doc == null || doc.plannedEffectiveDate !== 0) {
-    return []
+  const result: Tx[] = []
+  for (const tx of txes) {
+    if (tx.attachedTo === undefined || tx.attachedToClass === undefined) continue
+    const doc = (
+      await control.findAll<ControlledDocument>(control.ctx, tx.attachedToClass, {
+        _id: tx.attachedTo as Ref<ControlledDocument>
+      })
+    )[0]
+    if (doc == null || doc.plannedEffectiveDate !== 0) {
+      continue
+    }
+
+    // Create with not derived tx factory in order for notifications to work
+    const factory = new TxFactory(control.txFactory.account)
+    await control.apply(control.ctx, makeDocEffective(doc, factory))
+    // make doc effective immediately
   }
-
-  // Create with not derived tx factory in order for notifications to work
-  const factory = new TxFactory(control.txFactory.account)
-  await control.apply(control.ctx, [makeDocEffective(doc, factory)])
-
-  // make doc effective immediately
-  return []
+  return result
 }
 
-/**
- * @public
- */
-export async function OnWorkspaceOwnerAdded (tx: Tx, control: TriggerControl): Promise<Tx[]> {
-  let ownerId: Ref<PersonAccount> | undefined
-  if (control.hierarchy.isDerived(tx._class, core.class.TxCreateDoc)) {
-    const createTx = tx as TxCreateDoc<PersonAccount>
-
-    if (createTx.attributes.role === AccountRole.Owner) {
-      ownerId = createTx.objectId
-    }
-  } else if (control.hierarchy.isDerived(tx._class, core.class.TxUpdateDoc)) {
-    const updateTx = tx as TxUpdateDoc<PersonAccount>
-
-    if (updateTx.operations.role === AccountRole.Owner) {
-      ownerId = updateTx.objectId
-    }
-  }
-
-  if (ownerId === undefined) {
-    return []
-  }
-
-  const targetSpace = (
-    await control.findAll(control.ctx, documents.class.OrgSpace, {
-      _id: documents.space.QualityDocuments
-    })
-  )[0]
-
-  if (targetSpace === undefined) {
-    return []
-  }
-
-  if (
-    targetSpace.owners === undefined ||
-    targetSpace.owners.length === 0 ||
-    targetSpace.owners[0] === core.account.System
-  ) {
-    const updTx = control.txFactory.createTxUpdateDoc(documents.class.OrgSpace, targetSpace.space, targetSpace._id, {
-      owners: [ownerId]
-    })
-    return [updTx]
-  }
-
-  return []
-}
-
-export async function documentTextPresenter (doc: ControlledDocument): Promise<string> {
+export async function ControlledDocumentTextPresenter (doc: ControlledDocument): Promise<string> {
   return doc.title
+}
+
+export async function ControlledDocumentHTMLPresenter (
+  doc: ControlledDocument,
+  control: TriggerControl
+): Promise<string> {
+  const title = await ControlledDocumentTextPresenter(doc)
+
+  const front = control.branding?.front ?? getMetadata(serverCore.metadata.FrontUrl) ?? ''
+
+  const prjdoc = (await control.findAll(control.ctx, documents.class.ProjectDocument, { document: doc._id }))[0]
+  if (prjdoc === undefined) {
+    return title
+  }
+
+  const project = prjdoc.project ?? documents.ids.NoProject
+
+  function getDocumentLinkId (doc: Document): string {
+    const slug = slugify(doc.title, { lower: true })
+    return `${slug}---${doc._id}`
+  }
+
+  let path = `${workbenchId}/${control.workspace.url}/documents/${getDocumentLinkId(doc)}`
+  if (project !== documents.ids.NoProject) {
+    path += `/${project}`
+  }
+
+  const link = concatLink(front, path)
+  return `<a href='${link}'>${title}</a>`
+}
+
+async function CoAuthorsTypeMatch (
+  originTx: TxCUD<ControlledDocument>,
+  _doc: Doc,
+  person: Ref<Person>,
+  socialIds: PersonId[],
+  _type: NotificationType,
+  control: TriggerControl
+): Promise<boolean> {
+  if (socialIds.includes(originTx.modifiedBy)) return false
+  if (originTx._class === core.class.TxUpdateDoc) {
+    const tx = originTx as TxUpdateDoc<ControlledDocument>
+    const employees = Array.isArray(tx.operations.coAuthors)
+      ? (tx.operations.coAuthors ?? [])
+      : (combineAttributes([tx.operations], 'coAuthors', '$push', '$each') as Ref<Employee>[])
+
+    return employees.some((it) => it === person)
+  } else if (originTx._class === core.class.TxCreateDoc) {
+    const tx = originTx as TxCreateDoc<ControlledDocument>
+    const employees = tx.attributes.coAuthors
+
+    return employees.some((it) => it === person)
+  }
+
+  return false
+}
+
+async function DocumentReviewedTypeMatch (
+  originTx: TxCUD<ControlledDocument>,
+  _doc: Doc,
+  _person: Ref<Person>,
+  _socialIds: PersonId[],
+  _type: NotificationType,
+  _control: TriggerControl
+): Promise<boolean> {
+  if (originTx._class !== core.class.TxUpdateDoc) return false
+
+  const tx = originTx as TxUpdateDoc<ControlledDocument>
+
+  return tx.operations.controlledState === ControlledDocumentState.Reviewed
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export default async () => ({
   trigger: {
-    OnDocDeleted,
+    OnDocEnteredNonActionableState,
     OnDocPlannedEffectiveDateChanged,
     OnDocApprovalRequestApproved,
     OnDocHasBecomeEffective,
-    OnWorkspaceOwnerAdded
+    OnDocTitleChanged
   },
   function: {
-    ControlledDocumentTextPresenter: documentTextPresenter
+    ControlledDocumentTextPresenter,
+    ControlledDocumentHTMLPresenter,
+    CoAuthorsTypeMatch,
+    DocumentReviewedTypeMatch
   }
 })

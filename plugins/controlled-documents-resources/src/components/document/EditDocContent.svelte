@@ -13,46 +13,46 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { createEventDispatcher, onDestroy, tick } from 'svelte'
-  import { merge } from 'effector'
-  import { type CollaborativeDoc, type Ref, type Blob, generateId } from '@hcengineering/core'
+  import attachment, { Attachment } from '@hcengineering/attachment'
+  import documents, { DocumentState } from '@hcengineering/controlled-documents'
+  import { type Blob, type Ref, generateId } from '@hcengineering/core'
   import { getResource, setPlatformStatus, unknownError } from '@hcengineering/platform'
   import { getClient } from '@hcengineering/presentation'
-  import view from '@hcengineering/view'
-  import attachment, { Attachment } from '@hcengineering/attachment'
-  import documents from '@hcengineering/controlled-documents'
   import { Editor, Heading } from '@hcengineering/text-editor'
   import {
     CollaboratorEditor,
+    NodeHighlightType,
     TableOfContents,
     TableOfContentsContent,
-    FocusExtension,
-    HeadingsExtension,
-    IsEmptyContentExtension,
-    NodeHighlightExtension,
-    NodeHighlightType,
+    getNodeElement,
     highlightUpdateCommand,
-    getNodeElement
+    selectNode
   } from '@hcengineering/text-editor-resources'
-  import { navigate, EditBox, Scroller } from '@hcengineering/ui'
-  import { getCollaborationUser, getObjectLinkFragment } from '@hcengineering/view-resources'
+  import { Component, EditBox, Label, Scroller } from '@hcengineering/ui'
+  import { getCollaborationUser } from '@hcengineering/view-resources'
+  import { merge } from 'effector'
+  import { createEventDispatcher, onDestroy, tick } from 'svelte'
+  import activity from '@hcengineering/activity'
+  import plugin from '../../plugin'
 
   import {
-    $areDocumentCommentPopupsOpened as areDocumentCommentPopupsOpened,
-    $controlledDocument as controlledDocument,
-    $controlledDocumentTemplate as controlledDocumentTemplate,
-    $isEditable as isEditable,
-    $documentCommentHighlightedLocation as documentCommentHighlightedLocation,
     $areDocumentCommentPopupsOpened as arePopupsOpened,
     $canAddDocumentComments as canAddDocumentComments,
     $canViewDocumentComments as canViewDocumentComments,
+    $controlledDocument as controlledDocument,
+    $documentCommentHighlightedLocation as documentCommentHighlightedLocation,
     $documentComments as documentComments,
+    $documentState as documentState,
     documentCommentsDisplayRequested,
-    documentCommentsHighlightUpdated,
-    documentCommentsLocationNavigateRequested
+    documentCommentsLocationNavigateRequested,
+    documentCommentsAddCanceled,
+    $isEditable as isEditable
   } from '../../stores/editors/document'
-  import DocumentTitle from './DocumentTitle.svelte'
+  import { isActivityDocumentState } from '../../utils'
   import DocumentPrintTitlePage from '../print/DocumentPrintTitlePage.svelte'
+  import DocumentTitle from './DocumentTitle.svelte'
+
+  export let boundary: HTMLElement | undefined = undefined
 
   const client = getClient()
   const hierarchy = client.getHierarchy()
@@ -62,30 +62,16 @@
   let headings: Heading[] = []
   let textEditor: CollaboratorEditor
   let selectedNodeId: string | null | undefined = undefined
-  let isFocused = false
-  let isEmpty = true
   let editor: Editor
   let title = $controlledDocument?.title ?? ''
-
-  let collaborativeDoc: CollaborativeDoc | undefined
-  $: if ($controlledDocument !== null) {
-    collaborativeDoc = $controlledDocument.content
-  }
-
-  let initialCollaborativeDoc: CollaborativeDoc | undefined
-  $: if ($controlledDocumentTemplate !== null) {
-    initialCollaborativeDoc = $controlledDocumentTemplate.content
-  }
 
   $: isTemplate =
     $controlledDocument != null && hierarchy.hasMixin($controlledDocument, documents.mixin.DocumentTemplate)
 
-  function handleRefreshHighlight () {
-    if (!textEditor) {
-      return
-    }
+  $: commentUuids = $documentComments.map((p) => p.nodeId).filter((id) => id != null)
 
-    textEditor.commands()?.command(highlightUpdateCommand())
+  function handleRefreshHighlight (): void {
+    textEditor?.commands()?.command(highlightUpdateCommand())
   }
 
   const unsubscribeHighlightRefresh = merge([documentCommentHighlightedLocation, documentComments.updates]).subscribe({
@@ -97,21 +83,28 @@
   const unsubscribeNavigateToLocation = documentCommentsLocationNavigateRequested.subscribe({
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     next: async ({ nodeId }) => {
-      if (!nodeId) {
+      if (nodeId == null) {
         handleRefreshHighlight()
         return
       }
 
-      if (!textEditor) {
-        return
+      selectedNodeId = nodeId
+
+      if (editor !== undefined) {
+        await tick()
+
+        const element = getNodeElement(editor, nodeId)
+        element?.scrollIntoView({ behavior: 'smooth' })
       }
+    }
+  })
 
-      await tick()
-
-      const element = getNodeElement(editor, nodeId)
-
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth' })
+  const unsubscribeCommentsAddCanceled = documentCommentsAddCanceled.subscribe({
+    next: ({ nodeId }) => {
+      if (editor !== undefined && nodeId != null) {
+        if (selectNode(editor, nodeId)) {
+          editor.commands.unsetQMSInlineCommentMark()
+        }
       }
     }
   })
@@ -119,16 +112,17 @@
   onDestroy(() => {
     unsubscribeHighlightRefresh()
     unsubscribeNavigateToLocation()
+    unsubscribeCommentsAddCanceled()
   })
 
-  const handleUpdateTitle = () => {
+  const handleUpdateTitle = async () => {
     if (!$controlledDocument || !title) {
       return
     }
     const titleTrimmed = title.trim()
 
     if (titleTrimmed.length > 0 && titleTrimmed !== $controlledDocument.title) {
-      client.update($controlledDocument, { title: titleTrimmed })
+      await client.update($controlledDocument, { title: titleTrimmed })
     }
   }
 
@@ -152,15 +146,9 @@
     return null
   }
 
-  function handleShowDocumentComments (uuid: string) {
-    if (!uuid) {
-      return
-    }
-
-    documentCommentsDisplayRequested({
-      element: getNodeElement(editor, uuid),
-      nodeId: uuid
-    })
+  function handleShowDocumentComments (nodeId: string): void {
+    const element = getNodeElement(editor, nodeId)
+    documentCommentsDisplayRequested({ element, nodeId })
   }
 
   async function createEmbedding (file: File): Promise<{ file: Ref<Blob>, type: string } | undefined> {
@@ -170,7 +158,7 @@
 
     try {
       const uploadFile = await getResource(attachment.helper.UploadFile)
-      const uuid = await uploadFile(file)
+      const { uuid, metadata } = await uploadFile(file)
       const attachmentId: Ref<Attachment> = generateId()
 
       await client.addCollection(
@@ -184,7 +172,8 @@
           name: file.name,
           type: file.type,
           size: file.size,
-          lastModified: file.lastModified
+          lastModified: file.lastModified,
+          metadata
         },
         attachmentId
       )
@@ -197,49 +186,13 @@
     }
   }
 
-  function handleExtensions () {
-    return [
-      FocusExtension.configure({
-        onFocus (focused) {
-          isFocused = focused
-        }
-      }),
-      IsEmptyContentExtension.configure({
-        onChange (empty) {
-          isEmpty = empty
-        }
-      }),
-      HeadingsExtension.configure({
-        onChange: (h) => {
-          headings = h
-        }
-      }),
-      NodeHighlightExtension.configure({
-        isHighlightModeOn: () => $canViewDocumentComments || $canAddDocumentComments,
-        getNodeHighlight: handleNodeHighlight,
-        onNodeSelected: (uuid: string | null) => {
-          if (selectedNodeId !== uuid) {
-            selectedNodeId = uuid
-          }
-          if (isFocused) {
-            documentCommentsHighlightUpdated(selectedNodeId !== null ? { nodeId: selectedNodeId } : null)
-          }
-        },
-        onNodeClicked: (uuid: string) => {
-          if (selectedNodeId !== uuid) {
-            selectedNodeId = uuid
-          }
-
-          if (!$arePopupsOpened && $canViewDocumentComments && selectedNodeId) {
-            handleShowDocumentComments(selectedNodeId)
-          }
-        }
-      })
-    ]
+  $: attribute = {
+    key: 'content',
+    attr: client.getHierarchy().getAttribute(documents.class.ControlledDocument, 'content')
   }
 </script>
 
-{#if $controlledDocument && collaborativeDoc}
+{#if $controlledDocument && attribute}
   <DocumentPrintTitlePage />
 
   {#if headings.length > 0}
@@ -254,7 +207,7 @@
       <TableOfContents items={headings} enumerated={true} on:select={(ev) => handleShowHeading(ev.detail)} />
     </div>
     <Scroller>
-      <div class="content">
+      <div class="content relative">
         <DocumentTitle>
           {#if $isEditable}
             <EditBox
@@ -268,37 +221,78 @@
             {$controlledDocument.title}
           {/if}
         </DocumentTitle>
+        {#if $controlledDocument.state === DocumentState.Obsolete}
+          <div class="watermark-container">
+            {#each { length: 24 } as _, i}
+              <div class="watermark"><Label label={plugin.string.Obsolete} /></div>
+            {/each}
+          </div>
+        {/if}
         <CollaboratorEditor
           bind:this={textEditor}
-          objectId={$controlledDocument._id}
-          objectClass={$controlledDocument._class}
-          objectSpace={$controlledDocument.space}
-          {collaborativeDoc}
-          {initialCollaborativeDoc}
+          object={$controlledDocument}
+          {attribute}
           {user}
+          {boundary}
           readonly={!$isEditable}
-          field="content"
           editorAttributes={{ style: 'padding: 0 2em; margin: 0 -2em;' }}
           overflow="none"
-          canShowPopups={!$areDocumentCommentPopupsOpened}
-          onExtensions={handleExtensions}
           kitOptions={{
-            note: {
+            inlineNote: {
               readonly: !isTemplate
+            },
+            qms: {
+              qmsInlineComment: {
+                isHighlightModeOn: () => $canViewDocumentComments || $canAddDocumentComments,
+                getNodeHighlight: handleNodeHighlight,
+                onNodeClicked: (uuids) => {
+                  // filter out those uuids that are not in comments
+                  uuids = Array.isArray(uuids) ? uuids : [uuids]
+                  uuids = uuids.filter((id) => commentUuids.includes(id)).sort()
+
+                  // scroll through the comments as user clicks on the same node
+                  const currIndex = selectedNodeId != null ? uuids.indexOf(selectedNodeId) : -1
+                  const nextIndex = currIndex === -1 ? 0 : (currIndex + 1) % uuids.length
+                  selectedNodeId = uuids[nextIndex]
+
+                  if (!$arePopupsOpened && $canViewDocumentComments && selectedNodeId != null) {
+                    handleShowDocumentComments(selectedNodeId)
+                  }
+                }
+              }
+            },
+            shortcuts: {
+              tableMetadataPaste: true
+            },
+            toc: {
+              onChange: (h) => {
+                headings = h
+                dispatch('headings', h)
+              }
+            },
+            collaboration: {
+              inlineComments: false
             }
           }}
           on:editor={(e) => (editor = e.detail)}
-          on:open-document={async (event) => {
-            const doc = await client.findOne(event.detail._class, { _id: event.detail._id })
-            if (doc != null) {
-              const location = await getObjectLinkFragment(client.getHierarchy(), doc, {}, view.component.EditDoc)
-              navigate(location)
-            }
-          }}
           attachFile={async (file) => {
             return await createEmbedding(file)
           }}
         />
+        {#if isActivityDocumentState($documentState)}
+          <div class="activity-container no-print">
+            <Component
+              is={activity.component.Activity}
+              props={{
+                object: $controlledDocument,
+                showCommenInput: true,
+                boundary: boundary ?? undefined,
+                focusIndex: 1000,
+                shouldScroll: false
+              }}
+            />
+          </div>
+        {/if}
         <div class="bottomSpacing no-print" />
       </div>
     </Scroller>
@@ -356,10 +350,46 @@
   }
 
   .content {
-    padding-left: 3.25rem;
+    padding: 0 3.25rem;
   }
 
   .bottomSpacing {
-    padding-bottom: 30vh;
+    padding-bottom: 55vh;
+  }
+
+  .activity-container {
+    padding-top: 2rem;
+  }
+
+  .watermark-container {
+    position: absolute;
+    z-index: 100;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 35rem;
+    padding-top: 20rem;
+    overflow: hidden;
+    pointer-events: none;
+
+    @media print {
+      display: none;
+    }
+  }
+
+  .watermark {
+    z-index: 100;
+    margin: auto;
+    height: 4rem;
+    width: 100%;
+    color: var(--theme-divider-color);
+    font-size: 8rem;
+    transform: rotate(-45deg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 </style>

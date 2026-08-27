@@ -16,7 +16,7 @@
 
 import { contactId } from '@hcengineering/contact'
 import contact from '@hcengineering/contact-resources/src/plugin'
-import type { Client, Doc, DocManager, Ref } from '@hcengineering/core'
+import type { Client, Doc, DocManager, DocumentQuery, Ref } from '@hcengineering/core'
 import { type ObjectSearchCategory, type ObjectSearchFactory } from '@hcengineering/model-presentation'
 import { type NotificationGroup } from '@hcengineering/notification'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
@@ -32,18 +32,15 @@ export default mergeIds(contactId, contact, {
   },
   component: {
     PersonPresenter: '' as AnyComponent,
+    SocialIdentityPresenter: '' as AnyComponent,
     ContactRefPresenter: '' as AnyComponent,
     ContactPresenter: '' as AnyComponent,
     EditPerson: '' as AnyComponent,
-    EditEmployee: '' as AnyComponent,
     EditOrganization: '' as AnyComponent,
     OrganizationPresenter: '' as AnyComponent,
     Contacts: '' as AnyComponent,
     ContactsTabs: '' as AnyComponent,
-    PersonAccountPresenter: '' as AnyComponent,
-    PersonAccountRefPresenter: '' as AnyComponent,
     OrganizationEditor: '' as AnyComponent,
-    EmployeePresenter: '' as AnyComponent,
     EmployeeRefPresenter: '' as AnyComponent,
     PersonRefPresenter: '' as AnyComponent,
     PersonEditor: '' as AnyComponent,
@@ -60,8 +57,9 @@ export default mergeIds(contactId, contact, {
     ActivityChannelPresenter: '' as AnyComponent,
     EmployeeFilter: '' as AnyComponent,
     EmployeeFilterValuePresenter: '' as AnyComponent,
-    PersonAccountFilterValuePresenter: '' as AnyComponent,
-    ChannelIcon: '' as AnyComponent
+    ChannelIcon: '' as AnyComponent,
+    PersonPreviewPresenter: '' as AnyComponent,
+    TranslationSettings: '' as AnyComponent
   },
   string: {
     SearchEmployee: '' as IntlString,
@@ -80,6 +78,8 @@ export default mergeIds(contactId, contact, {
     FacebookPlaceholder: '' as IntlString,
     HomepagePlaceholder: '' as IntlString,
     Twitter: '' as IntlString,
+    Google: '' as IntlString,
+    Telegram: '' as IntlString,
     GitHub: '' as IntlString,
     Facebook: '' as IntlString,
     TypeLabel: '' as IntlString,
@@ -92,6 +92,8 @@ export default mergeIds(contactId, contact, {
     SkypePlaceholder: '' as IntlString,
     Profile: '' as IntlString,
     ProfilePlaceholder: '' as IntlString,
+    Viber: '' as IntlString,
+    ViberPlaceholder: '' as IntlString,
 
     CurrentEmployee: '' as IntlString,
 
@@ -120,6 +122,7 @@ export default mergeIds(contactId, contact, {
   },
   action: {
     KickEmployee: '' as Ref<Action>,
+    ResendInvite: '' as Ref<Action>,
     DeleteEmployee: '' as Ref<Action>,
     MergePersons: '' as Ref<Action<Doc, any>>,
     OpenChannel: '' as Ref<Action>,
@@ -127,7 +130,8 @@ export default mergeIds(contactId, contact, {
   },
   actionImpl: {
     KickEmployee: '' as ViewAction,
-    OpenChannel: '' as ViewAction
+    OpenChannel: '' as ViewAction,
+    ResendInvite: '' as ViewAction
   },
   function: {
     GetCurrentEmployeeName: '' as Resource<TemplateFieldFunc>,
@@ -140,7 +144,8 @@ export default mergeIds(contactId, contact, {
     ChannelTitleProvider: '' as Resource<(client: Client, ref: Ref<Doc>, doc?: Doc) => Promise<string>>,
     ChannelIdentifierProvider: '' as Resource<(client: Client, ref: Ref<Doc>, doc?: Doc) => Promise<string>>,
     SetPersonStore: '' as Resource<(manager: DocManager<any>) => void>,
-    PersonFilterFunction: '' as Resource<(doc: Doc, target: Doc) => boolean>
+    PersonFilterFunction: '' as Resource<(doc: Doc, target: Doc) => boolean>,
+    HideInactive: '' as Resource<(value: any, query: DocumentQuery<Doc>) => DocumentQuery<Doc>>
   },
   resolver: {
     LocationData: '' as Resource<(loc: Location) => Promise<LocationData>>

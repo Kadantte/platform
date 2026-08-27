@@ -14,26 +14,34 @@
 -->
 <script lang="ts">
   import contact from '@hcengineering/contact'
-  import login, { Workspace } from '@hcengineering/login'
+  import { isArchivingMode, systemAccountUuid, WorkspaceInfoWithStatus } from '@hcengineering/core'
+  import login from '@hcengineering/login'
   import { getMetadata, getResource } from '@hcengineering/platform'
-  import presentation, { decodeTokenPayload, isAdminUser } from '@hcengineering/presentation'
+  import presentation, { createQuery, decodeTokenPayload, hasResource, isAdminUser } from '@hcengineering/presentation'
   import {
-    Icon,
-    IconCheck,
-    Loading,
-    Location,
-    SearchEdit,
     closePopup,
+    Component,
     fetchMetadataLocalStorage,
     getCurrentLocation,
+    Icon,
+    IconCheck,
+    isSameSegments,
+    Label,
+    Loading,
+    Location,
     locationStorageKeyId,
     locationToUrl,
     navigate,
     resolvedLocationStore,
+    SearchEdit,
     ticker
   } from '@hcengineering/ui'
   import { workbenchId } from '@hcengineering/workbench'
   import { onDestroy, onMount } from 'svelte'
+
+  import { Analytics } from '@hcengineering/analytics'
+  import type { PersonRating } from '@hcengineering/rating'
+  import ratingPlugin from '@hcengineering/rating'
   import { workspacesStore } from '../utils'
   // import Drag from './icons/Drag.svelte'
 
@@ -43,23 +51,41 @@
     })
   })
 
-  function getWorkspaceLink (ws: Workspace): string {
+  const levelQuery = createQuery()
+
+  let sysRating: PersonRating | undefined
+
+  levelQuery.query(ratingPlugin.class.PersonRating, { accountId: systemAccountUuid }, (res) => {
+    sysRating = res[0]
+  })
+
+  const hasRating = hasResource(ratingPlugin.component.RatingRing)
+
+  function getWorkspaceLink (ws: WorkspaceInfoWithStatus): string {
     const loc: Location = {
-      path: [workbenchId, ws.workspace]
+      path: [workbenchId, ws.url]
     }
     return locationToUrl(loc)
   }
 
-  async function clickHandler (e: MouseEvent, ws: string): Promise<void> {
+  async function clickHandler (e: MouseEvent, wsUrl: string): Promise<void> {
     if (!e.metaKey && !e.ctrlKey) {
       e.preventDefault()
       closePopup()
       closePopup()
-      if (ws !== getCurrentLocation().path[1]) {
-        const last = localStorage.getItem(`${locationStorageKeyId}_${ws}`)
-        if (last !== null) {
-          navigate(JSON.parse(last))
-        } else navigate({ path: [workbenchId, ws] })
+      const current = getCurrentLocation()
+      if (wsUrl !== current.path[1]) {
+        let last: Location | undefined
+        try {
+          last = JSON.parse(localStorage.getItem(`${locationStorageKeyId}_${wsUrl}`) ?? '')
+        } catch (err: any) {
+          // Ignore
+        }
+        if (last != null && isSameSegments(last, current, 2)) {
+          navigate(last)
+        } else {
+          navigate({ path: [workbenchId, wsUrl] })
+        }
       }
     }
   }
@@ -112,8 +138,8 @@
         .then(async (json) => {
           data = await json.json()
         })
-        .catch((err) => {
-          console.error(err)
+        .catch((err: any) => {
+          Analytics.handleError(err)
         })
     })
   )
@@ -132,6 +158,24 @@
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="antiPopup" on:keydown={keyDown}>
     <div class="ap-space x2" />
+
+    <div class="p-2 ml-2 mr-2 mb-2 flex-grow flex flex-col">
+      <div class="text-lg font-bold">
+        {getMetadata(presentation.metadata.WorkspaceName) ?? ''}
+      </div>
+      {#if hasRating}
+        <div class="flex-row-center text-sm">
+          <Component
+            is={ratingPlugin.component.RatingRing}
+            props={{ rating: sysRating?.rating ?? 0, showValues: true }}
+          />
+        </div>
+        <div class="flex-row-center mt-2">
+          <Component is={ratingPlugin.component.RatingActivities} props={{ rating: sysRating }} />
+        </div>
+      {/if}
+    </div>
+
     {#if isAdmin}
       <div class="p-2 ml-2 mr-2 mb-2 flex-grow flex-row-center">
         <SearchEdit bind:value={search} width={'100%'} />
@@ -145,22 +189,22 @@
         {/if}
       </div>
       <div class="p-2 ml-2 mb-4 select-text flex-col bordered">
-        {decodeTokenPayload(getMetadata(presentation.metadata.Token) ?? '').workspace}
+        {decodeTokenPayload(getMetadata(presentation.metadata.Token) ?? '').workspace ?? ''}
       </div>
     {/if}
     <div class="ap-scroll">
       <div class="ap-box">
         {#each $workspacesStore
-          .filter((it) => search === '' || (it.workspaceName?.includes(search) ?? false) || it.workspace.includes(search))
+          .filter((it) => search === '' || (it.name?.includes(search) ?? false) || it.url.includes(search))
           .slice(0, 500) as ws, i}
-          {@const wsName = ws.workspaceName ?? ws.workspace}
-          {@const _activeSession = activeSessions[ws.workspaceId]}
-          {@const lastUsageDays = Math.round((Date.now() - ws.lastVisit) / (1000 * 3600 * 24))}
+          {@const wsName = ws.name ?? ws.url}
+          {@const _activeSession = activeSessions[ws.uuid]}
+          {@const lastUsageDays = Math.round((Date.now() - (ws.lastVisit ?? 0)) / (1000 * 3600 * 24))}
           <a
             class="stealth"
             href={getWorkspaceLink(ws)}
             on:click={async (e) => {
-              await clickHandler(e, ws.workspace)
+              await clickHandler(e, ws.url)
             }}
           >
             <button
@@ -178,13 +222,21 @@
               <div class="flex-col flex-grow">
                 <span class="label overflow-label flex flex-grow flex-between">
                   {wsName}
-                  {#if ws.region != null && ws.region !== ''}
-                    - ({ws.region})
+                  {#if isArchivingMode(ws.mode)}
+                    - <Label label={presentation.string.Archived} />
+                  {/if}
+                  {#if isAdmin}
+                    {#if ws.region != null && ws.region !== ''}
+                      - ({ws.region})
+                    {/if}
                   {/if}
                   {#if isAdmin && ws.lastVisit != null && ws.lastVisit !== 0}
                     <div class="text-sm">
                       {#if ws.backupInfo != null}
-                        {@const sz = ws.backupInfo.dataSize + ws.backupInfo.blobsSize}
+                        {@const sz = Math.max(
+                          ws.backupInfo.backupSize,
+                          ws.backupInfo.dataSize + ws.backupInfo.blobsSize
+                        )}
                         {@const szGb = Math.round((sz * 100) / 1024) / 100}
                         {#if szGb > 0}
                           {Math.round((sz * 100) / 1024) / 100}Gb -
@@ -196,9 +248,9 @@
                     </div>
                   {/if}
                 </span>
-                {#if isAdmin && wsName !== ws.workspace}
+                {#if isAdmin && wsName !== ws.url}
                   <span class="text-xs">
-                    ({ws.workspace})
+                    ({ws.url})
                   </span>
                 {/if}
                 {#if isAdmin && (_activeSession?.length ?? 0) > 0}
@@ -213,7 +265,7 @@
               <!-- <span class="description overflow-label">Description</span> -->
               <!-- </div> -->
               <div class="ap-check">
-                {#if $resolvedLocationStore.path[1] === ws.workspace}
+                {#if $resolvedLocationStore.path[1] === ws.url}
                   <IconCheck size={'small'} />
                 {/if}
               </div>

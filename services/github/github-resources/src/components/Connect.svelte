@@ -8,19 +8,19 @@
 
   import GithubPersonProfile from './GithubPersonProfile.svelte'
 
+  import type { Integration as AccountIntegration } from '@hcengineering/account-client'
   import { Analytics } from '@hcengineering/analytics'
   import { WithLookup, getCurrentAccount } from '@hcengineering/core'
   import { GithubAuthentication, GithubIntegration } from '@hcengineering/github'
   import { getEmbeddedLabel, getMetadata, translate } from '@hcengineering/platform'
   import presentation, { Card, HTMLViewer, NavLink, createQuery } from '@hcengineering/presentation'
-  import { Integration } from '@hcengineering/setting'
   import tracker, { Project } from '@hcengineering/tracker'
   import ui, { Button, Label, Loading, TabItem, TabList, location, ticker } from '@hcengineering/ui'
   import { createEventDispatcher } from 'svelte'
   import github from '../plugin'
-  import { onAuthorize } from './utils'
+  import { onAuthorize, updateGithubAccountIntegrationLogin } from './utils'
 
-  export let integration: Integration
+  export let integration: AccountIntegration | undefined
 
   const dispatch = createEventDispatcher()
 
@@ -58,12 +58,12 @@
   })
 
   function save (): void {
-    dispatch('close', { value: auth?.login ?? '-' })
+    void updateGithubAccountIntegrationLogin(auth?.login ?? '', integration)
   }
   function onConnect (): void {
     const state = btoa(
       JSON.stringify({
-        accountId: getCurrentAccount()._id,
+        accountId: getCurrentAccount().primarySocialId,
         op: 'installation',
         workspace: $location.path[1],
         token: getMetadata(presentation.metadata.Token)

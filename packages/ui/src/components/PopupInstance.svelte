@@ -15,7 +15,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { deviceOptionsStore as deviceInfo, resizeObserver, testing } from '..'
+  import { deviceOptionsStore as deviceInfo, resizeObserver, testing, checkAdaptiveMatching } from '..'
   import { CompAndProps, fitPopupElement, pin } from '../popups'
   import type { AnySvelteComponent, DeviceOptions, PopupAlignment, PopupOptions, PopupPositionElement } from '../types'
 
@@ -40,6 +40,7 @@
     initialProps = Object.assign(initialProps, props)
   }
   const WINDOW_PADDING = 1
+  const ALLOW_ANIMATION = false // Fullsize animation
 
   interface PopupParams {
     x: number
@@ -51,7 +52,7 @@
   let modalHTML: HTMLElement
   let componentInstance: any
   let docSize: boolean = false
-  let fullSize: boolean = false
+  let fullSize: boolean = initialProps?.fullSize ?? false
 
   let clientWidth = -1
   let clientHeight = -1
@@ -74,7 +75,14 @@
     direction: 'bottom'
   }
 
-  $: document.body.style.cursor = drag ? 'all-scroll' : 'default'
+  $: document.body.style.cursor = drag ? 'all-scroll' : ''
+  $: docSize = checkAdaptiveMatching($deviceInfo.size, 'md')
+  $: isFullMobile =
+    $deviceInfo.isMobile &&
+    $deviceInfo.isPortrait &&
+    ['right', 'top', 'float', 'full', 'content', 'middle', 'centered', 'center', 'full-centered'].some(
+      (el) => element === el
+    )
 
   function _update (result: any): void {
     if (onUpdate !== undefined) onUpdate(result)
@@ -99,7 +107,7 @@
     contentPanel: HTMLElement | undefined
   ): void => {
     const device: DeviceOptions = $deviceInfo
-    if ((fullSize || docSize) && (element === 'float' || element === 'centered')) {
+    if (((fullSize || docSize) && (element === 'float' || element === 'centered')) || isFullMobile) {
       options = fitPopupElement(modalHTML, device, 'full', contentPanel, clientWidth, clientHeight)
       options.props.maxHeight = '100vh'
       if (!modalHTML.classList.contains('fullsize')) modalHTML.classList.add('fullsize')
@@ -247,9 +255,6 @@
     }
   }
 
-  $: if ($deviceInfo.docWidth <= 900 && !docSize) docSize = true
-  $: if ($deviceInfo.docWidth > 900 && docSize) docSize = false
-
   onMount(() => {
     windowSize.width = $deviceInfo.docWidth
     windowSize.height = $deviceInfo.docHeight
@@ -278,7 +283,7 @@
   id={popup.options.refId}
   class="popup {testing ? 'endShow' : showing === undefined ? 'endShow' : !showing ? 'preShow' : 'startShow'}"
   class:testing
-  class:anim={(element === 'float' || element === 'centered') && !testing && !drag}
+  class:anim={(element === 'float' || element === 'centered') && !testing && !drag && ALLOW_ANIMATION}
   bind:this={modalHTML}
   style={`z-index: ${zIndex};`}
   style:top={options?.props?.top}
@@ -292,6 +297,8 @@
   style:min-width={options?.props?.minWidth}
   style:min-height={options?.props?.minHeight}
   style:transform={options?.props?.transform}
+  data-block-editor-blur="true"
+  data-block-cursor-update="true"
   use:resizeObserver={(element) => {
     clientWidth = element.clientWidth
     clientHeight = element.clientHeight
@@ -310,8 +317,9 @@
     on:close={(ev) => {
       _close(ev?.detail)
     }}
-    on:fullsize={() => {
-      fullSize = !fullSize
+    on:fullsize={(ev) => {
+      if (ev.detail === undefined) return
+      fullSize = ev.detail
       fitPopup(modalHTML, element, contentPanel)
     }}
     on:dock={() => {

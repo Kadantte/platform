@@ -16,14 +16,14 @@
   import core, { AnyAttribute, ArrOf, Doc, EnumOf, RefTo, Type } from '@hcengineering/core'
   import { IntlString } from '@hcengineering/platform'
   import { getClient } from '@hcengineering/presentation'
-  import { AnySvelteComponent, Icon, IconMoreV2, Label, IconOpenedArrow } from '@hcengineering/ui'
-  import settings from '../plugin'
+  import { AnySvelteComponent, Icon, IconMoreV2, IconOpenedArrow, Label, tooltip } from '@hcengineering/ui'
+  import view from '@hcengineering/view'
+  import setting from '../plugin'
 
   export let attribute: AnyAttribute
   export let attributeType: IntlString | undefined = undefined
   export let selected: boolean = false
   export let hovered: boolean = false
-  export let clickMore: (event: MouseEvent) => Promise<void>
 
   export let attributeMapper:
   | {
@@ -49,22 +49,25 @@
   }
 </script>
 
-<button class="hulyTableAttr-content__row" class:hovered class:selected on:contextmenu on:click>
-  <button class="hulyTableAttr-content__row-dragMenu" on:click|stopPropagation={clickMore}>
+<button class="hulyTableAttr-content__row w-full" class:hovered class:selected on:contextmenu on:click>
+  <button class="hulyTableAttr-content__row-dragMenu">
     <IconMoreV2 size={'small'} />
   </button>
-  {#if attribute.isCustom}
-    <div class="hulyChip-item font-medium-12">
-      <Label label={settings.string.Custom} />
+  {#if attribute.automationOnly === true}
+    <div class="hulyTableAttr-content__row-icon" use:tooltip={{ label: view.string.AutomationOnly }}>
+      <Icon icon={view.icon.Setting} size={'small'} />
     </div>
   {/if}
-  {#if attribute.icon !== undefined}
+  {#if attribute.icon !== undefined && attribute.icon !== null}
     <div class="hulyTableAttr-content__row-icon">
       <Icon icon={attribute.icon} size={'small'} />
     </div>
   {/if}
   <div class="hulyTableAttr-content__row-label font-regular-14 grow" class:accent={!attribute.hidden}>
     <Label label={attribute.label} />
+    {#if attribute.required === true}
+      <span class="required-marker font-medium-12" use:tooltip={{ label: setting.string.Required }}>*</span>
+    {/if}
   </div>
   {#if attributeMapper}
     <svelte:component this={attributeMapper.component} {...attributeMapper.props} {attribute} />
@@ -92,3 +95,18 @@
     <IconOpenedArrow size={'small'} />
   </div>
 </button>
+
+<style lang="scss">
+  .hulyTableAttr-content__row-label {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: var(--spacing-0_5);
+  }
+
+  .required-marker {
+    flex-shrink: 0;
+    color: var(--global-error-TextColor);
+    line-height: 1;
+  }
+</style>

@@ -14,8 +14,9 @@
 //
 
 import { Analytics } from '@hcengineering/analytics'
-import { type Contact } from '@hcengineering/contact'
+import { type Person } from '@hcengineering/contact'
 import core, {
+  AccountRole,
   SortingOrder,
   toIdMap,
   type ApplyOperations,
@@ -30,16 +31,22 @@ import core, {
   type Space,
   type Status,
   type StatusCategory,
-  type TxCollectionCUD,
   type TxCreateDoc,
   type TxOperations,
   type TxResult,
-  type TxUpdateDoc
+  type TxUpdateDoc,
+  getCurrentAccount,
+  type WithLookup
 } from '@hcengineering/core'
 import { type IntlString } from '@hcengineering/platform'
-import { createQuery, getClient } from '@hcengineering/presentation'
-import task, { getStatusIndex, makeRank, type ProjectType } from '@hcengineering/task'
-import { activeProjects as taskActiveProjects, taskTypeStore } from '@hcengineering/task-resources'
+import { createQuery, getClient, onClient } from '@hcengineering/presentation'
+import task, { getStatusIndex, makeRank, type TaskType, type ProjectType } from '@hcengineering/task'
+import {
+  selectedTaskTypeStore,
+  activeProjects as taskActiveProjects,
+  taskTypeStore,
+  typesOfJoinedProjectsStore
+} from '@hcengineering/task-resources'
 import {
   IssuePriority,
   MilestoneStatus,
@@ -50,7 +57,7 @@ import {
   type Milestone,
   type Project
 } from '@hcengineering/tracker'
-import { PaletteColorIndexes, areDatesEqual, isWeekend } from '@hcengineering/ui'
+import { areDatesEqual, isWeekend, PaletteColorIndexes } from '@hcengineering/ui'
 import { type KeyFilter, type ViewletDescriptor } from '@hcengineering/view'
 import { CategoryQuery, ListSelectionProvider, statusStore, type SelectDirection } from '@hcengineering/view-resources'
 import { derived, get, writable } from 'svelte/store'
@@ -125,6 +132,16 @@ export const listIssueKanbanStatusOrder = [
   task.statusCategory.Lost
 ] as const
 
+function getTaskTypesStatusIndex (joinedTaskTypes: TaskType[], status: Ref<Status>): number {
+  for (const taskType of joinedTaskTypes) {
+    const indexx = taskType.statuses.indexOf(status)
+    if (indexx >= 0) {
+      return indexx
+    }
+  }
+  return -1
+}
+
 export async function issueStatusSort (
   client: TxOperations,
   value: Array<Ref<IssueStatus>>,
@@ -144,7 +161,14 @@ export async function issueStatusSort (
     )
     type = _space?.$lookup?.type
   }
+  const joinedProjectsTypes = get(typesOfJoinedProjectsStore) ?? []
   const taskTypes = get(taskTypeStore)
+  const joinedTaskTypes = Array.from(taskTypes.values()).filter(
+    (taskType) => joinedProjectsTypes.includes(taskType.parent) && taskType.ofClass === tracker.class.Issue
+  )
+  const taskTypeId = get(selectedTaskTypeStore) ?? (joinedTaskTypes.length === 1 ? joinedTaskTypes[0]?._id : undefined)
+  const taskType = taskTypeId !== undefined ? taskTypes.get(taskTypeId) : undefined
+
   const statuses = get(statusStore).byId
   // TODO: How we track category updates.
 
@@ -156,13 +180,19 @@ export async function issueStatusSort (
         listIssueKanbanStatusOrder.indexOf(aVal?.category as Ref<StatusCategory>) -
         listIssueKanbanStatusOrder.indexOf(bVal?.category as Ref<StatusCategory>)
       if (res === 0) {
+        if (taskType != null) {
+          const aIndex = taskType.statuses.findIndex((p) => p === a)
+          const bIndex = taskType.statuses.findIndex((p) => p === b)
+          return aIndex - bIndex
+        }
         if (type != null) {
           const aIndex = getStatusIndex(type, taskTypes, a)
           const bIndex = getStatusIndex(type, taskTypes, b)
           return aIndex - bIndex
-        } else {
-          return (aVal?.name ?? '').localeCompare(bVal?.name ?? '')
         }
+        const aIndex = getTaskTypesStatusIndex(joinedTaskTypes, a)
+        const bIndex = getTaskTypesStatusIndex(joinedTaskTypes, b)
+        return aIndex - bIndex
       }
       return res
     })
@@ -174,13 +204,19 @@ export async function issueStatusSort (
         listIssueStatusOrder.indexOf(aVal?.category as Ref<StatusCategory>) -
         listIssueStatusOrder.indexOf(bVal?.category as Ref<StatusCategory>)
       if (res === 0) {
+        if (taskType != null) {
+          const aIndex = taskType.statuses.findIndex((p) => p === a)
+          const bIndex = taskType.statuses.findIndex((p) => p === b)
+          return aIndex - bIndex
+        }
         if (type != null) {
           const aIndex = getStatusIndex(type, taskTypes, a)
           const bIndex = getStatusIndex(type, taskTypes, b)
           return aIndex - bIndex
-        } else if (aVal != null && bVal != null) {
-          return aVal.name.localeCompare(bVal.name)
         }
+        const aIndex = getTaskTypesStatusIndex(joinedTaskTypes, a)
+        const bIndex = getTaskTypesStatusIndex(joinedTaskTypes, b)
+        return aIndex - bIndex
       }
       return res
     })
@@ -239,6 +275,96 @@ export async function moveIssuesToAnotherMilestone (
     Analytics.handleError(error)
     return false
   }
+}
+
+export async function canEditIssue (issue?: Issue | WithLookup<Issue>): Promise<boolean> {
+  const client = getClient()
+  if (issue === undefined) return false
+
+  const account = getCurrentAccount()
+  const isGuest =
+    account.role === AccountRole.Guest ||
+    account.role === AccountRole.DocGuest ||
+    account.role === AccountRole.ReadOnlyGuest
+
+  if (!isGuest) return true
+
+  const isCreator =
+    issue.createdBy !== undefined && Array.isArray(account.socialIds) && account.socialIds.includes(issue.createdBy)
+
+  if (isCreator) return true
+
+  const collaborator = await client.findOne(core.class.Collaborator, {
+    attachedTo: issue._id,
+    collaborator: account.uuid
+  })
+  return collaborator !== undefined
+}
+
+/**
+ * Batched form of {@link canEditIssue}.
+ *
+ * Resolves edit-permission for many issues at once. Semantically identical to
+ * calling {@link canEditIssue} on each issue, but for guests it collapses the
+ * per-issue Collaborator `findOne` into a SINGLE `findAll` keyed by
+ * `attachedTo: { $in }` — turning the old O(n) round-trips into O(1).
+ *
+ * Decision order per issue matches {@link canEditIssue} exactly:
+ *   1. non-guest account  → `true` (no query at all)
+ *   2. guest & creator     → `true`
+ *   3. guest & collaborator → `true`
+ *   4. otherwise            → `false`
+ */
+export async function canEditIssuesBatch (issues: Issue[]): Promise<Map<Ref<Issue>, boolean>> {
+  const result = new Map<Ref<Issue>, boolean>()
+
+  const account = getCurrentAccount()
+  const isGuest =
+    account.role === AccountRole.Guest ||
+    account.role === AccountRole.DocGuest ||
+    account.role === AccountRole.ReadOnlyGuest
+
+  if (!isGuest) {
+    for (const issue of issues) result.set(issue._id, true)
+    return result
+  }
+
+  const client = getClient()
+  const collaborators = await client.findAll(core.class.Collaborator, {
+    attachedTo: { $in: issues.map((i) => i._id) },
+    collaborator: account.uuid
+  })
+  const collaboratorOf = new Set<string>(collaborators.map((c) => String(c.attachedTo)))
+  const socialIds = Array.isArray(account.socialIds) ? account.socialIds : []
+
+  for (const issue of issues) {
+    const isCreator = issue.createdBy !== undefined && socialIds.includes(issue.createdBy)
+    result.set(issue._id, isCreator || collaboratorOf.has(String(issue._id)))
+  }
+  return result
+}
+
+/**
+ * Mirrors {@link canEditIssue} for Milestones (Gantt edit-parity).
+ *
+ * This is deliberately ONLY a guest-role gate: it returns `true` for any
+ * non-guest account. It does NOT re-check space membership or per-doc ACL —
+ * that is already enforced upstream by the space-security layer (a milestone
+ * a user cannot see is never delivered to the client, so it can never reach
+ * this check). The function exists purely to strip edit affordances from the
+ * three guest roles in the Gantt UI; the server remains the authority on the
+ * actual write.
+ */
+export async function canEditMilestone (milestone?: Milestone): Promise<boolean> {
+  if (milestone === undefined) return false
+
+  const account = getCurrentAccount()
+  const isGuest =
+    account.role === AccountRole.Guest ||
+    account.role === AccountRole.DocGuest ||
+    account.role === AccountRole.ReadOnlyGuest
+
+  return !isGuest
 }
 
 export function getTimeReportDate (type: TimeReportDayType): number {
@@ -340,26 +466,25 @@ export function subIssueListProvider (subIssues: Issue[], target: Ref<Issue>): v
   }
 }
 
-export async function getPreviousAssignees (objectId: Ref<Doc> | undefined): Promise<Array<Ref<Contact>>> {
+export async function getPreviousAssignees (objectId: Ref<Issue> | undefined): Promise<Array<Ref<Person>>> {
   if (objectId === undefined) {
     return []
   }
   const client = getClient()
   const createTx = (
-    await client.findAll<TxCollectionCUD<Issue, Issue>>(core.class.TxCollectionCUD, {
-      'tx.objectId': objectId,
-      'tx._class': core.class.TxCreateDoc
+    await client.findAll<TxCreateDoc<Issue>>(core.class.TxCreateDoc, {
+      objectId
     })
   )[0]
-  const updateTxes = await client.findAll<TxCollectionCUD<Issue, Issue>>(
-    core.class.TxCollectionCUD,
-    { 'tx.objectId': objectId, 'tx._class': core.class.TxUpdateDoc, 'tx.operations.assignee': { $exists: true } },
+  const updateTxes = await client.findAll<TxUpdateDoc<Issue>>(
+    core.class.TxUpdateDoc,
+    { objectId, 'operations.assignee': { $exists: true } },
     { sort: { modifiedOn: -1 } }
   )
-  const set = new Set<Ref<Contact>>()
-  const createAssignee = (createTx?.tx as TxCreateDoc<Issue>)?.attributes?.assignee
+  const set = new Set<Ref<Person>>()
+  const createAssignee = createTx?.attributes?.assignee
   for (const tx of updateTxes) {
-    const assignee = (tx.tx as TxUpdateDoc<Issue>).operations.assignee
+    const assignee = tx.operations.assignee
     if (assignee == null) continue
     set.add(assignee)
   }
@@ -579,36 +704,25 @@ export interface IssueRef {
 export type IssueReverseRevMap = Map<Ref<Doc>, IssueRef[]>
 export const relatedIssues = writable<IssueReverseRevMap>(new Map())
 
-function fillStores (): void {
-  const client = getClient()
-
-  if (client !== undefined) {
-    const relatedIssuesQuery = createQuery(true)
-
-    relatedIssuesQuery.query(
-      tracker.class.Issue,
-      { 'relations._id': { $exists: true } },
-      (res) => {
-        const nMap: IssueReverseRevMap = new Map()
-        for (const r of res) {
-          for (const rr of r.relations ?? []) {
-            nMap.set(rr._id, [...(nMap.get(rr._id) ?? []), { _id: r._id, status: r.status }])
-          }
-        }
-        relatedIssues.set(nMap)
-      },
-      {
-        projection: {
-          relations: 1,
-          status: 1
+const relatedIssuesQuery = createQuery(true)
+onClient(() => {
+  relatedIssuesQuery.query(
+    tracker.class.Issue,
+    { 'relations._id': { $exists: true } },
+    (res) => {
+      const nMap: IssueReverseRevMap = new Map()
+      for (const r of res) {
+        for (const rr of r.relations ?? []) {
+          nMap.set(rr._id, [...(nMap.get(rr._id) ?? []), { _id: r._id, status: r.status }])
         }
       }
-    )
-  } else {
-    setTimeout(() => {
-      fillStores()
-    }, 50)
-  }
-}
-
-fillStores()
+      relatedIssues.set(nMap)
+    },
+    {
+      projection: {
+        relations: 1,
+        status: 1
+      }
+    }
+  )
+})

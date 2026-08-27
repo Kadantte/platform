@@ -16,47 +16,71 @@
   import { Analytics } from '@hcengineering/analytics'
   import platform, { loadPluginStrings, setMetadata } from '@hcengineering/platform'
   import { onMount, setContext } from 'svelte'
+  import { writable } from 'svelte/store'
+  import { ThemeVariant } from './variants'
   import {
     ThemeOptions,
     getCurrentFontSize,
     getCurrentLanguage,
     getCurrentTheme,
+    isSystemThemeDark,
     isThemeDark,
-    themeStore as themeOptions
+    themeStore as themeOptions,
+    getCurrentEmoji
   } from './'
 
-  const currentTheme = getCurrentTheme()
-  const currentFontSize = getCurrentFontSize()
-  let currentLanguage = getCurrentLanguage()
+  const currentTheme = writable<string>(getCurrentTheme())
+  const currentFontSize = writable<string>(getCurrentFontSize())
+  const currentLanguage = writable<string>(getCurrentLanguage())
+  const currentEmoji = writable<string>(getCurrentEmoji())
 
-  const setOptions = (currentFont: string, theme: string, language: string) => {
-    themeOptions.set(new ThemeOptions(currentFont === 'normal-font' ? 16 : 14, isThemeDark(theme), language))
+  const setOptions = (currentFont: string, theme: string, language: string, emoji: string) => {
+    themeOptions.set(new ThemeOptions(currentFont === 'normal-font' ? 16 : 14, isThemeDark(theme), language, emoji))
   }
 
-  const getRealTheme = (theme: string): string => (isThemeDark(theme) ? 'theme-dark' : 'theme-light')
+  const getRealTheme = (theme: string): string => (isThemeDark(theme) ? ThemeVariant.Dark : ThemeVariant.Light)
   const setRootColors = (theme: string, set = true) => {
+    currentTheme.set(theme)
     if (set) {
       localStorage.setItem('theme', theme)
     }
-    document.documentElement.setAttribute('class', `${getRealTheme(theme)} ${getCurrentFontSize()}`)
-    setOptions(getCurrentFontSize(), theme, getCurrentLanguage())
+    document.documentElement.setAttribute(
+      'class',
+      `${getRealTheme(theme)} ${getCurrentFontSize()} ${getCurrentEmoji()}`
+    )
+    setOptions(getCurrentFontSize(), theme, getCurrentLanguage(), getCurrentEmoji())
   }
   const setRootFontSize = (fontsize: string, set = true) => {
+    currentFontSize.set(fontsize)
     if (set) {
       localStorage.setItem('fontsize', fontsize)
     }
-    document.documentElement.setAttribute('class', `${getRealTheme(getCurrentTheme())} ${fontsize}`)
-    setOptions(fontsize, getCurrentTheme(), getCurrentLanguage())
+    document.documentElement.setAttribute(
+      'class',
+      `${getRealTheme(getCurrentTheme())} ${fontsize} ${getCurrentEmoji()}`
+    )
+    setOptions(fontsize, getCurrentTheme(), getCurrentLanguage(), getCurrentEmoji())
   }
   const setLanguage = async (language: string, set: boolean = true) => {
-    currentLanguage = language
+    currentLanguage.set(language)
     if (set) {
       localStorage.setItem('lang', language)
     }
     Analytics.setTag('language', language)
-    setMetadata(platform.metadata.locale, currentLanguage)
-    await loadPluginStrings(currentLanguage, set)
-    setOptions(getCurrentFontSize(), getCurrentTheme(), language)
+    setMetadata(platform.metadata.locale, $currentLanguage)
+    await loadPluginStrings($currentLanguage, set)
+    setOptions(getCurrentFontSize(), getCurrentTheme(), language, getCurrentEmoji())
+  }
+  const setEmoji = (emoji: string, set = true) => {
+    currentEmoji.set(emoji)
+    if (set) {
+      localStorage.setItem('emoji', emoji)
+    }
+    document.documentElement.setAttribute(
+      'class',
+      `${getRealTheme(getCurrentTheme())} ${getCurrentFontSize()} ${emoji}`
+    )
+    setOptions(getCurrentFontSize(), getCurrentTheme(), getCurrentLanguage(), emoji)
   }
 
   setContext('theme', {
@@ -71,16 +95,42 @@
     currentLanguage,
     setLanguage
   })
+  setContext('emoji', {
+    currentEmoji,
+    setEmoji
+  })
+
+  let remove: any = null
+
+  function checkSystemTheme (): void {
+    const theme = $currentTheme
+    if (remove !== null || theme !== 'theme-system') {
+      remove()
+      remove = null
+    }
+
+    const isDark = isSystemThemeDark()
+    const media = matchMedia(`(prefers-color-scheme: ${isDark ? 'light' : 'dark'})`)
+    setRootColors(theme)
+    media.addEventListener('change', checkSystemTheme)
+    remove = () => {
+      media.removeEventListener('change', checkSystemTheme)
+    }
+  }
+
+  $: if ($currentTheme === 'theme-system') {
+    checkSystemTheme()
+  }
 
   const setDocumentLanguage = (): void => {
-    document.documentElement.lang = currentLanguage
+    document.documentElement.lang = $currentLanguage
   }
 
   onMount(() => {
-    setRootColors(currentTheme, false)
-    setRootFontSize(currentFontSize, false)
-    setLanguage(currentLanguage, false)
-    loadPluginStrings(currentLanguage)
+    setRootColors($currentTheme, false)
+    setRootFontSize($currentFontSize, false)
+    void setLanguage($currentLanguage, false)
+    void loadPluginStrings($currentLanguage)
     setDocumentLanguage()
   })
 </script>

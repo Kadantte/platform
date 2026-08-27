@@ -15,9 +15,15 @@
 <script lang="ts">
   import { Analytics } from '@hcengineering/analytics'
   import { Employee } from '@hcengineering/contact'
-  import { AccountArrayEditor, AssigneeBox } from '@hcengineering/contact-resources'
+  import {
+    AccountArrayEditor,
+    AssigneeBox,
+    employeeRefByAccountUuidStore,
+    getAnonymousRefs
+  } from '@hcengineering/contact-resources'
   import core, {
-    Account,
+    AccountRole,
+    AccountUuid,
     Data,
     DocumentUpdate,
     Ref,
@@ -26,18 +32,19 @@
     SortingOrder,
     SpaceType,
     generateId,
-    getCurrentAccount
+    getCurrentAccount,
+    notEmpty,
+    setWorkspaceGuestAutoJoinRoles
   } from '@hcengineering/core'
   import { Asset } from '@hcengineering/platform'
-  import presentation, { Card, createQuery, getClient } from '@hcengineering/presentation'
+  import presentation, { IconWithEmoji, Card, createQuery, getClient } from '@hcengineering/presentation'
   import task, { ProjectType, TaskType } from '@hcengineering/task'
   import { taskTypeStore, typeStore } from '@hcengineering/task-resources'
-  import { IssueStatus, Project, TimeReportDayType, TrackerEvents } from '@hcengineering/tracker'
+  import { IssueStatus, Project, TimeReportDayType, TrackerEvents, WorkingDaysConfig } from '@hcengineering/tracker'
   import {
     Button,
     Component,
     EditBox,
-    IconWithEmoji,
     Label,
     Toggle,
     getColorNumberByText,
@@ -53,6 +60,8 @@
 
   import tracker from '../../plugin'
   import StatusSelector from '../issues/StatusSelector.svelte'
+  import { workingDaysUpdate } from '../gantt/lib/working-days-editor'
+  import WorkingDaysEditor from './WorkingDaysEditor.svelte'
 
   export let project: Project | undefined = undefined
   export let namePlaceholder: string = ''
@@ -69,20 +78,40 @@
   let color = project?.color ?? getColorNumberByText(name)
   let isColorSelected = false
   let defaultAssignee: Ref<Employee> | null | undefined = project?.defaultAssignee ?? null
-  let members: Ref<Account>[] =
-    project?.members !== undefined ? hierarchy.clone(project.members) : [getCurrentAccount()._id]
-  let owners: Ref<Account>[] =
-    project?.owners !== undefined ? hierarchy.clone(project.owners) : [getCurrentAccount()._id]
+  let members: AccountUuid[] =
+    project?.members !== undefined ? hierarchy.clone(project.members) : [getCurrentAccount().uuid]
+  let owners: AccountUuid[] =
+    project?.owners !== undefined ? hierarchy.clone(project.owners) : [getCurrentAccount().uuid]
   let projectsIdentifiers = new Set<string>()
   let isSaving = false
   let defaultStatus: Ref<IssueStatus> | undefined = project?.defaultIssueStatus
+  // Flat copy: the editor mutates the object; the query-cache doc stays
+  // untouched until save.
+  let workingDaysConfig: WorkingDaysConfig | undefined =
+    project?.workingDaysConfig !== undefined ? { ...project.workingDaysConfig } : undefined
   let rolesAssignment: RolesAssignment | undefined
 
   let typeId: Ref<ProjectType> | undefined = project?.type
   $: typeType = typeId !== undefined ? $typeStore.get(typeId) : undefined
+  $: membersPersons = members.map((m) => $employeeRefByAccountUuidStore.get(m)).filter(notEmpty)
+  $: readOnlyGuestOwnerExcludeItems = getAnonymousRefs($employeeRefByAccountUuidStore, owners)
   let autoJoin = project?.autoJoin ?? typeType?.autoJoin ?? false
+  let autoJoinForRoles: AccountRole[] =
+    project?.autoJoinForRoles != null ? hierarchy.clone(project.autoJoinForRoles) : []
 
   const dispatch = createEventDispatcher()
+
+  function normalizeAutoJoinForRoles (roles: AccountRole[]): AccountRole[] | undefined {
+    return roles.length > 0 ? [...roles] : undefined
+  }
+
+  function autoJoinRolesEqual (a: AccountRole[] | undefined, b: AccountRole[] | undefined): boolean {
+    return deepEqual([...(a ?? [])].sort(), [...(b ?? [])].sort())
+  }
+
+  function setGuestAutoJoin (enabled: boolean): void {
+    autoJoinForRoles = setWorkspaceGuestAutoJoinRoles(autoJoinForRoles, enabled)
+  }
 
   $: isNew = project == null
 
@@ -111,7 +140,9 @@
       icon,
       color,
       defaultIssueStatus: defaultStatus ?? ('' as Ref<IssueStatus>),
-      defaultTimeReportDay: project?.defaultTimeReportDay ?? TimeReportDayType.PreviousWorkDay
+      defaultTimeReportDay: project?.defaultTimeReportDay ?? TimeReportDayType.PreviousWorkDay,
+      workingDaysConfig,
+      autoJoinForRoles: normalizeAutoJoinForRoles(autoJoinForRoles)
     }
   }
 
@@ -160,8 +191,22 @@
     if (projectData.defaultTimeReportDay !== project?.defaultTimeReportDay) {
       update.defaultTimeReportDay = projectData.defaultTimeReportDay
     }
+    // Unit-tested in lib/__tests__/working-days-editor.test.ts: no-op on
+    // equality, $unset on disable (never write undefined/null), full config
+    // otherwise.
+    const wdUpdate = workingDaysUpdate(projectData.workingDaysConfig, project?.workingDaysConfig)
+    if (wdUpdate !== undefined) {
+      if ('$unset' in wdUpdate) {
+        update.$unset = wdUpdate.$unset
+      } else {
+        update.workingDaysConfig = wdUpdate.workingDaysConfig
+      }
+    }
     if (projectData.autoJoin !== project?.autoJoin) {
       update.autoJoin = projectData.autoJoin
+    }
+    if (!autoJoinRolesEqual(projectData.autoJoinForRoles, project?.autoJoinForRoles)) {
+      update.autoJoinForRoles = projectData.autoJoinForRoles
     }
     if (projectData.members.length !== project?.members.length) {
       update.members = projectData.members
@@ -258,7 +303,6 @@
   }
 
   function chooseIcon (ev: MouseEvent): void {
-    const icons = [tracker.icon.Home, tracker.icon.RedCircle]
     const update = (result: any) => {
       if (result !== undefined && result !== null) {
         icon = result.icon
@@ -266,7 +310,7 @@
         isColorSelected = true
       }
     }
-    showPopup(IconPicker, { icon, color, icons }, 'top', update, update)
+    showPopup(IconPicker, { icon, color }, 'top', update, update)
   }
 
   function close (id?: Ref<Project>): void {
@@ -309,14 +353,14 @@
     rolesQuery.unsubscribe()
   }
 
-  function handleOwnersChanged (newOwners: Ref<Account>[]): void {
+  function handleOwnersChanged (newOwners: AccountUuid[]): void {
     owners = newOwners
 
     const newMembersSet = new Set([...members, ...newOwners])
     members = Array.from(newMembersSet)
   }
 
-  function handleMembersChanged (newMembers: Ref<Account>[]): void {
+  function handleMembersChanged (newMembers: AccountUuid[]): void {
     membersChanged = true
     // If a member was removed we need to remove it from any roles assignments as well
     const newMembersSet = new Set(newMembers)
@@ -331,7 +375,7 @@
     members = newMembers
   }
 
-  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: Ref<Account>[]): void {
+  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: AccountUuid[]): void {
     if (rolesAssignment === undefined) {
       rolesAssignment = {}
     }
@@ -441,12 +485,12 @@
         <Label label={tracker.string.ChooseIcon} />
       </div>
       <Button
-        icon={icon === view.ids.IconWithEmoji ? IconWithEmoji : icon ?? tracker.icon.Home}
+        icon={icon === view.ids.IconWithEmoji ? IconWithEmoji : (icon ?? tracker.icon.Home)}
         iconProps={icon === view.ids.IconWithEmoji
-          ? { icon: color }
+          ? { icon: color, size: 'medium' }
           : {
               fill:
-                color !== undefined
+                color !== undefined && typeof color !== 'string'
                   ? getPlatformColorDef(color, $themeStore.dark).icon
                   : getPlatformColorForTextDef(name, $themeStore.dark).icon
             }}
@@ -487,11 +531,20 @@
     </div>
 
     <div class="antiGrid-row">
+      <div class="antiGrid-row__header withDesciption">
+        <Label label={tracker.string.WorkingDaysTitle} />
+        <span><Label label={tracker.string.WorkingDaysDescription} /></span>
+      </div>
+      <WorkingDaysEditor bind:value={workingDaysConfig} />
+    </div>
+
+    <div class="antiGrid-row">
       <div class="antiGrid-row__header">
         <Label label={core.string.Owners} />
       </div>
       <AccountArrayEditor
         value={owners}
+        excludeItems={readOnlyGuestOwnerExcludeItems}
         label={core.string.Owners}
         allowGuests
         onChange={handleOwnersChanged}
@@ -530,16 +583,29 @@
       <Toggle bind:on={autoJoin} />
     </div>
 
+    <div class="antiGrid-row">
+      <div class="antiGrid-row__header withDesciption">
+        <Label label={core.string.AutoJoinGuests} />
+        <span><Label label={core.string.AutoJoinGuestsDescr} /></span>
+      </div>
+      <Toggle
+        on={autoJoinForRoles.includes(AccountRole.Guest)}
+        on:change={(ev) => {
+          setGuestAutoJoin(ev.detail)
+        }}
+      />
+    </div>
+
     {#each roles as role}
       <div class="antiGrid-row">
         <div class="antiGrid-row__header">
-          <Label label={tracker.string.RoleLabel} params={{ role: role.name }} />
+          <Label label={view.string.RoleLabel} params={{ role: role.name }} />
         </div>
         <AccountArrayEditor
           value={rolesAssignment?.[role._id] ?? []}
           label={tracker.string.Members}
-          includeItems={members}
-          readonly={members.length === 0}
+          includeItems={membersPersons}
+          readonly={membersPersons.length === 0}
           onChange={(refs) => {
             handleRoleAssignmentChanged(role._id, refs)
           }}

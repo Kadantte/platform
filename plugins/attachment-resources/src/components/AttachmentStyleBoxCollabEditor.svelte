@@ -1,5 +1,5 @@
 <!--
-// Copyright © 2023 Hardcore Engineering Inc.
+// Copyright © 2023 2025 Hardcore Engineering Inc.
 //
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
@@ -13,18 +13,12 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import attachment, { Attachment, BlobMetadata, AttachmentsEvents } from '@hcengineering/attachment'
+  import { Analytics } from '@hcengineering/analytics'
+  import attachment, { Attachment, AttachmentsEvents } from '@hcengineering/attachment'
   import contact from '@hcengineering/contact'
-  import { Account, Doc, Ref, generateId, type Blob } from '@hcengineering/core'
+  import core, { BlobMetadata, Doc, PersonId, Ref, generateId, type Blob, type Space } from '@hcengineering/core'
   import { IntlString, getResource, setPlatformStatus, unknownError } from '@hcengineering/platform'
-  import {
-    FileOrBlob,
-    KeyedAttribute,
-    createQuery,
-    getClient,
-    getFileMetadata,
-    uploadFile
-  } from '@hcengineering/presentation'
+  import { FileOrBlob, KeyedAttribute, createQuery, getClient, uploadFile } from '@hcengineering/presentation'
   import textEditor, { type RefAction, type TextEditorHandler } from '@hcengineering/text-editor'
   import {
     AttachIcon,
@@ -34,11 +28,14 @@
     defaultRefActions,
     getModelRefActions
   } from '@hcengineering/text-editor-resources'
-  import { AnySvelteComponent, getEventPositionElement, getPopupPositionElement, navigate } from '@hcengineering/ui'
-  import { type FileUploadCallbackParams, uploadFiles } from '@hcengineering/uploader'
-  import view from '@hcengineering/view'
-  import { getCollaborationUser, getObjectId, getObjectLinkFragment } from '@hcengineering/view-resources'
-  import { Analytics } from '@hcengineering/analytics'
+  import { AnySvelteComponent, getEventPositionElement, getPopupPositionElement } from '@hcengineering/ui'
+  import {
+    getUploadHandlers,
+    uploadFiles,
+    UploadHandlerDefinition,
+    type FileUploadCallbackParams
+  } from '@hcengineering/uploader'
+  import { getCollaborationUser, getObjectId } from '@hcengineering/view-resources'
 
   import AttachmentsGrid from './AttachmentsGrid.svelte'
 
@@ -67,6 +64,7 @@
   let refActions: RefAction[] = []
   let extraActions: RefAction[] = []
   let modelRefActions: RefAction[] = []
+  let uploadActions: RefAction[] = []
 
   $: if (enableAttachments && !readonly) {
     extraActions = [
@@ -80,7 +78,7 @@
         label: textEditor.string.Table,
         icon: TableIcon,
         action: handleTable,
-        order: 1501
+        order: 1500
       }
     ]
   } else {
@@ -90,11 +88,30 @@
   void getModelRefActions().then((actions) => {
     modelRefActions = actions
   })
+
+  async function uploadWith (uploader: UploadHandlerDefinition): Promise<void> {
+    const upload = await getResource(uploader.handler)
+    const target = { objectId: object._id, objectClass: object._class }
+    await upload({ onFileUploaded, target })
+  }
+
+  let uploadActionIndex = 1000
+  const uploadHandlers = getUploadHandlers(client, { category: 'media' })
+  uploadActions = uploadHandlers.map((handler) => ({
+    order: handler.order ?? uploadActionIndex++,
+    label: handler.label,
+    icon: handler.icon,
+    action: () => {
+      void uploadWith(handler)
+    }
+  }))
+
   $: refActions = readonly
     ? []
     : defaultRefActions
       .concat(extraActions)
       .concat(modelRefActions)
+      .concat(uploadActions)
       .sort((a, b) => a.order - b.order)
 
   let progress = false
@@ -151,8 +168,7 @@
 
   async function attachFile (file: File): Promise<{ file: Ref<Blob>, type: string } | undefined> {
     try {
-      const uuid = await uploadFile(file)
-      const metadata = await getFileMetadata(file, uuid)
+      const { uuid, metadata } = await uploadFile(file)
       await createAttachment(uuid, file.name, file, metadata)
       return { file: uuid, type: file.type }
     } catch (err: any) {
@@ -173,13 +189,17 @@
     try {
       const _id: Ref<Attachment> = generateId()
 
+      const space = client.getHierarchy().isDerived(object._class, core.class.Space)
+        ? (object._id as Ref<Space>)
+        : object.space
+
       const attachmentDoc: Attachment = {
         _id,
         _class: attachment.class.Attachment,
         collection: 'attachments',
         modifiedOn: 0,
-        modifiedBy: '' as Ref<Account>,
-        space: object.space,
+        modifiedBy: '' as PersonId,
+        space,
         attachedTo: object._id,
         attachedToClass: object._class,
         name,
@@ -192,7 +212,7 @@
 
       await client.addCollection(
         attachment.class.Attachment,
-        object.space,
+        space,
         object._id,
         object._class,
         'attachments',
@@ -317,13 +337,6 @@
       {refActions}
       {readonly}
       {attachFile}
-      on:open-document={async (event) => {
-        const doc = await client.findOne(event.detail._class, { _id: event.detail._id })
-        if (doc != null) {
-          const location = await getObjectLinkFragment(client.getHierarchy(), doc, {}, view.component.EditDoc)
-          navigate(location)
-        }
-      }}
       on:focus
       on:blur
       on:update
@@ -333,7 +346,6 @@
         {attachments}
         {readonly}
         {progress}
-        {progressItems}
         {useAttachmentPreview}
         on:remove={async (evt) => {
           if (evt.detail !== undefined) {

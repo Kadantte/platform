@@ -15,7 +15,7 @@
 //
 
 import {
-  Account,
+  PersonId,
   AggregateValue,
   AnyAttribute,
   CategoryType,
@@ -37,13 +37,16 @@ import {
   Tx,
   TxOperations,
   Type,
-  UXObject
+  UXObject,
+  AccountUuid,
+  Blob
 } from '@hcengineering/core'
 import { Asset, IntlString, Resource, Status } from '@hcengineering/platform'
 import { Preference } from '@hcengineering/preference'
 import {
   AnyComponent,
   AnySvelteComponent,
+  type ComponentExtensionId,
   Location,
   Location as PlatformLocation,
   type LabelAndProps
@@ -112,8 +115,8 @@ export interface FilteredView extends Doc {
   filterClass?: Ref<Class<Doc>>
   viewletId?: Ref<Viewlet> | null
   sharable?: boolean
-  users: Ref<Account>[]
-  createdBy: Ref<Account>
+  users: AccountUuid[]
+  createdBy: PersonId
   attachedTo: string
 }
 
@@ -228,10 +231,19 @@ export interface ObjectEditor extends Class<Doc> {
   pinned?: boolean
 }
 
+export interface TypeEditor extends Class<Doc> {
+  editor: AnyComponent
+}
+
 /**
  * @public
  */
 export interface ObjectEditorFooter extends Class<Doc> {
+  editor: AnyComponent
+  props?: Record<string, any>
+}
+
+export interface ObjectPanelFooter extends Class<Doc> {
   editor: AnyComponent
   props?: Record<string, any>
 }
@@ -241,6 +253,10 @@ export interface ObjectEditorFooter extends Class<Doc> {
  */
 export interface SpaceHeader extends Class<Doc> {
   header: AnyComponent
+}
+
+export interface BaseQuery<T extends Doc> extends Class<T> {
+  baseQuery: DocumentQuery<T>
 }
 
 /**
@@ -283,6 +299,30 @@ export interface ObjectIcon extends Class<Doc> {
  */
 export interface ObjectIdentifier extends Class<Doc> {
   provider: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<string>>
+}
+
+/**
+ * @public
+ */
+export interface ReferenceObjectProvider extends Class<Doc> {
+  provider: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<Doc | undefined>>
+}
+
+/**
+ * @public
+ */
+export interface ReferenceVersion {
+  id: Ref<Doc>
+  objectclass: Ref<Class<Doc>>
+  label: string
+  fixed?: boolean
+}
+
+/**
+ * @public
+ */
+export interface ReferenceVersionsProvider extends Class<Doc> {
+  provider: Resource<<T extends Doc>(client: Client, ref: Ref<T>, doc?: T) => Promise<ReferenceVersion[]>>
 }
 
 /**
@@ -420,8 +460,10 @@ export interface Viewlet extends Doc {
   config: (BuildModelKey | string)[]
   configOptions?: ViewletConfigOptions
   viewOptions?: ViewOptionsModel
+  masterDetailOptions?: MasterDetailModel
   variant?: string
   props?: Record<string, any>
+  title?: string
 }
 
 /**
@@ -432,6 +474,24 @@ export interface ViewletConfigOptions {
   strict?: boolean
   extraProps?: Omit<BuildModelKey, 'key'>
   sortable?: boolean
+}
+
+/**
+ * Special view action shown in the viewlet header. Exactly one of viewlet or descriptor must be set.
+ * When descriptor is set, scope is filtered by applicableToClass / disabledForClass.
+ * @public
+ */
+export interface ViewletViewAction extends Doc {
+  /** When set, action applies to this viewlet (and template viewlets). */
+  viewlet?: Ref<Viewlet>
+  /** When set, action applies to viewlets with this descriptor; use applicableToClass / disabledForClass to scope. */
+  descriptor?: Ref<ViewletDescriptor>
+  extension: ComponentExtensionId
+  config?: Record<string, any>
+  /** When descriptor is set: show only when viewlet.attachTo is this class or a subclass. */
+  applicableToClass?: Ref<Class<Doc>>
+  /** When descriptor is set: hide when viewlet.attachTo is this class or a subclass. */
+  disabledForClass?: Ref<Class<Doc>>
 }
 
 /**
@@ -469,6 +529,11 @@ export type ViewActionFunction<T extends Doc = Doc, P = Record<string, any>> = (
  * @public
  */
 export type ViewActionAvailabilityFunction<T extends Doc = Doc> = (doc: T | T[] | undefined) => Promise<boolean>
+
+/**
+ * @public
+ */
+export type OpenDocumentFunction<T extends Doc = Doc> = (_class: Ref<Class<T>>, _id: Ref<T>) => Promise<boolean>
 
 /**
  * @public
@@ -536,7 +601,7 @@ export interface Action<T extends Doc = Doc, P = Record<string, any>> extends Do
 
   // Available only for workspace owners
   secured?: boolean
-  allowedForEditableContent?: boolean
+  allowedForEditableContent?: 'always' | 'noSelection'
 
   analyticsEvent?: string
 }
@@ -664,7 +729,7 @@ export interface BuildModelOptions {
  */
 export interface ObjectFactory extends Class<Obj> {
   component?: AnyComponent
-  create?: Resource<(props?: Record<string, any>) => Promise<void>>
+  create?: Resource<(props?: Record<string, any>) => Promise<Ref<Doc> | undefined>>
 }
 
 /**
@@ -692,9 +757,31 @@ export interface ViewOption {
   defaultValue: any
   label: IntlString
   hidden?: (viewOptions: ViewOptions) => boolean
-  actionTarget?: 'query' | 'category' | 'display'
+  /**
+   * Key of another toggle-ViewOption in the same `other` array; this option is
+   * only shown in the Customize-View popup when that parent toggle is on.
+   * Plain data field (no function) so it survives model serialization.
+   */
+  dependsOn?: string
+  actionTarget?: 'query' | 'category' | 'display' | 'options'
   action?: Resource<(value: any, ...params: any) => any>
 }
+
+/**
+ * @public
+ */
+export type ViewOptionsAction<T extends Doc = Doc> = Resource<
+(value: any, query: FindOptions<T> | undefined) => FindOptions<T>
+>
+
+/**
+ * @public
+ */
+export interface ViewOptionsOption extends ViewOption {
+  actionTarget: 'options'
+  action: ViewOptionsAction<Doc>
+}
+
 /**
  * @public
  */
@@ -781,6 +868,12 @@ export interface ObjectPanel extends Class<Doc> {
   component: AnyComponent
 }
 
+// Temp workaround for cards-based apps navigation
+export interface CustomObjectLinkProvider extends Class<Doc> {
+  match: Resource<(doc: Doc) => boolean>
+  encode: Resource<(doc: Doc) => Location>
+}
+
 /**
  * @public
  */
@@ -789,6 +882,32 @@ export interface ViewOptionsModel {
   orderBy: OrderOption[]
   other: ViewOptionModel[]
   groupDepth?: number
+  storageKey?: string
+}
+
+/**
+ * @public
+ */
+export interface MasterDetailModel {
+  views: MasterDetailConfig[]
+}
+
+export interface MasterDetailConfig {
+  id?: string
+  class: Ref<Class<Doc>>
+  view: Ref<ViewletDescriptor>
+  associationId?: Ref<Class<Doc>>
+  props?: Record<string, any>
+  createComponent?: AnyComponent
+}
+
+/**
+ * @public
+ */
+export interface MasterDetailOption {
+  class: Ref<Class<Doc>>
+  viewlet?: Ref<Viewlet>
+  associationId?: Ref<Class<Doc>>
 }
 
 /**
@@ -796,7 +915,7 @@ export interface ViewOptionsModel {
  */
 export interface IconProps {
   icon?: Asset
-  color?: number
+  color?: number | number[] | Ref<Blob>
 }
 
 export type AttributeCategory = 'attribute' | 'inplace' | 'collection' | 'array' | 'object'
@@ -816,4 +935,28 @@ export interface AttrPresenter extends Doc {
   category: AttributeCategory
   objectClass: Ref<Class<Doc>>
   component: AnyComponent
+}
+
+/**
+ * @public
+ * Metadata for markdown table generation and refresh
+ */
+export interface BuildMarkdownTableMetadata {
+  cardClass: string | Ref<Class<Doc>>
+  viewletId?: string | Ref<Viewlet>
+  config?: Array<string | BuildModelKey>
+  query?: Record<string, any> | DocumentQuery<Doc>
+  originalUrl?: string // Original URL of the page/view where the table was created
+}
+
+/**
+ * @public
+ * Complete table metadata including persistence fields
+ * Extends BuildMarkdownTableMetadata with additional fields for storage and versioning
+ */
+export interface TableMetadata extends BuildMarkdownTableMetadata {
+  version: string // For future compatibility
+  documentIds: Array<string | Ref<Doc>> // Document IDs used in the table
+  timestamp: number // Timestamp when the table was created/updated
+  workspace?: string // Optional workspace identifier
 }

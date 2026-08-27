@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { type Employee, type PersonAccount } from '@hcengineering/contact'
 import core, {
   type WithLookup,
   type Client,
@@ -22,22 +21,16 @@ import core, {
   getCurrentAccount
 } from '@hcengineering/core'
 import { getClient } from '@hcengineering/presentation'
+import { showPopup } from '@hcengineering/ui'
 import { type KeyFilter } from '@hcengineering/view'
 import documents from '@hcengineering/controlled-documents'
 import products, { ProductVersionState, type Product, type ProductVersion } from '@hcengineering/products'
 
-export const getCurrentEmployee = (): Ref<Employee> | undefined => {
-  const currentAccount = getCurrentAccount()
-  const person = (currentAccount as PersonAccount)?.person
-  if (person === null || person === undefined) {
-    return undefined
-  }
-  return person as Ref<Employee>
-}
+import CreateProductVersion from './components/product-version/CreateProductVersion.svelte'
 
 export function getProductVersionVersion (doc: ProductVersion): string {
   const codename = doc.codename ?? ''
-  const version = `${doc.major}.${doc.minor}`
+  const version = `${doc.major}.${doc.minor}.${doc.patch}`
 
   return codename !== '' ? `${version} ${codename}` : version
 }
@@ -56,7 +49,7 @@ export async function canEditProduct (doc?: Product): Promise<boolean> {
     return false
   }
 
-  if (doc.owners?.includes(getCurrentAccount()._id) ?? false) {
+  if ((doc.owners ?? []).includes(getCurrentAccount().uuid)) {
     return true
   }
 
@@ -87,6 +80,35 @@ export async function canEditProductVersion (doc?: WithLookup<ProductVersion>): 
     return false
   }
   return await canEditProduct(product)
+}
+
+export async function canCreateProductVersion (doc?: Product | Product[]): Promise<boolean> {
+  if (doc === null || doc === undefined) {
+    return false
+  }
+
+  if (Array.isArray(doc)) {
+    return false
+  }
+
+  if (doc.archived) {
+    return false
+  }
+
+  return await canEditProduct(doc)
+}
+
+export async function createProductVersion (doc?: Product | Product[]): Promise<void> {
+  if (doc === null || doc === undefined) {
+    return
+  }
+
+  const product = Array.isArray(doc) ? doc[0] : doc
+  if (product === undefined) {
+    return
+  }
+
+  showPopup(CreateProductVersion, { space: product._id }, 'top')
 }
 
 export async function canDeleteProductVersion (doc?: ProductVersion | ProductVersion[]): Promise<boolean> {

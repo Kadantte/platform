@@ -39,12 +39,12 @@ test.describe('Workspace tests', () => {
     }
     const newWorkspaceName = `New Workspace Name - ${generateId(2)}`
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
     await userProfilePage.clickSettings()
-    await workspaceSettingsPage.selectWorkspaceSettingsTab(ButtonType.Owners)
+    await workspaceSettingsPage.selectWorkspaceSettingsTab(ButtonType.Members)
     await ownersPage.checkIfOwnerExists(newUser.firstName)
   })
 
@@ -57,7 +57,7 @@ test.describe('Workspace tests', () => {
     }
     const newWorkspaceName = `New Workspace Name - ${generateId(2)}`
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
@@ -75,7 +75,7 @@ test.describe('Workspace tests', () => {
     }
     const newWorkspaceName = `New Workspace Name - ${generateId(2)}`
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
@@ -97,7 +97,7 @@ test.describe('Workspace tests', () => {
     const newWorkspaceName = `New Workspace Name - ${generateId(2)}`
     const newTemplateName = faker.word.words(2)
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
@@ -115,7 +115,7 @@ test.describe('Workspace tests', () => {
     }
     const newWorkspaceName = `New Workspace Name - ${generateId(2)}`
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
@@ -135,7 +135,7 @@ test.describe('Workspace tests', () => {
     const enumTitle = faker.word.words(2)
     const enumName = faker.word.words(2)
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()
@@ -156,7 +156,7 @@ test.describe('Workspace tests', () => {
     const enumTitle = faker.word.words(2)
     const enumName = faker.word.words(2)
     await loginPage.goto()
-    await loginPage.linkSignUp().click()
+    await loginPage.clickSignUp()
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await userProfilePage.openProfileMenu()

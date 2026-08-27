@@ -13,16 +13,20 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Person, type PersonAccount } from '@hcengineering/contact'
-  import { Avatar, personByIdStore } from '@hcengineering/contact-resources'
-  import { IdMap, getCurrentAccount } from '@hcengineering/core'
-  import { ParticipantInfo, Room, RoomAccess, RoomType } from '@hcengineering/love'
+  import { getCurrentEmployee, Person } from '@hcengineering/contact'
+  import { Avatar, myEmployeeStore, getPersonByPersonRef } from '@hcengineering/contact-resources'
+  import { ParticipantInfo, Room, RoomAccess, RoomType, MeetingStatus } from '@hcengineering/love'
   import { Icon, Label, eventToHTMLElement, showPopup } from '@hcengineering/ui'
   import { createEventDispatcher } from 'svelte'
+  import { getClient } from '@hcengineering/presentation'
+  import { openDoc } from '@hcengineering/view-resources'
+
   import love from '../plugin'
-  import { invites, myInfo, myRequests } from '../stores'
-  import { getRoomLabel, tryConnect } from '../utils'
+  import { myInfo, selectedRoomPlace, currentRoom, currentMeetingMinutes } from '../stores'
+  import { getRoomLabel } from '../utils'
   import PersonActionPopup from './PersonActionPopup.svelte'
+  import { IntlString } from '@hcengineering/platform'
+  import { lkSessionConnected } from '../liveKitClient'
 
   export let room: Room
   export let info: ParticipantInfo[]
@@ -31,20 +35,25 @@
 
   const dispatch = createEventDispatcher()
 
-  const me = getCurrentAccount() as PersonAccount
-  const meName = $personByIdStore.get(me.person)?.name
-  const meAvatar = $personByIdStore.get(me.person)
+  const me = getCurrentEmployee()
+  $: myName = $myEmployeeStore?.name
 
-  let container: HTMLDivElement
   let hoveredRoomX: number | undefined = undefined
   let hoveredRoomY: number | undefined = undefined
 
+  let roomLabel: IntlString
+  $: void getRoomLabel(room).then((label) => {
+    roomLabel = label
+  })
+
   $: disabled = room._class === love.class.Office && info.length === 0
 
-  function getPerson (info: ParticipantInfo | undefined, employees: IdMap<Person>): Person | undefined {
-    if (info !== undefined) {
-      return employees.get(info.person)
+  async function getPerson (info: ParticipantInfo | undefined): Promise<Person | undefined> {
+    if (info === undefined) {
+      return
     }
+
+    return (await getPersonByPersonRef(info.person)) ?? undefined
   }
 
   function getPersonInfo (y: number, x: number, info: ParticipantInfo[]): ParticipantInfo | undefined {
@@ -53,19 +62,43 @@
 
   function mouseEnter (): void {
     hovered = true
-    dispatch('hover', { name: getRoomLabel(room, $personByIdStore) })
+    dispatch('hover', { name: roomLabel })
   }
 
   function mouseLeave (): void {
     hovered = false
   }
 
-  function clickHandler (e: MouseEvent, x: number, y: number, person: Person | undefined): void {
+  async function openRoom (x: number, y: number): Promise<void> {
+    const client = getClient()
+    const hierarchy = client.getHierarchy()
+    if ($lkSessionConnected && $currentRoom?._id === room._id) {
+      let meeting = $currentMeetingMinutes
+      if (meeting?.attachedTo !== room._id || meeting?.status !== MeetingStatus.Active) {
+        meeting = await client.findOne(love.class.MeetingMinutes, {
+          attachedTo: room._id,
+          status: MeetingStatus.Active
+        })
+      }
+      if (meeting === undefined) {
+        await openDoc(hierarchy, room)
+      } else {
+        await openDoc(hierarchy, meeting)
+      }
+    } else {
+      selectedRoomPlace.set({ _id: room._id, x, y })
+      await openDoc(hierarchy, room)
+    }
+  }
+
+  async function placeClickHandler (e: MouseEvent, x: number, y: number, person: Person | undefined): Promise<void> {
+    e.stopPropagation()
+    e.preventDefault()
     if (person !== undefined) {
-      if (room._id === $myInfo?.room || $myInfo === undefined) return
+      if ($myInfo === undefined || (person._id === me && $myInfo?.room === room._id)) return
       showPopup(PersonActionPopup, { room, person: person._id }, eventToHTMLElement(e))
     } else {
-      tryConnect($personByIdStore, $myInfo, room, info, $myRequests, $invites, { x, y })
+      await openRoom(x, y)
     }
   }
 
@@ -106,14 +139,17 @@
     }
     return init
   }
+
+  async function handleClick (): Promise<void> {
+    await openRoom(0, 0)
+  }
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
-  bind:this={container}
   class="floorGrid-room"
-  class:preview
   class:hovered
   class:disabled
   class:myOffice={$myInfo?.room === room._id}
@@ -127,48 +163,53 @@
   on:mouseover|stopPropagation
   on:mouseenter|stopPropagation={mouseEnter}
   on:mouseleave|stopPropagation={mouseLeave}
+  on:click|stopPropagation={handleClick}
 >
   {#each new Array(room.height) as _, y}
     {#each new Array(room.width + extraRow) as _, x}
       {@const personInfo = getPersonInfo(y, x, info)}
-      {@const person = getPerson(personInfo, $personByIdStore)}
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <div
-        class="floorGrid-room__field"
-        class:hovered={hoveredRoomX === x && hoveredRoomY === y}
-        class:person={personInfo || person || $myInfo?.room === room._id}
-        on:mouseenter={() => {
-          if (!(personInfo || person) && !disabled && $myInfo?.room !== room._id) {
-            hoveredRoomX = x
-            hoveredRoomY = y
-          }
-        }}
-        on:mouseout={() => {
-          hoveredRoomX = undefined
-          hoveredRoomY = undefined
-        }}
-        on:click={(e) => {
-          clickHandler(e, x, y, person)
-        }}
-      >
-        {#if personInfo}
-          <Avatar name={person?.name ?? personInfo.name} {person} size={'full'} showStatus={false} />
-        {:else if hoveredRoomX === x && hoveredRoomY === y}
-          <Avatar name={meName} person={meAvatar} size={'full'} showStatus={false} />
-        {/if}
-      </div>
+      {#await getPerson(personInfo) then person}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <div
+          class="floorGrid-room__field"
+          class:hovered={hoveredRoomX === x && hoveredRoomY === y}
+          class:person={personInfo || person || $myInfo?.room === room._id}
+          on:mouseenter={() => {
+            if (!(personInfo || person) && !disabled && $myInfo?.room !== room._id) {
+              hoveredRoomX = x
+              hoveredRoomY = y
+            }
+          }}
+          on:mouseout={() => {
+            hoveredRoomX = undefined
+            hoveredRoomY = undefined
+          }}
+          on:click={(e) => {
+            placeClickHandler(e, x, y, person)
+          }}
+        >
+          {#if personInfo}
+            <Avatar name={person?.name ?? personInfo.name} {person} size={'large'} showStatus={false} adaptiveName />
+          {:else if hoveredRoomX === x && hoveredRoomY === y}
+            <Avatar name={myName} person={$myEmployeeStore} size={'large'} showStatus={false} adaptiveName />
+          {/if}
+        </div>
+      {/await}
     {/each}
   {/each}
 
   {#if !preview}
     <div class="floorGrid-room__header">
       <span class="overflow-label text-md flex-grow">
-        <Label label={getRoomLabel(room, $personByIdStore)} />
+        <Label label={roomLabel} />
       </span>
+      <!-- {#if !isOffice(room)}
+        <RoomLanguage {room} />
+      {/if} -->
       {#if room.access === RoomAccess.DND || room.type === RoomType.Video}
         <div class="flex-row-center flex-no-shrink h-full flex-gap-2">
           {#if room.access === RoomAccess.DND}
-            <Icon icon={love.icon.DND} size={'small'} />
+            <Icon icon={love.icon.DND} fill={'var(--bg-negative-default)'} size={'small'} />
           {/if}
           {#if room.type === RoomType.Video}
             <Icon icon={love.icon.CamEnabled} size={'small'} />

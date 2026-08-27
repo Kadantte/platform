@@ -10,9 +10,10 @@
     "skipLibCheck": true,
     "moduleResolution": "node",
     "declarationDir": "./types",
+    "verbatimModuleSyntax": true,
     "allowSyntheticDefaultImports": true,
     "lib": [
-      "es2016",
+      "es2023",
       "dom",
       "ES2021.String",
       "ESNext.Array"

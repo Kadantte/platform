@@ -13,10 +13,10 @@
 // limitations under the License.
 //
 
-import type { Class, Doc, Mixin, Ref, SpaceType, SpaceTypeDescriptor, Type } from '@hcengineering/core'
+import type { Class, Doc, Mixin, Ref, SpaceType, SpaceTypeDescriptor, Type, Permission } from '@hcengineering/core'
 import type { Asset, IntlString, Plugin, Resource as PlatformResource } from '@hcengineering/platform'
 import { plugin } from '@hcengineering/platform'
-import type { Location, ResolvedLocation } from '@hcengineering/ui'
+import type { Location, ResolvedLocation } from '@hcengineering/ui/src/types'
 import { Drive, File, FileVersion, Folder, Resource } from './types'
 
 export * from './types'
@@ -64,13 +64,36 @@ export const drivePlugin = plugin(driveId, {
     File: '' as IntlString,
     FileVersion: '' as IntlString,
     Folder: '' as IntlString,
-    Resource: '' as IntlString
+    Resource: '' as IntlString,
+    ForbidCreateDrivePermission: '' as IntlString,
+    ForbidCreateDrivePermissionDescription: '' as IntlString,
+    CreateFilePermission: '' as IntlString,
+    CreateFilePermissionDescription: '' as IntlString,
+    UpdateFilePermission: '' as IntlString,
+    UpdateFilePermissionDescription: '' as IntlString,
+    RemoveFilePermission: '' as IntlString,
+    RemoveFilePermissionDescription: '' as IntlString,
+    CreateFolderPermission: '' as IntlString,
+    CreateFolderPermissionDescription: '' as IntlString,
+    UpdateFolderPermission: '' as IntlString,
+    UpdateFolderPermissionDescription: '' as IntlString,
+    RemoveFolderPermission: '' as IntlString,
+    RemoveFolderPermissionDescription: '' as IntlString
   },
   descriptor: {
     DriveType: '' as Ref<SpaceTypeDescriptor>
   },
   spaceType: {
     DefaultDrive: '' as Ref<SpaceType>
+  },
+  permission: {
+    ForbidCreateDrive: '' as Ref<Permission>,
+    CreateFile: '' as Ref<Permission>,
+    UpdateFile: '' as Ref<Permission>,
+    RemoveFile: '' as Ref<Permission>,
+    CreateFolder: '' as Ref<Permission>,
+    UpdateFolder: '' as Ref<Permission>,
+    RemoveFolder: '' as Ref<Permission>
   }
 })
 

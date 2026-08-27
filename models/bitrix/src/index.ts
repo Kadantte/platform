@@ -34,7 +34,8 @@ import {
   type BitrixEntityMapping,
   type BitrixFieldMapping,
   type BitrixSyncDoc,
-  type Fields
+  type Fields,
+  bitrixIntegrationKind
 } from '@hcengineering/bitrix'
 import {
   type AnyAttribute,
@@ -112,7 +113,8 @@ export function createModel (builder: Builder): void {
       icon: bitrix.component.BitrixIcon,
       allowMultiple: false,
       createComponent: bitrix.component.BitrixConnect,
-      configureComponent: bitrix.component.BitrixConfigure
+      configureComponent: bitrix.component.BitrixConfigure,
+      kind: bitrixIntegrationKind
     },
     bitrix.integrationType.Bitrix
   )
@@ -144,5 +146,13 @@ export function createModel (builder: Builder): void {
       { createdOn: -1 },
       { modifiedOn: 1 }
     ]
+  })
+  builder.mixin(bitrix.class.FieldMapping, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
+  })
+  builder.mixin(bitrix.class.EntityMapping, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
   })
 }

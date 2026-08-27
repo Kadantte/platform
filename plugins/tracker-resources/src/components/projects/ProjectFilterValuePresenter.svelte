@@ -14,9 +14,9 @@
 -->
 <script lang="ts">
   import { Ref } from '@hcengineering/core'
-  import { createQuery } from '@hcengineering/presentation'
+  import { IconWithEmoji, createQuery } from '@hcengineering/presentation'
   import { Project } from '@hcengineering/tracker'
-  import { Icon, IconWithEmoji, getPlatformColorDef, getPlatformColorForTextDef, themeStore } from '@hcengineering/ui'
+  import { Icon, getPlatformColorDef, getPlatformColorForTextDef, themeStore } from '@hcengineering/ui'
   import tracker from '../../plugin'
   import view from '@hcengineering/view'
 
@@ -35,13 +35,13 @@
 <div class="flex-presenter flex-gap-1-5">
   {#each projects as project, i}
     {#if value && i < MAX_VISIBLE_PROJECTS}
-      {@const icon = project.icon === view.ids.IconWithEmoji ? IconWithEmoji : project.icon ?? tracker.icon.Home}
+      {@const icon = project.icon === view.ids.IconWithEmoji ? IconWithEmoji : (project.icon ?? tracker.icon.Home)}
       {@const iconProps =
         project.icon === view.ids.IconWithEmoji
           ? { icon: project.color }
           : {
               fill:
-                project.color !== undefined
+                project.color !== undefined && typeof project.color !== 'string'
                   ? getPlatformColorDef(project.color, $themeStore.dark).icon
                   : getPlatformColorForTextDef(project.name ?? '', $themeStore.dark).icon
             }}

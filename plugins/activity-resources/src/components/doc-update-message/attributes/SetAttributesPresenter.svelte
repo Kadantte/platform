@@ -30,9 +30,11 @@
 
   $: attrViewletConfig = viewlet?.config?.[attributeModel.key]
   $: attributeIcon = attrViewletConfig?.icon ?? attributeModel.icon ?? IconEdit
-  $: isUnset = values.length > 0 && !values.some((value) => value !== null && value !== '')
+  $: isUnset = values.length > 0 && !values.some((value) => value != null && value !== '')
 
   $: isTextType = getIsTextType(attributeModel)
+  $: isTooLarge =
+    isTextType && (values[0] === activity.string.ValueTooLarge || prevValue === activity.string.ValueTooLarge)
 
   let isDiffShown = false
 
@@ -42,13 +44,17 @@
 </script>
 
 {#if isUnset}
-  <div class="row overflow-label">
+  <div class="unset row overflow-label">
     <span class="mr-1"><Icon icon={attributeIcon} size="small" /></span>
     <Label label={activity.string.Unset} />
     <span class="lower"><Label label={attributeModel.label} /></span>
   </div>
 {:else if isTextType}
-  {#if preview}
+  {#if isTooLarge}
+    <div class="unset row overflow-label">
+      <Label label={activity.string.ValueTooLarge} />
+    </div>
+  {:else if preview}
     <div class="row overflow-label">
       <span class="mr-1"><Icon icon={attributeIcon} size="small" /></span>
       <Label label={activity.string.Changed} />
@@ -89,6 +95,7 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    color: var(--global-primary-TextColor);
   }
 
   .showMore {

@@ -15,8 +15,10 @@
 <script lang="ts">
   import { getName } from '@hcengineering/contact'
   import { Avatar } from '@hcengineering/contact-resources'
+  import contact from '@hcengineering/contact-resources/src/plugin'
   import hr, { Department, Staff } from '@hcengineering/hr'
   import { getClient } from '@hcengineering/presentation'
+  import { Label } from '@hcengineering/ui'
   import { DocNavLink } from '@hcengineering/view-resources'
 
   export let value: Staff
@@ -39,6 +41,9 @@
       <div class="flex-col">
         <div class="member-title fs-title">
           {getName(client.getHierarchy(), value)}
+          {#if !value.active}
+            <span class="member-inactive"><Label label={contact.string.Inactive} /></span>
+          {/if}
         </div>
         {#await getDepartment(value) then department}
           {#if department}
@@ -59,6 +64,12 @@
   .member-title {
     color: var(--theme-caption-color);
     overflow: hidden;
+  }
+  .member-inactive {
+    color: var(--theme-warning-color);
+    opacity: 0.8;
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
   }
   .member-department {
     color: var(--theme-caption-color);

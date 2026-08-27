@@ -16,13 +16,15 @@
 import clientPlugin from '@hcengineering/client'
 import type { ClientFactoryOptions } from '@hcengineering/client/src'
 import core, {
-  AccountClient,
+  Client,
   LoadModelResponse,
+  type PersonUuid,
   Tx,
   TxHandler,
   TxPersistenceStore,
   TxWorkspaceEvent,
   WorkspaceEvent,
+  type WorkspaceUuid,
   concatLink,
   createClient,
   fillConfiguration,
@@ -33,7 +35,9 @@ import core, {
   type ModelFilter,
   type PluginConfiguration,
   type Ref,
-  type TxCUD
+  type TxCUD,
+  platformNow,
+  ClientConnectEvent
 } from '@hcengineering/core'
 import platform, { Severity, Status, getMetadata, getPlugins, setPlatformStatus } from '@hcengineering/platform'
 import { connect } from './connection'
@@ -44,7 +48,7 @@ let dbRequest: IDBOpenDBRequest | undefined
 let dbPromise: Promise<IDBDatabase | undefined> = Promise.resolve(undefined)
 
 if (typeof localStorage !== 'undefined') {
-  const st = Date.now()
+  const st = platformNow()
   dbPromise = new Promise<IDBDatabase>((resolve) => {
     dbRequest = indexedDB.open('model.db.persistence', 2)
 
@@ -56,16 +60,30 @@ if (typeof localStorage !== 'undefined') {
     }
     dbRequest.onsuccess = function () {
       const db = (dbRequest as IDBOpenDBRequest).result
-      console.log('init DB complete', Date.now() - st)
+      console.log('init DB complete', platformNow() - st)
       resolve(db)
     }
   })
+  void dbPromise.then((res) => {
+    if (res !== undefined) {
+      res.onclose = () => {
+        dbRequest = undefined
+        dbPromise = Promise.resolve(undefined)
+      }
+    }
+  })
+}
+
+interface TokenPayload {
+  workspace?: WorkspaceUuid
+  account?: PersonUuid
+  extra?: any
 }
 
 /**
  * @public
  */
-function decodeTokenPayload (token: string): any {
+function decodeTokenPayload (token: string): TokenPayload {
   try {
     return JSON.parse(atob(token.split('.')[1]))
   } catch (err: any) {
@@ -78,7 +96,7 @@ function decodeTokenPayload (token: string): any {
 export default async () => {
   return {
     function: {
-      GetClient: async (token: string, endpoint: string, opt?: ClientFactoryOptions): Promise<AccountClient> => {
+      GetClient: async (token: string, endpoint: string, opt?: ClientFactoryOptions): Promise<Client> => {
         const filterModel = getMetadata(clientPlugin.metadata.FilterModel) ?? 'none'
 
         const handler = async (handler: TxHandler): Promise<ClientConnection> => {
@@ -95,7 +113,8 @@ export default async () => {
                 if (event.event === WorkspaceEvent.MaintenanceNotification) {
                   void setPlatformStatus(
                     new Status(Severity.WARNING, platform.status.MaintenanceWarning, {
-                      time: event.params.timeMinutes
+                      time: event.params.timeMinutes,
+                      message: event.params.message ?? ''
                     })
                   )
                 }
@@ -103,10 +122,13 @@ export default async () => {
             }
             handler(...txes)
           }
-          const tokenPayload: { workspace: string, email: string } = decodeTokenPayload(token)
+          const tokenPayload = decodeTokenPayload(token)
+          if (tokenPayload.workspace === undefined || tokenPayload.account === undefined) {
+            throw new Error('Workspace or account not found in token')
+          }
 
           const newOpt = { ...opt }
-          const connectTimeout = getMetadata(clientPlugin.metadata.ConnectionTimeout)
+          const connectTimeout = opt?.connectionTimeout ?? getMetadata(clientPlugin.metadata.ConnectionTimeout)
           let connectPromise: Promise<void> | undefined
           if ((connectTimeout ?? 0) > 0) {
             connectPromise = new Promise<void>((resolve, reject) => {
@@ -118,21 +140,32 @@ export default async () => {
                   reject(new Error(`Connection timeout, and no connection established to ${endpoint}`))
                 }
               }, connectTimeout)
-              newOpt.onConnect = (event) => {
-                // Any event is fine, it means server is alive.
-                clearTimeout(connectTO)
-                resolve()
+              newOpt.onConnect = async (event, lastTx, data) => {
+                try {
+                  await opt?.onConnect?.(event, lastTx, data)
+                } catch (error) {
+                  void clientConnection?.close()
+                  void opt?.onDialTimeout?.()
+                  reject(error)
+                  return
+                }
+
+                if (event !== ClientConnectEvent.Maintenance) {
+                  // Any event is fine, it means server is alive.
+                  clearTimeout(connectTO)
+                  resolve()
+                }
               }
             })
           }
-          const clientConnection = connect(url, upgradeHandler, tokenPayload.workspace, tokenPayload.email, newOpt)
+          const clientConnection = connect(url, upgradeHandler, tokenPayload.workspace, tokenPayload.account, newOpt)
           if (connectPromise !== undefined) {
             await connectPromise
           }
           return await Promise.resolve(clientConnection)
         }
 
-        const modelFilter: ModelFilter = async (txes) => {
+        const modelFilter: ModelFilter = (txes) => {
           if (filterModel === 'client') {
             return returnClientTxes(txes)
           }
@@ -175,8 +208,18 @@ function returnClientTxes (txes: Tx[]): Tx[] {
     'text-editor:class:TextEditorAction' as Ref<Class<Doc>>,
     'templates:class:TemplateField' as Ref<Class<Doc>>,
     'activity:class:DocUpdateMessageViewlet' as Ref<Class<Doc>>,
-    'core:class:PluginConfiguration' as Ref<Class<Doc>>,
-    'core:class:DomainIndexConfiguration' as Ref<Class<Doc>>
+    'core:class:DomainIndexConfiguration' as Ref<Class<Doc>>,
+    'view:class:ViewletDescriptor' as Ref<Class<Doc>>,
+    'presentation:class:ComponentPointExtension' as Ref<Class<Doc>>,
+    'activity:class:ActivityMessagesFilter' as Ref<Class<Doc>>,
+    'view:class:ActionCategory' as Ref<Class<Doc>>,
+    'activity:class:ActivityExtension' as Ref<Class<Doc>>,
+    'chunter:class:ChatMessageViewlet' as Ref<Class<Doc>>,
+    'activity:class:ActivityMessageControl' as Ref<Class<Doc>>,
+    'notification:class:ActivityNotificationViewlet' as Ref<Class<Doc>>,
+    'setting:class:SettingsCategory' as Ref<Class<Doc>>,
+    'setting:class:WorkspaceSettingCategory' as Ref<Class<Doc>>,
+    'notification:class:NotificationProvider' as Ref<Class<Doc>>
   ])
 
   const result = pluginFilterTx(excludedPlugins, configs, txes).filter((tx) => {

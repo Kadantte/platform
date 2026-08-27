@@ -22,6 +22,7 @@
   import { createEventDispatcher } from 'svelte'
 
   import { TypeSelector, selectedTaskTypeStore, selectedTypeStore, taskTypeStore } from '@hcengineering/task-resources'
+  import { filterStore } from '@hcengineering/view-resources'
   import tracker from '../../plugin'
   import IssuesView from './IssuesView.svelte'
 
@@ -41,20 +42,7 @@
   let query: DocumentQuery<Issue> | undefined = undefined
   let modeSelectorProps: IModeSelector | undefined = undefined
 
-  const allProjectQuery = createQuery()
-  let allProjects: Pick<Project, '_id' | '_class' | 'archived'>[] = []
-
-  allProjectQuery.query(
-    tracker.class.Project,
-    {},
-    (res) => {
-      allProjects = res
-    },
-    { projection: { _id: 1, archived: 1 } }
-  )
-  $: spaceQuery = currentSpace
-    ? { space: currentSpace }
-    : { space: { $in: allProjects.filter((it) => !it.archived).map((it) => it._id) } }
+  $: spaceQuery = currentSpace !== undefined ? { space: currentSpace } : {}
 
   $: all = { ...baseQuery, ...spaceQuery }
 
@@ -87,12 +75,34 @@
   $: if (mode === undefined || (queries as any)[mode] === undefined) {
     ;[[mode]] = config
   }
+  // ModeSelector ↔ Status-Filter conflict resolution. When the user has an
+  // explicit Status filter active (via FilterButton/InlineFilterChips), the
+  // ModeSelector greys out + shows a tooltip — status is now controlled by
+  // the filter chip rather than the All/Active/Backlog shortcut. Re-enables
+  // automatically when the status-filter is removed.
+  $: hasStatusFilter = $filterStore.some((f) => f.key.key === 'status')
+
+  // Reset the mode to 'all' on the RISING edge of hasStatusFilter
+  // so a "Status is Backlog" filter added while in Active mode doesn't leave
+  // the ModeSelector greyed-out with a stale "Active" highlight that lies
+  // about what is actually filtered. Falling-edge does nothing — the user's
+  // last explicit mode is preserved when the filter is removed.
+  let lastHadStatusFilter = false
+  $: {
+    if (hasStatusFilter && !lastHadStatusFilter && mode !== 'all') {
+      dispatch('action', { mode: 'all' })
+    }
+    lastHadStatusFilter = hasStatusFilter
+  }
+
   $: if (mode !== undefined) {
     query = { ...(queries as any)[mode] }
     modeSelectorProps = {
       config,
       mode,
-      onChange: (newMode: string) => dispatch('action', { mode: newMode })
+      onChange: (newMode: string) => dispatch('action', { mode: newMode }),
+      disabled: hasStatusFilter,
+      disabledReason: tracker.string.ModeSelectorDisabledByFilter
     }
   }
 

@@ -13,9 +13,7 @@
 // limitations under the License.
 //
 
-import { Attachment } from '@hcengineering/attachment'
-import { Account, Class, CollaborativeDoc, Doc, Rank, Ref, TypedSpace } from '@hcengineering/core'
-import { Preference } from '@hcengineering/preference'
+import { AccountUuid, Doc, MarkupBlobRef, Rank, Ref, TypedSpace } from '@hcengineering/core'
 import { IconProps } from '@hcengineering/view'
 
 /** @public */
@@ -24,11 +22,11 @@ export interface Teamspace extends TypedSpace, IconProps {}
 /** @public */
 export interface Document extends Doc, IconProps {
   title: string
-  content: CollaborativeDoc
+  content: MarkupBlobRef | null
   parent: Ref<Document>
   space: Ref<Teamspace>
 
-  lockedBy?: Ref<Account> | null
+  lockedBy?: AccountUuid | null
 
   snapshots?: number
   attachments?: number
@@ -43,17 +41,6 @@ export interface Document extends Doc, IconProps {
 /** @public */
 export interface DocumentSnapshot extends Doc {
   title: string
-  content: CollaborativeDoc
+  content: MarkupBlobRef
   parent: Ref<Document>
-}
-
-/** @public */
-export interface SavedDocument extends Preference {
-  attachedTo: Ref<Document>
-}
-
-/** @public */
-export interface DocumentEmbedding extends Attachment {
-  attachedTo: Ref<Document>
-  attachedToClass: Ref<Class<Document>>
 }

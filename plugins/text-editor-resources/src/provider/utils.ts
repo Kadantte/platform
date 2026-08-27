@@ -13,95 +13,80 @@
 // limitations under the License.
 //
 
-import { type Ref, type CollaborativeDoc, type Doc, type Class, generateId } from '@hcengineering/core'
-import {
-  type DocumentId,
-  type PlatformDocumentId,
-  formatDocumentId,
-  formatPlatformDocumentId as origFormatPlatformDocumentId
-} from '@hcengineering/collaborator-client'
-import { getMetadata } from '@hcengineering/platform'
+import { type Blob, type CollaborativeDoc, type Ref, generateId } from '@hcengineering/core'
+import { encodeDocumentId } from '@hcengineering/collaborator-client'
+import { OK, Severity, Status, getMetadata, setPlatformStatus } from '@hcengineering/platform'
 import presentation from '@hcengineering/presentation'
-import textEditor from '@hcengineering/text-editor'
 import { Doc as Ydoc } from 'yjs'
 
-import { CloudCollabProvider } from './cloud'
+import plugin from '../plugin'
+
 import { HocuspocusCollabProvider } from './hocuspocus'
-import { IndexeddbProvider } from './indexeddb'
 import { type Provider } from './types'
 
-export function formatCollaborativeDocumentId (collaborativeDoc: CollaborativeDoc): DocumentId {
-  const workspace = getMetadata(presentation.metadata.WorkspaceId) ?? ''
-  return formatDocumentId(workspace, collaborativeDoc)
+/** After idle/tab sleep the WS often closes with 1006; Hocuspocus reconnects. Defer user-visible errors. */
+const COLLABORATOR_RECONNECT_GRACE_MS = 5000
+
+function getDocumentId (doc: CollaborativeDoc): string {
+  const workspace = getMetadata(presentation.metadata.WorkspaceUuid) ?? ''
+  return encodeDocumentId(workspace, doc)
 }
 
-export function formatPlatformDocumentId (
-  objectClass: Ref<Class<Doc>>,
-  objectId: Ref<Doc>,
-  objectAttr: string
-): PlatformDocumentId {
-  return origFormatPlatformDocumentId(objectClass, objectId, objectAttr)
-}
-
-export function createLocalProvider (ydoc: Ydoc, document: CollaborativeDoc): Provider {
-  const documentId = formatCollaborativeDocumentId(document)
-  return new IndexeddbProvider(documentId, ydoc)
-}
-
-export function createRemoteProvider (
-  ydoc: Ydoc,
-  params: {
-    document: CollaborativeDoc
-    initialDocument?: CollaborativeDoc
-    objectClass?: Ref<Class<Doc>>
-    objectId?: Ref<Doc>
-    objectAttr?: string
-  }
-): Provider {
-  const collaborator = getMetadata(textEditor.metadata.Collaborator)
-
+export function createRemoteProvider (ydoc: Ydoc, doc: CollaborativeDoc, content: Ref<Blob> | null): Provider {
   const token = getMetadata(presentation.metadata.Token) ?? ''
   const collaboratorUrl = getMetadata(presentation.metadata.CollaboratorUrl) ?? ''
 
-  const documentId = formatCollaborativeDocumentId(params.document)
-  const initialContentId =
-    params.initialDocument !== undefined ? formatCollaborativeDocumentId(params.initialDocument) : undefined
+  const documentId = getDocumentId(doc)
 
-  const { objectClass, objectId, objectAttr } = params
-  const platformDocumentId =
-    objectClass !== undefined && objectId !== undefined && objectAttr !== undefined
-      ? formatPlatformDocumentId(objectClass, objectId, objectAttr)
-      : undefined
+  let reconnectGraceTimeout: ReturnType<typeof setTimeout> | undefined
 
-  return collaborator === 'cloud'
-    ? new CloudCollabProvider({
-      url: collaboratorUrl,
-      name: documentId,
-      document: ydoc,
-      token
-    })
-    : new HocuspocusCollabProvider({
-      url: collaboratorUrl,
-      name: documentId,
-      document: ydoc,
-      token,
-      parameters: {
-        initialContentId,
-        platformDocumentId
+  const clearReconnectGrace = (): void => {
+    if (reconnectGraceTimeout !== undefined) {
+      clearTimeout(reconnectGraceTimeout)
+      reconnectGraceTimeout = undefined
+    }
+  }
+
+  const provider = new HocuspocusCollabProvider({
+    url: collaboratorUrl,
+    name: documentId,
+    document: ydoc,
+    token,
+    parameters: { content },
+    onConnect: () => {
+      clearReconnectGrace()
+      void setPlatformStatus(OK)
+    },
+    onClose: (data) => {
+      if (data.event.code === 1006) {
+        if (reconnectGraceTimeout === undefined) {
+          reconnectGraceTimeout = setTimeout(() => {
+            reconnectGraceTimeout = undefined
+            console.error('Failed to connect to collaborator', data.event)
+            const status = new Status(Severity.ERROR, plugin.string.CannotConnectToCollaborationService, {})
+            void setPlatformStatus(status)
+          }, COLLABORATOR_RECONNECT_GRACE_MS)
+        }
       }
-    })
+    }
+  })
+
+  const baseDestroy = provider.destroy.bind(provider)
+  provider.destroy = (): void => {
+    clearReconnectGrace()
+    baseDestroy()
+  }
+
+  return provider
 }
 
-export const createTiptapCollaborationData = (params: {
-  document: CollaborativeDoc
-  initialDocument?: CollaborativeDoc
-  objectClass?: Ref<Class<Doc>>
-  objectId?: Ref<Doc>
-  objectAttr?: string
-}): { provider: Provider, ydoc: Ydoc } => {
+export const createTiptapCollaborationData = (
+  doc: CollaborativeDoc,
+  content: Ref<Blob> | null
+): { provider: Provider, ydoc: Ydoc } => {
   const ydoc: Ydoc = new Ydoc({ guid: generateId() })
   return {
     ydoc,
-    provider: createRemoteProvider(ydoc, params)
+    provider: createRemoteProvider(ydoc, doc, content)
   }
 }

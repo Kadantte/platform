@@ -16,21 +16,21 @@
 import core, {
   type AnyAttribute,
   type Class,
-  type Data,
   type Doc,
-  type DocIndexState,
+  docKey,
   type FullTextSearchContext,
   getFullTextContext,
   type Hierarchy,
-  type Obj,
   type Ref,
-  type Space
+  type Space,
+  type VersionableDoc
 } from '@hcengineering/core'
-import plugin from '@hcengineering/server-core'
+import { type IndexedDoc } from '@hcengineering/server-core'
 import { type FullTextPipeline } from './types'
+import { type Message } from '@hcengineering/communication-types'
+import cardPlugin, { type Card } from '@hcengineering/card'
 
-export { docKey, docUpdKey, extractDocKey, isFullTextAttribute } from '@hcengineering/core'
-export type { IndexKeyOptions } from '@hcengineering/core'
+export { docKey, isFullTextAttribute } from '@hcengineering/core'
 
 /**
  * @public
@@ -59,25 +59,6 @@ export function getContent (
 /**
  * @public
  */
-export function createStateDoc (
-  id: Ref<Doc>,
-  objectClass: Ref<Class<Obj>>,
-  data: Omit<Data<DocIndexState>, 'objectClass'> & { space?: Ref<Space> }
-): DocIndexState {
-  return {
-    _class: core.class.DocIndexState,
-    _id: id as Ref<DocIndexState>,
-    space: data.space ?? plugin.space.DocIndexState,
-    objectClass,
-    modifiedBy: core.account.System,
-    modifiedOn: Date.now(),
-    ...data
-  }
-}
-
-/**
- * @public
- */
 export function traverseFullTextContexts (
   pipeline: FullTextPipeline,
   objectClass: Ref<Class<Doc>>,
@@ -97,42 +78,6 @@ export function traverseFullTextContexts (
   }
 }
 
-/**
- * @public
- */
-export function collectPropagate (pipeline: FullTextPipeline, objectClass: Ref<Class<Doc>>): Ref<Class<Doc>>[] {
-  let propagate = pipeline.propogage.get(objectClass)
-  if (propagate !== undefined) {
-    return propagate
-  }
-  const set = new Set<Ref<Class<Doc>>>()
-  traverseFullTextContexts(pipeline, objectClass, (fts) => {
-    fts?.propagate?.forEach((it) => {
-      set.add(it)
-    })
-  })
-
-  propagate = Array.from(set.values())
-  pipeline.propogage.set(objectClass, propagate)
-  return propagate
-}
-
-/**
- * @public
- */
-export function collectPropagateClasses (pipeline: FullTextPipeline, objectClass: Ref<Class<Doc>>): Ref<Class<Doc>>[] {
-  let propagate = pipeline.propogageClasses.get(objectClass)
-  if (propagate !== undefined) {
-    return propagate
-  }
-  const set = new Set<Ref<Class<Doc>>>()
-  traverseFullTextContexts(pipeline, objectClass, (fts) => fts?.propagateClasses?.forEach((it) => set.add(it)))
-
-  propagate = Array.from(set.values())
-  pipeline.propogageClasses.set(objectClass, propagate)
-  return propagate
-}
-
 const CUSTOM_ATTR_KEY = 'customAttributes'
 const CUSTOM_ATTR_UPDATE_KEY = 'attributes.customAttributes'
 
@@ -148,4 +93,48 @@ export function getCustomAttrKeys (): { customAttrKey: string, customAttrUKey: s
  */
 export function isCustomAttr (attr: string): boolean {
   return attr === CUSTOM_ATTR_KEY
+}
+/**
+ * @public
+ */
+export function createIndexedDoc (doc: Doc, mixins: Ref<Class<Doc>>[] | undefined, space: Ref<Space>): IndexedDoc {
+  const indexedDoc: IndexedDoc = {
+    id: doc._id,
+    _class: [doc._class, ...(mixins ?? [])],
+    modifiedBy: doc.modifiedBy,
+    modifiedOn: doc.modifiedOn,
+    space
+  }
+  if ((doc as VersionableDoc).baseId !== undefined) {
+    indexedDoc.baseId = (doc as VersionableDoc).baseId
+  }
+  return indexedDoc
+}
+
+export const messagePseudoClass = `${cardPlugin.class.Card}%message` as Ref<Class<Doc>>
+export const blobPseudoClass = `${cardPlugin.class.Card}%blob` as Ref<Class<Doc>>
+
+/**
+ * @public
+ */
+export function createIndexedDocFromMessage (
+  cardId: Ref<Card>,
+  cardSpace: Ref<Space>,
+  cardClass: Ref<Class<Card>>,
+  message: Pick<Message, 'id' | 'modified' | 'created' | 'creator'>
+): IndexedDoc {
+  const modifiedDate = message.modified ?? message.created
+  const modifiedOn = modifiedDate.getTime()
+  const indexedDoc = {
+    id: `${message.id}@${cardId}` as any,
+    _class: [messagePseudoClass],
+    space: cardSpace,
+    [docKey('createdOn', core.class.Doc)]: message.created.getTime(),
+    [docKey('createdBy', core.class.Doc)]: message.creator,
+    modifiedBy: message.creator,
+    modifiedOn,
+    attachedTo: cardId,
+    attachedToClass: cardClass
+  }
+  return indexedDoc
 }

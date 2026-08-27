@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { Widget, WidgetPreference, WidgetType } from '@hcengineering/workbench'
-  import { IconSettings, ModernButton, showPopup } from '@hcengineering/ui'
+  import { IconSettings, ModernButton, showPopup, deviceOptionsStore as deviceInfo } from '@hcengineering/ui'
   import { Ref } from '@hcengineering/core'
 
   import WidgetPresenter from './/WidgetPresenter.svelte'
@@ -100,6 +100,7 @@
     width: 3.5rem;
     min-width: 3.5rem;
     max-width: 3.5rem;
+    background-color: var(--theme-navpanel-color);
     border-radius: 0 var(--medium-BorderRadius) var(--medium-BorderRadius) 0;
     overflow-y: auto;
   }

@@ -27,38 +27,29 @@ import core, { TAttachedDoc, TDoc } from '@hcengineering/model-core'
 import github from './plugin'
 
 import {
+  AccountRole,
   DateRangeMode,
   IndexKind,
-  type Account,
   type Class,
+  type ClassCollaborators,
   type Data,
   type Doc,
   type Domain,
   type Hyperlink,
   type Markup,
+  type PersonId,
   type Ref,
   type Timestamp
 } from '@hcengineering/core'
 
 import { type Person } from '@hcengineering/contact'
-import contact, { TContact } from '@hcengineering/model-contact'
-import presentation from '@hcengineering/model-presentation'
-import tracker, { TComponent, TIssue, TMilestone, TProject, issuesOptions } from '@hcengineering/model-tracker'
-import view, { classPresenter } from '@hcengineering/model-view'
-import workbench from '@hcengineering/model-workbench'
-import { getEmbeddedLabel } from '@hcengineering/platform'
-import setting from '@hcengineering/setting'
-import tags from '@hcengineering/tags'
-import task from '@hcengineering/task'
 import {
   type DocSyncInfo,
   type GithubAuthentication,
   type GithubComponent,
-  type GithubFieldMapping,
   type GithubIntegration,
   type GithubIntegrationRepository,
   type GithubIssue,
-  type GithubMilestone,
   type GithubPatch,
   type GithubProject,
   type GithubPullRequest,
@@ -76,8 +67,18 @@ import {
   type GithubUserInfo,
   type LastReviewState,
   type MinimizeReason,
-  type PullRequestMergeable
+  type PullRequestMergeable,
+  githubIntegrationKind
 } from '@hcengineering/github'
+import contact, { TPerson } from '@hcengineering/model-contact'
+import presentation from '@hcengineering/model-presentation'
+import tracker, { TComponent, TIssue, TProject, issuesOptions } from '@hcengineering/model-tracker'
+import view, { classPresenter } from '@hcengineering/model-view'
+import workbench from '@hcengineering/model-workbench'
+import { getEmbeddedLabel } from '@hcengineering/platform'
+import setting from '@hcengineering/setting'
+import tags from '@hcengineering/tags'
+import task from '@hcengineering/task'
 
 import { generateClassNotificationTypes } from '@hcengineering/model-notification'
 
@@ -86,7 +87,7 @@ import activity, { TActivityMessage } from '@hcengineering/model-activity'
 import attachment, { TAttachment } from '@hcengineering/model-attachment'
 import chunter from '@hcengineering/model-chunter'
 import { TPreference } from '@hcengineering/model-preference'
-import { TToDO } from '@hcengineering/model-time'
+import { TToDo } from '@hcengineering/model-time'
 import notification from '@hcengineering/notification'
 import { DOMAIN_PREFERENCE } from '@hcengineering/preference'
 import time from '@hcengineering/time'
@@ -95,9 +96,11 @@ export { githubId } from '@hcengineering/github'
 export { githubOperation, githubOperationPreTime } from './migration'
 export { default } from './plugin'
 export const DOMAIN_GITHUB = 'github' as Domain
+export const DOMAIN_GITHUB_SYNC = 'github_sync' as Domain
+export const DOMAIN_GITHUB_USER = 'github_user' as Domain
 export const DOMAIN_GITHUB_COMMENTS = 'github_comments' as Domain
 
-@Model(github.class.DocSyncInfo, core.class.Doc, DOMAIN_GITHUB)
+@Model(github.class.DocSyncInfo, core.class.Doc, DOMAIN_GITHUB_SYNC)
 export class TDocSyncInfo extends TDoc implements DocSyncInfo {
   // _id === objectId
   @Prop(TypeNumber(), getEmbeddedLabel('Github number'))
@@ -152,7 +155,7 @@ export class TDocSyncInfo extends TDoc implements DocSyncInfo {
     deleted!: boolean
 }
 
-@Model(github.class.GithubUserInfo, core.class.Doc, DOMAIN_GITHUB)
+@Model(github.class.GithubUserInfo, core.class.Doc, DOMAIN_GITHUB_USER)
 export class TGithubUserInfo extends TDoc implements GithubUserInfo {
   @Prop(TypeString(), getEmbeddedLabel('ID'))
   @ReadOnly()
@@ -372,16 +375,6 @@ export class TGithubProject extends TProject implements GithubProject {
   @ReadOnly()
   @Hidden()
     projectNumber!: number
-
-  @Prop(TypeRef(core.class.Class), getEmbeddedLabel('Attribute Class'))
-  @ReadOnly()
-  @Hidden()
-    mixinClass!: Ref<Class<GithubIssue>>
-
-  @Prop(ArrOf(TypeRecord()), getEmbeddedLabel('Field mappings'))
-  @Hidden()
-  // Mapping of all fields in this project.
-    mappings!: GithubFieldMapping[]
 }
 
 @Mixin(github.mixin.GithubIssue, tracker.class.Issue)
@@ -404,13 +397,13 @@ export class TGithubIssue extends TIssue implements GithubIssue {
 }
 
 @Mixin(github.mixin.GithubTodo, time.class.ToDo)
-export class TGithubTodo extends TToDO implements GithubTodo {
+export class TGithubTodo extends TToDo implements GithubTodo {
   purpose!: 'review' | 'fix'
 }
 
 @Mixin(github.mixin.GithubUser, contact.class.Contact)
 @UX(github.string.GithubUser, github.icon.Github)
-export class TGithubUser extends TContact implements GithubUser {
+export class TGithubUser extends TPerson implements GithubUser {
   @Prop(TypeHyperlink(), getEmbeddedLabel('Github URL'))
   @Index(IndexKind.FullText)
   @ReadOnly()
@@ -429,27 +422,6 @@ export class TGithubComponent extends TComponent implements GithubComponent {
   @ReadOnly()
   @Hidden()
     represent!: boolean
-}
-
-@Mixin(github.mixin.GithubMilestone, tracker.class.Milestone)
-@UX(github.string.GithubIssue)
-export class TGithubMilestone extends TMilestone implements GithubMilestone {
-  @Prop(TypeHyperlink(), getEmbeddedLabel('Github URL'))
-  @Index(IndexKind.FullText)
-  @ReadOnly()
-    url!: Hyperlink
-
-  @Prop(TypeString(), getEmbeddedLabel('NodeID'))
-  @ReadOnly()
-    projectNodeId!: string
-
-  @Prop(TypeNumber(), getEmbeddedLabel('Number'))
-  @ReadOnly()
-    projectNumber!: number
-
-  @Prop(ArrOf(TypeRecord()), getEmbeddedLabel('Field mappings'))
-  // Mapping of all fields in this project.
-    mappings!: GithubFieldMapping[]
 }
 
 @Model(github.class.GithubPullRequest, tracker.class.Issue)
@@ -550,7 +522,7 @@ export class TGithubReviewThread extends TActivityMessage implements GithubRevie
   originalStartLine!: number | null
   path!: string
   startDiffSide!: 'LEFT' | 'RIGHT' | null
-  resolvedBy!: Ref<Account> | null
+  resolvedBy!: PersonId | null
   threadId!: string
 }
 
@@ -599,7 +571,6 @@ export function createModel (builder: Builder): void {
     TGithubIntegrationRepository,
     TGithubPatch,
     TGithubUserInfo,
-    TGithubMilestone,
     TGithubComponent,
     TGithubUser,
     TGithubTodo
@@ -614,7 +585,9 @@ export function createModel (builder: Builder): void {
       icon: github.component.GithubIcon,
       allowMultiple: false,
       createComponent: github.component.Connect,
-      configureComponent: github.component.Configure
+      configureComponent: github.component.Configure,
+      stateComponent: github.component.IntegrationState,
+      kind: githubIntegrationKind
     },
     github.integrationType.Github
   )
@@ -648,7 +621,8 @@ export function createModel (builder: Builder): void {
     editor: github.component.EditPullRequest
   })
 
-  builder.mixin(github.class.GithubPullRequest, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<GithubPullRequest>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: github.class.GithubPullRequest,
     fields: ['createdBy', 'assignee', 'reviewers']
   })
 
@@ -881,12 +855,14 @@ export function createModel (builder: Builder): void {
 
   builder.createDoc(presentation.class.ComponentPointExtension, core.space.Model, {
     extension: tracker.extensions.IssueListHeader,
-    component: github.component.AuthenticationCheck
+    component: github.component.AuthenticationCheck,
+    accessLevel: AccountRole.User
   })
 
   builder.createDoc(presentation.class.ComponentPointExtension, core.space.Model, {
     extension: tracker.extensions.EditIssueHeader,
     component: github.component.AuthenticationCheck,
+    accessLevel: AccountRole.User,
     props: {
       kind: 'ghost'
     }
@@ -912,23 +888,26 @@ export function createModel (builder: Builder): void {
     actions: [view.action.Delete, task.action.Move, tracker.action.MoveToProject]
   })
 
-  builder.createDoc(presentation.class.DocRules, core.space.Model, {
-    ofClass: tracker.class.Issue,
-    fieldRules: [
-      {
-        field: 'assignee',
-        query: {},
-        mixin: github.mixin.GithubIssue,
-        fieldQuery: {
-          [github.mixin.GithubUser + '.url']: { $exists: true }
-        },
-        fieldQueryFill: {},
-        allowConflict: false,
-        disableUnset: true,
-        disableEdit: true
-      }
-    ]
-  })
+  // TODO: Need rework this functionality, for now we need to allow set any user,
+  // and github integration will skip change of field if value is not have a proper mixin instead.
+
+  // builder.createDoc(presentation.class.DocRules, core.space.Model, {
+  //   ofClass: tracker.class.Issue,
+  //   fieldRules: [
+  //     {
+  //       field: 'assignee',
+  //       query: {},
+  //       mixin: github.mixin.GithubIssue,
+  //       fieldQuery: {
+  //         [github.mixin.GithubUser + '.url']: { $exists: true }
+  //       },
+  //       fieldQueryFill: {},
+  //       allowConflict: false,
+  //       disableUnset: true,
+  //       disableEdit: true
+  //     }
+  //   ]
+  // })
 
   builder.mixin(github.class.DocSyncInfo, core.class.Class, core.mixin.IndexConfiguration, {
     indexes: [],
@@ -949,7 +928,7 @@ export function createModel (builder: Builder): void {
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: github.class.GithubPullRequest,
     components: {
-      input: chunter.component.ChatMessageInput
+      input: { component: chunter.component.ChatMessageInput }
     }
   })
 

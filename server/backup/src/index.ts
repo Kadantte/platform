@@ -13,4 +13,8 @@
 // limitations under the License.
 //
 export * from './backup'
+export * from './check'
+export * from './restore'
 export * from './service'
+export * from './types'
+export * from './utils'

@@ -14,15 +14,16 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { AccountArrayEditor } from '@hcengineering/contact-resources'
+  import { AccountArrayEditor, employeeRefByAccountUuidStore, getAnonymousRefs } from '@hcengineering/contact-resources'
   import core, {
-    Account,
     getCurrentAccount,
     Ref,
     Role,
     RolesAssignment,
     SpaceType,
-    WithLookup
+    WithLookup,
+    notEmpty,
+    AccountUuid
   } from '@hcengineering/core'
   import lead, { Funnel, LeadEvents } from '@hcengineering/lead'
   import presentation, { getClient, SpaceCreateCard } from '@hcengineering/presentation'
@@ -33,6 +34,7 @@
 
   import leadRes from '../plugin'
   import { Analytics } from '@hcengineering/analytics'
+  import view from '@hcengineering/view'
 
   export let funnel: Funnel | undefined = undefined
   const dispatch = createEventDispatcher()
@@ -49,10 +51,12 @@
   let rolesAssignment: RolesAssignment = {}
   let isPrivate: boolean = funnel?.private ?? false
 
-  let members: Ref<Account>[] =
-    funnel?.members !== undefined ? hierarchy.clone(funnel.members) : [getCurrentAccount()._id]
-  let owners: Ref<Account>[] = funnel?.owners !== undefined ? hierarchy.clone(funnel.owners) : [getCurrentAccount()._id]
+  let members: AccountUuid[] =
+    funnel?.members !== undefined ? hierarchy.clone(funnel.members) : [getCurrentAccount().uuid]
+  let owners: AccountUuid[] = funnel?.owners !== undefined ? hierarchy.clone(funnel.owners) : [getCurrentAccount().uuid]
 
+  $: membersPersons = members.map((m) => $employeeRefByAccountUuidStore.get(m)).filter(notEmpty)
+  $: readOnlyGuestOwnerExcludeItems = getAnonymousRefs($employeeRefByAccountUuidStore, owners)
   $: void loadSpaceType(typeId)
   async function loadSpaceType (id: typeof typeId): Promise<void> {
     spaceType =
@@ -132,14 +136,14 @@
     }
   }
 
-  function handleOwnersChanged (newOwners: Ref<Account>[]): void {
+  function handleOwnersChanged (newOwners: AccountUuid[]): void {
     owners = newOwners
 
     const newMembersSet = new Set([...members, ...newOwners])
     members = Array.from(newMembersSet)
   }
 
-  function handleMembersChanged (newMembers: Ref<Account>[]): void {
+  function handleMembersChanged (newMembers: AccountUuid[]): void {
     membersChanged = true
     // If a member was removed we need to remove it from any roles assignments as well
     const newMembersSet = new Set(newMembers)
@@ -154,7 +158,7 @@
     members = newMembers
   }
 
-  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: Ref<Account>[]): void {
+  function handleRoleAssignmentChanged (roleId: Ref<Role>, newMembers: AccountUuid[]): void {
     if (rolesAssignment === undefined) {
       rolesAssignment = {}
     }
@@ -227,6 +231,7 @@
     </div>
     <AccountArrayEditor
       value={owners}
+      excludeItems={readOnlyGuestOwnerExcludeItems}
       label={core.string.Owners}
       onChange={handleOwnersChanged}
       kind={'regular'}
@@ -258,13 +263,13 @@
   {#each roles as role}
     <div class="antiGrid-row">
       <div class="antiGrid-row__header">
-        <Label label={leadRes.string.RoleLabel} params={{ role: role.name }} />
+        <Label label={view.string.RoleLabel} params={{ role: role.name }} />
       </div>
       <AccountArrayEditor
         value={rolesAssignment?.[role._id] ?? []}
         label={leadRes.string.FunnelMembers}
-        includeItems={members}
-        readonly={members.length === 0}
+        includeItems={membersPersons}
+        readonly={membersPersons.length === 0}
         onChange={(refs) => {
           handleRoleAssignmentChanged(role._id, refs)
         }}

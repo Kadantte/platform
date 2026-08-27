@@ -50,7 +50,7 @@ test.describe('QMS. PDF Download and Preview', () => {
     const documentDetails: DocumentDetails = {
       type: 'HR',
       category: 'Human Resources',
-      version: 'v0.1',
+      version: 'v1.0',
       status: DocumentStatus.DRAFT,
       owner: 'Appleseed John',
       author: 'Appleseed John'
@@ -90,7 +90,7 @@ test.describe('QMS. PDF Download and Preview', () => {
       await documentContentPage.checkDocument({
         ...documentDetails,
         status: DocumentStatus.EFFECTIVE,
-        version: 'v0.1'
+        version: 'v1.0'
       })
       await documentContentPage.checkCurrentRights(DocumentRights.VIEWING)
 
@@ -135,7 +135,7 @@ test.describe('QMS. PDF Download and Preview', () => {
     const documentDetails: DocumentDetails = {
       type: 'HR',
       category: 'Human Resources',
-      version: 'v0.1',
+      version: 'v1.0',
       status: DocumentStatus.DRAFT,
       owner: 'Appleseed John',
       author: 'Appleseed John'
@@ -199,7 +199,7 @@ test.describe('QMS. PDF Download and Preview', () => {
     const documentDetails: DocumentDetails = {
       type: 'HR',
       category: 'Human Resources',
-      version: 'v0.1',
+      version: 'v1.0',
       status: DocumentStatus.DRAFT,
       owner: 'Appleseed John',
       author: 'Appleseed John'
@@ -226,7 +226,7 @@ test.describe('QMS. PDF Download and Preview', () => {
       const documentContentPageSecond = new DocumentContentPage(userSecondPage)
       const documentsPageSecond = new DocumentsPage(userSecondPage)
       await documentsPageSecond.openDocument(approveDocument.title)
-      await documentContentPageSecond.clickApproveButton()
+      await documentContentPageSecond.confirmApproval()
       await documentsPageSecond.openDocument(approveDocument.title)
     })
     await test.step('5. check if reviewers and approvers are visible', async () => {
@@ -253,7 +253,7 @@ test.describe('QMS. PDF Download and Preview', () => {
     const documentDetails: DocumentDetails = {
       type: 'HR',
       category: 'Human Resources',
-      version: 'v0.1',
+      version: 'v1.0',
       status: DocumentStatus.DRAFT,
       owner: 'Appleseed John',
       author: 'Appleseed John'
@@ -275,7 +275,7 @@ test.describe('QMS. PDF Download and Preview', () => {
       const documentContentPageSecond = new DocumentContentPage(userSecondPage)
       const documentsPageSecond = new DocumentsPage(userSecondPage)
       await documentsPageSecond.openDocument(approveDocument.title)
-      await documentContentPageSecond.clickApproveButton()
+      await documentContentPageSecond.confirmApproval()
       await documentsPageSecond.openDocument(approveDocument.title)
     })
     await test.step('5. check if reviewers and approvers are visible', async () => {

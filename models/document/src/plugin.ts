@@ -20,13 +20,14 @@ import document from '@hcengineering/document-resources/src/plugin'
 import { type ObjectSearchCategory, type ObjectSearchFactory } from '@hcengineering/model-presentation'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
 import { type TagCategory } from '@hcengineering/tags'
-import { type AnyComponent } from '@hcengineering/ui'
-import { type Viewlet, type Action, type ActionCategory, type ViewAction } from '@hcengineering/view'
+import { type AnyComponent } from '@hcengineering/ui/src/types'
+import type { Action, ActionCategory, ViewAction, Viewlet } from '@hcengineering/view'
 
 export default mergeIds(documentId, document, {
   component: {
     Documents: '' as AnyComponent,
     DocumentPresenter: '' as AnyComponent,
+    DocumentInlineEditor: '' as AnyComponent,
     NotificationDocumentPresenter: '' as AnyComponent,
     TeamspaceSpacePresenter: '' as AnyComponent,
     Move: '' as AnyComponent,
@@ -59,6 +60,10 @@ export default mergeIds(documentId, document, {
   category: {
     Document: '' as Ref<ActionCategory>,
     Other: '' as Ref<TagCategory>
+  },
+  ids: {
+    ModulePermissionGroup: '' as Ref<Doc>,
+    ModulePermissionGroupReadOnlyGuest: '' as Ref<Doc>
   },
   string: {
     ConfigDescription: '' as IntlString,

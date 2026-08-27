@@ -16,14 +16,14 @@ import { activityId, type ActivityMessage, type DocUpdateMessageViewlet } from '
 import activity from '@hcengineering/activity-resources/src/plugin'
 import { type IntlString, mergeIds, type Resource } from '@hcengineering/platform'
 import { type Doc, type Ref } from '@hcengineering/core'
-import type { Location } from '@hcengineering/ui'
+import type { Location } from '@hcengineering/ui/src/types'
 import {
   type Action,
   type ActionCategory,
   type ViewAction,
   type ViewActionAvailabilityFunction
 } from '@hcengineering/view'
-import { type NotificationGroup, type NotificationType } from '@hcengineering/notification'
+import { type NotificationGroup } from '@hcengineering/notification'
 
 export default mergeIds(activityId, activity, {
   string: {
@@ -44,7 +44,6 @@ export default mergeIds(activityId, activity, {
   ids: {
     ReactionAddedActivityViewlet: '' as Ref<DocUpdateMessageViewlet>,
     ActivityNotificationGroup: '' as Ref<NotificationGroup>,
-    AddReactionNotification: '' as Ref<NotificationType>,
     AddReactionAction: '' as Ref<Action>,
     SaveForLaterAction: '' as Ref<Action>,
     RemoveFromLaterAction: '' as Ref<Action>,

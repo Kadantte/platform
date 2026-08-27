@@ -24,17 +24,8 @@
     createChangeControl,
     createDocumentTemplate
   } from '@hcengineering/controlled-documents'
-  import { Employee, PersonAccount } from '@hcengineering/contact'
-  import {
-    type AttachedData,
-    type Class,
-    type Data,
-    type Ref,
-    type Mixin,
-    generateId,
-    getCurrentAccount,
-    makeCollaborativeDoc
-  } from '@hcengineering/core'
+  import { getCurrentEmployee } from '@hcengineering/contact'
+  import { type AttachedData, type Class, type Data, type Ref, type Mixin, generateId } from '@hcengineering/core'
   import { MessageBox, getClient } from '@hcengineering/presentation'
   import {
     AnySvelteComponent,
@@ -61,6 +52,7 @@
     wizardClosed
   } from '../../stores/wizards/create-document'
   import FailedToCreateDocument from '../FailedToCreateDocument.svelte'
+  import { updateExternalApproversAccess } from '../../utils'
 
   export let _class: Ref<Class<ControlledDocument>> = documents.class.ControlledDocument
   export let _templateMixin: Ref<Mixin<DocumentTemplate>> = documents.mixin.DocumentTemplate
@@ -69,7 +61,7 @@
 
   const dispatch = createEventDispatcher()
   const client = getClient()
-  const currentUser = getCurrentAccount() as PersonAccount
+  const currentUser = getCurrentEmployee()
 
   const steps: IWizardStep<TemplateWizardStep>[] = [
     {
@@ -107,22 +99,23 @@
     code: '',
     docPrefix: '',
     labels: 0,
-    major: 0,
-    minor: 1,
+    major: 1,
+    minor: 0,
     commentSequence: 0,
     seqNumber: 0,
     category: undefined,
     abstract: '',
-    author: currentUser.person as Ref<Employee>,
-    owner: currentUser.person as Ref<Employee>,
+    author: currentUser,
+    owner: currentUser,
     state: DocumentState.Draft,
     snapshots: 0,
     changeControl: ccRecordId,
-    content: makeCollaborativeDoc(generateId()),
+    content: null,
 
     requests: 0,
     reviewers: [],
     approvers: [],
+    externalApprovers: [],
     coAuthors: [],
     plannedEffectiveDate: 0,
     reviewInterval: DEFAULT_PERIODIC_REVIEW_INTERVAL
@@ -139,10 +132,15 @@
     currentStepUpdated(e.detail)
   }
 
+  let submitted = false
+
   async function handleSubmit (): Promise<void> {
     if ($locationStep.space === undefined || $locationStep.project === undefined) {
       return
     }
+
+    if (submitted) return
+    submitted = true
 
     const { category } = docObject
     if (category === undefined || category === null) return
@@ -164,7 +162,7 @@
       docObject.docPrefix,
       spec,
       category,
-      currentUser.person as Ref<Employee>
+      currentUser
     )
 
     if (!success) {
@@ -181,6 +179,14 @@
     }
 
     await createChangeControl(client, ccRecordId, ccRecord, space)
+
+    if (docObject.externalApprovers.length > 0) {
+      const controlledDoc = await client.findOne(documents.class.ControlledDocument, { _id: newDocId })
+
+      if (controlledDoc !== undefined) {
+        await updateExternalApproversAccess(client, controlledDoc, docObject.externalApprovers, [])
+      }
+    }
 
     const loc = getProjectDocumentLink(newDocId, $locationStep.project)
     navigate(loc)
@@ -215,6 +221,7 @@
   submitLabel={documents.string.CreateDraft}
   {canProceed}
   {steps}
+  canSubmit={!submitted}
   selectedStep={currentTemplateStep}
   on:stepChanged={handleStepChanged}
   on:submit={handleSubmit}

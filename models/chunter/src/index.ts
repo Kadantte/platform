@@ -32,14 +32,12 @@ import {
   TChatMessage,
   TChatMessageViewlet,
   TChatSyncInfo,
-  TChunterExtension,
   TChunterSpace,
   TDirectMessage,
-  TInlineButton,
   TObjectChatPanel,
-  TThreadMessage,
-  TTypingInfo
+  TThreadMessage
 } from './types'
+import { AccountRole } from '@hcengineering/core'
 
 export { chunterId } from '@hcengineering/chunter'
 export { chunterOperation } from './migration'
@@ -54,10 +52,7 @@ export function createModel (builder: Builder): void {
     TThreadMessage,
     TChatMessageViewlet,
     TObjectChatPanel,
-    TChatSyncInfo,
-    TInlineButton,
-    TTypingInfo,
-    TChunterExtension
+    TChatSyncInfo
   )
 
   builder.createDoc(
@@ -72,6 +67,34 @@ export function createModel (builder: Builder): void {
       component: chunter.component.Chat
     },
     chunter.app.Chunter
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: chunter.app.Chunter,
+      role: AccountRole.Guest,
+      permissions: [],
+      spaceClass: chunter.class.Channel,
+      enabled: true,
+      order: 30
+    },
+    chunter.ids.ModulePermissionGroup
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: chunter.app.Chunter,
+      role: AccountRole.ReadOnlyGuest,
+      permissions: [],
+      spaceClass: chunter.class.Channel,
+      enabled: true,
+      order: 15
+    },
+    chunter.ids.ModulePermissionGroupReadOnlyGuest
   )
 
   builder.createDoc(
@@ -92,6 +115,18 @@ export function createModel (builder: Builder): void {
   builder.createDoc(presentation.class.ComponentPointExtension, core.space.Model, {
     extension: workbench.extensions.WorkbenchTabExtensions,
     component: chunter.component.WorkbenchTabExtension
+  })
+
+  builder.mixin(chunter.class.DirectMessage, core.class.Class, core.mixin.TxAccessLevel, {
+    createAccessLevel: AccountRole.Guest
+  })
+
+  builder.mixin(chunter.class.ChatMessage, core.class.Class, core.mixin.TxAccessLevel, {
+    createAccessLevel: AccountRole.Guest
+  })
+
+  builder.mixin(chunter.class.ThreadMessage, core.class.Class, core.mixin.TxAccessLevel, {
+    createAccessLevel: AccountRole.Guest
   })
 
   const spaceClasses = [chunter.class.Channel, chunter.class.DirectMessage]
@@ -161,10 +196,6 @@ export function createModel (builder: Builder): void {
     presenter: chunter.component.ThreadMessagePresenter
   })
 
-  builder.mixin(chunter.class.TypingInfo, core.class.Class, core.mixin.TransientConfiguration, {
-    broadcastOnly: true
-  })
-
   builder.createDoc(
     view.class.Viewlet,
     core.space.Model,
@@ -172,10 +203,24 @@ export function createModel (builder: Builder): void {
       attachTo: chunter.class.Channel,
       descriptor: view.viewlet.Table,
       configOptions: {
-        strict: true
+        hiddenKeys: ['name', 'description']
       },
       config: ['', 'topic', 'private', 'archived', 'members'],
-      props: { enableChecking: false }
+      props: { enableChecking: false },
+      viewOptions: {
+        groupBy: [],
+        orderBy: [],
+        other: [
+          {
+            key: 'hideArchived',
+            type: 'toggle',
+            defaultValue: true,
+            actionTarget: 'options',
+            action: view.function.HideArchived,
+            label: view.string.HideArchived
+          }
+        ]
+      }
     },
     chunter.viewlet.Channels
   )
@@ -192,11 +237,22 @@ export function createModel (builder: Builder): void {
   )
 
   builder.mixin(chunter.class.Channel, core.class.Class, chunter.mixin.ObjectChatPanel, {
-    ignoreKeys: ['archived', 'collaborators', 'lastMessage', 'pinned', 'topic', 'description', 'members', 'owners']
+    ignoreKeys: ['archived', 'collaborators', 'lastMessage', 'pinned', 'description', 'members', 'owners']
   })
 
   builder.mixin(chunter.class.DirectMessage, core.class.Class, chunter.mixin.ObjectChatPanel, {
-    ignoreKeys: ['archived', 'collaborators', 'lastMessage', 'pinned', 'topic', 'description', 'members', 'owners']
+    ignoreKeys: [
+      'archived',
+      'collaborators',
+      'lastMessage',
+      'pinned',
+      'topic',
+      'description',
+      'members',
+      'owners',
+      'autoJoin',
+      'autoJoinForRoles'
+    ]
   })
 
   builder.createDoc(activity.class.ReplyProvider, core.space.Model, {
@@ -273,27 +329,27 @@ export function createModel (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: chunter.class.Channel,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: chunter.class.DirectMessage,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: activity.class.DocUpdateMessage,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: chunter.class.ChatMessage,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: activity.class.ActivityReference,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   // Indexing
@@ -314,6 +370,11 @@ export function createModel (builder: Builder): void {
 
   defineActions(builder)
   defineNotifications(builder)
+
+  builder.mixin(chunter.class.ChatSyncInfo, core.class.Class, core.mixin.IndexConfiguration, {
+    indexes: [],
+    searchDisabled: true
+  })
 }
 
 export default chunter

@@ -29,7 +29,9 @@ export const serverHrId = 'server-hr' as Plugin
 export default plugin(serverHrId, {
   trigger: {
     OnEmployee: '' as Resource<TriggerFunc>,
+    OnEmployeeDeactivate: '' as Resource<TriggerFunc>,
     OnDepartmentStaff: '' as Resource<TriggerFunc>,
+    OnDepartmentUpdate: '' as Resource<TriggerFunc>,
     OnDepartmentRemove: '' as Resource<TriggerFunc>,
     OnRequestCreate: '' as Resource<TriggerFunc>,
     OnRequestUpdate: '' as Resource<TriggerFunc>,

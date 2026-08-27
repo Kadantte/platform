@@ -38,6 +38,9 @@
       case DocumentState.Archived:
         statusWMLabel = plugin.string.Archived
         break
+      case DocumentState.Obsolete:
+        statusWMLabel = plugin.string.Obsolete
+        break
     }
   }
 
@@ -122,6 +125,7 @@
     font-weight: 500;
     font-size: $font-size;
     color: var(--theme-caption-color);
+    -webkit-user-select: none;
     user-select: none;
     width: 10rem;
     flex: 0 0 auto;

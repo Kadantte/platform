@@ -13,8 +13,9 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import calendar, { Calendar, generateEventId } from '@hcengineering/calendar'
-  import contact, { PersonAccount } from '@hcengineering/contact'
+  import calendar, { AccessLevel, generateEventId } from '@hcengineering/calendar'
+  import { EventReminders } from '@hcengineering/calendar-resources'
+  import contact, { getCurrentEmployee } from '@hcengineering/contact'
   import { Ref, getCurrentAccount } from '@hcengineering/core'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { closePopup, showPopup } from '@hcengineering/ui'
@@ -23,6 +24,7 @@
   import time from '../plugin'
   import Workslots from './Workslots.svelte'
   import { Analytics } from '@hcengineering/analytics'
+  import { findPrimaryCalendar } from '../utils'
 
   export let todo: ToDo
 
@@ -30,10 +32,38 @@
   const query = createQuery()
 
   let slots: WorkSlot[] = []
+  let reminders: number[] = []
+  let remindersHydrated = false
+  let remindersKey = ''
+  let currentTodoId: Ref<ToDo> | undefined
+
+  $: if (todo?._id !== undefined && currentTodoId !== todo._id) {
+    currentTodoId = todo._id
+    remindersHydrated = false
+    reminders = []
+    remindersKey = ''
+  }
 
   $: query.query(time.class.WorkSlot, { attachedTo: todo._id }, (res) => {
     slots = res
+    if (!remindersHydrated) {
+      reminders = [...(slots[0]?.reminders ?? [])]
+      remindersHydrated = true
+      remindersKey = JSON.stringify(reminders)
+    }
   })
+
+  $: {
+    if (!remindersHydrated || slots.length === 0) {
+      // no-op
+    } else {
+      const nextKey = JSON.stringify(reminders)
+      if (nextKey !== remindersKey) {
+        remindersKey = nextKey
+        void syncRemindersForSlots()
+      }
+    }
+  }
 
   async function change (e: CustomEvent<{ startDate: number, dueDate: number, slot: Ref<WorkSlot> }>): Promise<void> {
     const { startDate, dueDate, slot } = e.detail
@@ -55,13 +85,8 @@
     const defaultDuration = 30 * 60 * 1000
     const now = Date.now()
     const date = Math.ceil(now / (30 * 60 * 1000)) * (30 * 60 * 1000)
-    const currentUser = getCurrentAccount() as PersonAccount
-    const extCalendar = await client.findOne(calendar.class.ExternalCalendar, {
-      createdBy: currentUser._id,
-      hidden: false,
-      default: true
-    })
-    const _calendar = extCalendar ? extCalendar._id : (`${currentUser._id}_calendar` as Ref<Calendar>)
+    const currentAccount = getCurrentAccount()
+    const _calendar = await findPrimaryCalendar()
     const dueDate = date + defaultDuration
     await client.addCollection(time.class.WorkSlot, calendar.space.Calendar, todo._id, todo._class, 'workslots', {
       eventId: generateEventId(),
@@ -69,19 +94,29 @@
       dueDate,
       calendar: _calendar,
       description: todo.description,
-      participants: [currentUser.person],
+      participants: [getCurrentEmployee()],
       title: todo.title,
+      blockTime: true,
       allDay: false,
-      access: 'owner',
+      access: AccessLevel.Owner,
+      user: currentAccount.primarySocialId,
       visibility: todo.visibility === 'public' ? 'public' : 'freeBusy',
-      reminders: []
+      reminders
     })
     Analytics.handleEvent(TimeEvents.ToDoScheduled, { id: todo._id })
   }
 
+  async function syncRemindersForSlots (): Promise<void> {
+    await Promise.all(
+      slots.map(async (slot) => {
+        await client.update(slot, { reminders })
+      })
+    )
+  }
+
   async function remove (e: CustomEvent<{ _id: Ref<WorkSlot> }>): Promise<void> {
     const object = slots.find((p) => p._id === e.detail._id)
-    if (object) {
+    if (object !== undefined) {
       showPopup(
         contact.component.DeleteConfirmationPopup,
         {
@@ -100,4 +135,11 @@
   }
 </script>
 
-<Workslots {slots} fixed={'toDo'} on:change={change} on:dueChange={dueChange} on:create={create} on:remove={remove} />
+<div class="flex-col">
+  <Workslots {slots} fixed={'toDo'} on:change={change} on:dueChange={dueChange} on:create={create} on:remove={remove} />
+  {#if slots.length > 0}
+    <div class="flex pt-4">
+      <EventReminders bind:reminders />
+    </div>
+  {/if}
+</div>

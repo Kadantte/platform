@@ -1,7 +1,7 @@
 <script lang="ts">
-  import calendar, { Calendar, Event, generateEventId, getAllEvents } from '@hcengineering/calendar'
+  import calendar, { AccessLevel, Calendar, Event, generateEventId, getAllEvents } from '@hcengineering/calendar'
   import { DayCalendar, calendarByIdStore, hidePrivateEvents } from '@hcengineering/calendar-resources'
-  import { PersonAccount } from '@hcengineering/contact'
+  import { getCurrentEmployee } from '@hcengineering/contact'
   import { Ref, SortingOrder, Timestamp, getCurrentAccount } from '@hcengineering/core'
   import { IntlString, getEmbeddedLabel } from '@hcengineering/platform'
   import { createQuery } from '@hcengineering/presentation'
@@ -47,14 +47,16 @@
 
   const rem = (n: number): number => n * $deviceInfo.fontSize
 
-  const acc = getCurrentAccount()._id
+  const myAcc = getCurrentAccount()
+  const socialStrings = myAcc.socialIds
+  const personalCalendar = `${myAcc.uuid}_calendar` as Ref<Calendar>
 
   const calendarsQ = createQuery()
 
   let calendars: Calendar[] = []
   let todayDate = new Date()
 
-  $: calendarsQ.query(calendar.class.Calendar, { createdBy: acc, hidden: false }, (res) => {
+  $: calendarsQ.query(calendar.class.Calendar, { createdBy: { $in: socialStrings }, hidden: false }, (res) => {
     calendars = res
   })
 
@@ -64,7 +66,7 @@
   function update (calendars: Calendar[]): void {
     q.query<Event>(
       calendar.class.Event,
-      { calendar: { $in: calendars.map((p) => p._id) } },
+      { calendar: { $in: [personalCalendar, ...calendars.map((p) => p._id)] } },
       (result) => {
         raw = result
       },
@@ -113,27 +115,27 @@
         current.date = e.detail.date.getTime()
         current.dueDate = new Date(e.detail.date).setMinutes(new Date(e.detail.date).getMinutes() + 30)
       } else {
-        const me = getCurrentAccount() as PersonAccount
-        const _calendar = `${me._id}_calendar` as Ref<Calendar>
         const ev: WorkSlot = {
           _id: dragItemId,
           allDay: false,
           eventId: generateEventId(),
           title: '',
           description: '',
-          access: 'owner',
+          access: AccessLevel.Owner,
           attachedTo: dragItem._id,
           attachedToClass: dragItem._class,
           _class: time.class.WorkSlot,
           collection: 'events',
           visibility: 'public',
-          calendar: _calendar,
+          blockTime: true,
+          calendar: personalCalendar,
           space: calendar.space.Calendar,
-          modifiedBy: me._id,
-          participants: [me.person],
+          modifiedBy: myAcc.primarySocialId,
+          participants: [getCurrentEmployee()],
           modifiedOn: Date.now(),
           date: e.detail.date.getTime(),
-          dueDate: new Date(e.detail.date).setMinutes(new Date(e.detail.date).getMinutes() + 30)
+          dueDate: new Date(e.detail.date).setMinutes(new Date(e.detail.date).getMinutes() + 30),
+          user: myAcc.primarySocialId
         }
         raw.push(ev)
       }

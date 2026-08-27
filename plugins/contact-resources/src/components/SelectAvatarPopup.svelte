@@ -14,14 +14,15 @@
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
-
-  import { AvatarType, buildGravatarId, checkHasGravatar, type AvatarInfo } from '@hcengineering/contact'
+  import MD5 from 'crypto-js/md5'
+  import { AvatarType, checkHasGravatar, type AvatarInfo } from '@hcengineering/contact'
   import type { Ref } from '@hcengineering/core'
   import { Blob as PlatformBlob } from '@hcengineering/core'
   import { Asset } from '@hcengineering/platform'
-  import presentation, { Card, getFileUrl } from '@hcengineering/presentation'
-  import {
+  import presentation, { Card, getFileUrl, uiContext } from '@hcengineering/presentation'
+  import ui, {
     AnySvelteComponent,
+    Button,
     ColorDefinition,
     Label,
     TabList,
@@ -37,6 +38,10 @@
   import { getAvatarTypeDropdownItems } from '../utils'
   import AvatarComponent from './Avatar.svelte'
   import EditAvatarPopup from './EditAvatarPopup.svelte'
+
+  function buildGravatarId (email: string): string {
+    return MD5(email.trim().toLowerCase()).toString()
+  }
 
   export let selectedAvatarType: AvatarType
   export let selectedAvatar: AvatarInfo['avatar']
@@ -167,6 +172,12 @@
     }
   }
 
+  function handleClearClick (): void {
+    selectedAvatar = undefined
+    selectedAvatarType = AvatarType.COLOR
+    selectedAvatarProps = { color: getPlatformAvatarColorForTextDef(name ?? '', $themeStore.dark).name }
+  }
+
   const showColorPopup = (event: MouseEvent) => {
     showPopup(
       ColorsPopup,
@@ -205,17 +216,7 @@
   <div class="flex-col-center gapV-4 mx-6">
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div
-      class="cursor-pointer"
-      on:click|self={(e) => {
-        if (imageOnly) {
-          handleImageAvatarClick()
-        } else {
-          if (selectedAvatarType === AvatarType.IMAGE) handleImageAvatarClick()
-          else if (selectedAvatarType === AvatarType.COLOR) showColorPopup(e)
-        }
-      }}
-    >
+    <div class="cursor-pointer">
       <AvatarComponent
         person={{
           avatarType: selectedAvatarType,
@@ -226,6 +227,15 @@
         size={'2x-large'}
         {icon}
         {name}
+        clickable
+        on:click={(e) => {
+          if (imageOnly) {
+            void handleImageAvatarClick()
+          } else {
+            if (selectedAvatarType === AvatarType.IMAGE) void handleImageAvatarClick()
+            else if (selectedAvatarType === AvatarType.COLOR) showColorPopup(e)
+          }
+        }}
       />
     </div>
     <TabList
@@ -235,6 +245,9 @@
       on:select={handleDropdownSelection}
     />
   </div>
+  <svelte:fragment slot="buttons">
+    <Button minWidth={'5rem'} label={ui.string.Clear} kind={'ghost'} size={'large'} on:click={handleClearClick} />
+  </svelte:fragment>
   <svelte:fragment slot="footer">
     {#if selectedAvatarType === AvatarType.GRAVATAR}
       <div class="flex-col">

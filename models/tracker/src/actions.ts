@@ -276,6 +276,30 @@ export function createActions (builder: Builder, issuesId: string, componentsId:
     },
     tracker.action.SetParent
   )
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.UpdateDocument,
+      actionProps: {
+        key: 'attachedTo',
+        value: tracker.ids.NoParent
+      },
+      query: {
+        attachedTo: { $ne: tracker.ids.NoParent }
+      },
+      label: tracker.string.UnsetParentIssue,
+      icon: tracker.icon.UnsetParent,
+      input: 'none',
+      category: tracker.category.Tracker,
+      target: tracker.class.Issue,
+      context: {
+        mode: ['context'],
+        application: tracker.app.Tracker,
+        group: 'associate'
+      }
+    },
+    tracker.action.UnsetParent
+  )
 
   createAction(
     builder,
@@ -529,7 +553,7 @@ export function createActions (builder: Builder, issuesId: string, componentsId:
       action: view.actionImpl.ShowPopup,
       actionProps: {
         component: tracker.component.SetDueDateActionPopup,
-        props: { mondayStart: true, withTime: false },
+        props: { withTime: false },
         element: 'top',
         fillProps: {
           _objects: 'value'
@@ -609,7 +633,8 @@ export function createActions (builder: Builder, issuesId: string, componentsId:
         mode: ['context', 'browser'],
         application: tracker.app.Tracker,
         group: 'copy'
-      }
+      },
+      override: [view.action.CopyLink]
     },
     tracker.action.CopyIssueLink
   )
@@ -696,6 +721,26 @@ export function createActions (builder: Builder, issuesId: string, componentsId:
   builder.mixin(tracker.class.Milestone, core.class.Class, view.mixin.IgnoreActions, {
     actions: [view.action.Delete]
   })
+
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.CopyAsMarkdownTable,
+      actionProps: {
+        cardClass: tracker.class.Issue
+      },
+      label: view.string.CopyAsMarkdownTable,
+      icon: view.icon.Print,
+      input: 'selection',
+      category: view.category.General,
+      target: tracker.class.Issue,
+      context: {
+        mode: ['context', 'browser'],
+        group: 'copy'
+      }
+    },
+    tracker.action.CopyAsMarkdownTable
+  )
 
   createAction(
     builder,

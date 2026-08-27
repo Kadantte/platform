@@ -14,17 +14,18 @@
 -->
 <script lang="ts">
   import type { Doc, Ref } from '@hcengineering/core'
-  import type { Asset } from '@hcengineering/platform'
+  import type { Asset, IntlString } from '@hcengineering/platform'
   import type { Action, IconSize } from '@hcengineering/ui'
   import TreeElement from './TreeElement.svelte'
   import { AnySvelteComponent } from '@hcengineering/ui'
 
-  export let _id: Ref<Doc> | undefined = undefined
+  export let _id: Ref<Doc> | string | undefined = undefined
   export let icon: Asset | AnySvelteComponent | undefined = undefined
   export let folderIcon: boolean = false
   export let iconProps: Record<string, any> | undefined = undefined
   export let iconSize: IconSize = 'small'
-  export let title: string
+  export let title: string | undefined = undefined
+  export let label: IntlString | undefined = undefined
   export let notifications = 0
   export let actions: (originalEvent?: MouseEvent) => Promise<Action[]> = async () => []
   export let selected: boolean = false
@@ -39,6 +40,7 @@
   export let showNotify: boolean = false
   export let forciblyСollapsed: boolean = false
   export let collapsedPrefix: string = ''
+  export let draggable: boolean = false
 </script>
 
 <TreeElement
@@ -48,6 +50,7 @@
   {iconSize}
   {iconProps}
   {title}
+  {label}
   {notifications}
   {selected}
   {actions}
@@ -62,7 +65,12 @@
   {showMenu}
   {noDivider}
   {forciblyСollapsed}
+  {draggable}
   on:click
+  on:dragstart
+  on:dragover
+  on:dragend
+  on:drop
 >
   <svelte:fragment slot="extra"><slot name="extra" /></svelte:fragment>
   <svelte:fragment slot="dropbox"><slot name="dropbox" /></svelte:fragment>

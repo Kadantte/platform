@@ -14,11 +14,12 @@
 -->
 <script lang="ts">
   import { Mixin, DocumentQuery, Ref } from '@hcengineering/core'
-  import { DocumentSpace, type DocumentTemplate } from '@hcengineering/controlled-documents'
-  import { ActionContext, createQuery } from '@hcengineering/presentation'
+  import { type DocumentTemplate } from '@hcengineering/controlled-documents'
+  import { ActionContext } from '@hcengineering/presentation'
   import { Button, IconAdd, Loading, showPopup } from '@hcengineering/ui'
   import view, { ViewOptions, Viewlet, ViewletPreference } from '@hcengineering/view'
-  import { TableBrowser, ViewletPanelHeader, checkMyPermission, permissionsStore } from '@hcengineering/view-resources'
+  import { TableBrowser, ViewletPanelHeader } from '@hcengineering/view-resources'
+  import { checkMyPermission, permissionsStore } from '@hcengineering/contact-resources'
 
   import documents from '../plugin'
 
@@ -33,22 +34,7 @@
   let loading = true
   const _class: Ref<Mixin<DocumentTemplate>> = documents.mixin.DocumentTemplate
 
-  let spaces: Ref<DocumentSpace>[] = []
-  const spacesQuery = createQuery()
-  $: spacesQuery.query(
-    documents.class.DocumentSpace,
-    {},
-    (res) => {
-      spaces = res.map((s) => s._id)
-    },
-    {
-      projection: {
-        _id: 1
-      }
-    }
-  )
-
-  $: srcQuery = { ...query, space: { $in: spaces } }
+  $: srcQuery = { ...query }
   $: canAddTemplate = checkMyPermission(
     documents.permission.CreateDocument,
     documents.space.QualityDocuments,
@@ -104,7 +90,6 @@
       options={viewlet.options}
       query={resultQuery}
       showNotification
-      enableChecking={false}
     />
   {/if}
 </div>

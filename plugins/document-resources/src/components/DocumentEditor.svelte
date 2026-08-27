@@ -16,12 +16,13 @@
 -->
 <script lang="ts">
   import contact from '@hcengineering/contact'
-  import { Document } from '@hcengineering/document'
+  import document, { Document } from '@hcengineering/document'
   import { getResource } from '@hcengineering/platform'
-  import { CollaboratorEditor, HeadingsExtension, ImageUploadOptions } from '@hcengineering/text-editor-resources'
+  import { getClient } from '@hcengineering/presentation'
+  import { CollaboratorEditor, ImageUploadOptions } from '@hcengineering/text-editor-resources'
   import { AnySvelteComponent } from '@hcengineering/ui'
   import { getCollaborationUser } from '@hcengineering/view-resources'
-  import { Extensions, FocusPosition } from '@tiptap/core'
+  import { FocusPosition } from '@tiptap/core'
   import { createEventDispatcher } from 'svelte'
 
   export let object: Document
@@ -31,6 +32,10 @@
   export let focusIndex = -1
   export let overflow: 'auto' | 'none' = 'none'
   export let editorAttributes: Record<string, string> = {}
+  export let requestSideSpace: ((width: number) => void) | undefined = undefined
+
+  const client = getClient()
+  const dispatch = createEventDispatcher()
 
   const user = getCollaborationUser()
   let userComponent: AnySvelteComponent | undefined
@@ -44,24 +49,15 @@
     collabEditor.focus(position)
   }
 
-  const dispatch = createEventDispatcher()
-
-  const handleExtensions = (): Extensions => [
-    HeadingsExtension.configure({
-      onChange: (headings) => {
-        dispatch('headings', headings)
-      }
-    })
-  ]
+  $: attribute = {
+    key: 'content',
+    attr: client.getHierarchy().getAttribute(document.class.Document, 'content')
+  }
 </script>
 
 <CollaboratorEditor
-  collaborativeDoc={object.content}
-  objectClass={object._class}
-  objectId={object._id}
-  objectSpace={object.space}
-  objectAttr="content"
-  field="content"
+  {object}
+  {attribute}
   {user}
   {userComponent}
   {focusIndex}
@@ -70,8 +66,15 @@
   {boundary}
   {overflow}
   {editorAttributes}
-  onExtensions={handleExtensions}
+  {requestSideSpace}
   on:update
-  on:open-document
+  on:loaded
+  kitOptions={{
+    toc: {
+      onChange: (h) => {
+        dispatch('headings', h)
+      }
+    }
+  }}
   bind:this={collabEditor}
 />

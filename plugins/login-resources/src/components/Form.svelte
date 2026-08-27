@@ -21,25 +21,13 @@
 
   import { onMount } from 'svelte'
   import { BottomAction } from '..'
-  import login from '../plugin'
   import { makeSequential } from '../mutex'
+  import type { Field } from '../types'
+  import login from '../plugin'
+  import BottomActionComponent from './BottomAction.svelte'
   import Providers from './Providers.svelte'
   import Tabs from './Tabs.svelte'
-  import BottomActionComponent from './BottomAction.svelte'
-
-  interface Field {
-    id?: string
-    name: string
-    i18n: IntlString
-    password?: boolean
-    optional?: boolean
-    short?: boolean
-    rules?: {
-      rule: RegExp
-      notMatch: boolean
-      ruleDescr: IntlString
-    }[]
-  }
+  import { loginFormMinHeight, loginFormPadding } from '../loginFormLayout'
 
   interface Action {
     i18n: IntlString
@@ -47,6 +35,7 @@
   }
 
   export let caption: IntlString
+  export let captionParams: Record<string, any> = {}
   export let status: Status
   export let fields: Field[]
   export let action: Action
@@ -58,11 +47,13 @@
   export let withProviders: boolean = false
   export let subtitle: string | undefined = undefined
   export let signUpDisabled = false
-
-  $: $themeStore.language && validate($themeStore.language)
+  export let isLoading: boolean = false
+  export let actionButtonDataId: string | undefined = undefined
+  export let secondaryButtonDataId: string | undefined = undefined
 
   const validate = makeSequential(async function validateAsync (language: string): Promise<boolean> {
-    if (ignoreInitialValidation) return true
+    if (ignoreInitialValidation || isLoading) return true
+
     for (const field of fields) {
       const v = object[field.name]
       const f = field
@@ -87,8 +78,11 @@
       }
       if (f.rules !== undefined) {
         for (const rule of f.rules) {
-          if (rule.rule.test(v) === rule.notMatch) {
-            status = new Status(Severity.INFO, rule.ruleDescr, {})
+          const isValid =
+            typeof rule.rule === 'function' ? rule.rule(v) !== rule.notMatch : rule.rule.test(v) !== rule.notMatch
+
+          if (!isValid) {
+            status = new Status(Severity.INFO, rule.ruleDescr, rule.ruleDescrParams ?? {})
             return false
           }
         }
@@ -97,16 +91,25 @@
     status = OK
     return true
   })
-  validate($themeStore.language)
+
+  export function invalidate (): void {
+    void validate($themeStore.language)
+  }
+
+  $: if ($themeStore.language != null && $themeStore.language !== '') {
+    void validate($themeStore.language)
+  }
 
   let inAction = false
 
   function performAction (action: Action): void {
+    if (inAction) return
+
     for (const field of fields) {
       trim(field.name)
     }
     inAction = true
-    action.func().finally(() => {
+    void action.func().finally(() => {
       inAction = false
     })
   }
@@ -120,16 +123,17 @@
   $: loginState = caption === login.string.LogIn ? 'login' : caption === login.string.SignUp ? 'signup' : 'none'
 </script>
 
+<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 <form
   class="container"
-  style:padding={$deviceInfo.docWidth <= 480 ? '.25rem 1.25rem' : '4rem 5rem'}
-  style:min-height={$deviceInfo.docHeight > 720 ? '42rem' : '0'}
+  style:padding={loginFormPadding($deviceInfo.docWidth, $deviceInfo.docHeight)}
+  style:min-height={loginFormMinHeight($deviceInfo.docHeight)}
   on:keydown={(evt) => {
     if (evt.key === 'Enter') {
       evt.preventDefault()
       evt.stopPropagation()
       if (!inAction) {
-        validate($themeStore.language).then((res) => {
+        void validate($themeStore.language).then((res) => {
           if (res) {
             performAction(action)
           }
@@ -146,15 +150,19 @@
         {subtitle}
       </div>
     {/if}
-    <div class="title"><Label label={caption} /></div>
+    <div class="flex-row-center">
+      <div class="title"><Label label={caption} params={captionParams} /></div>
+      <slot name="region-selector" />
+    </div>
   {/if}
   <div class="form">
     {#each fields as field (field.name)}
-      <div class={field.short && !($deviceInfo.docWidth <= 600) ? 'form-col' : 'form-row'}>
+      <div class={field.short !== undefined && !($deviceInfo.docWidth <= 600) ? 'form-col' : 'form-row'}>
         <StylishEdit
           label={field.i18n}
           name={field.id}
           password={field.password}
+          disabled={inAction || field.disabled}
           bind:value={object[field.name]}
           on:input={() => validate($themeStore.language)}
           on:blur={() => {
@@ -164,12 +172,15 @@
       </div>
     {/each}
 
+    <slot name="extra-fields" />
+
     <div class="status">
       <StatusControl {status} />
     </div>
 
     <div class="form-row send">
       <Button
+        dataId={actionButtonDataId}
         label={action.i18n}
         kind={'contrast'}
         shape={'round2'}
@@ -179,13 +190,20 @@
         disabled={status.severity !== Severity.OK && status.severity !== Severity.ERROR}
         on:click={(e) => {
           e.preventDefault()
-          performAction(action)
+          if (!inAction) {
+            void validate($themeStore.language).then((res) => {
+              if (res) {
+                performAction(action)
+              }
+            })
+          }
         }}
       />
     </div>
-    {#if secondaryButtonLabel && secondaryButtonAction}
+    {#if secondaryButtonLabel !== undefined && secondaryButtonAction}
       <div class="form-row">
         <Button
+          dataId={secondaryButtonDataId}
           label={secondaryButtonLabel}
           width="100%"
           on:click={(e) => {
@@ -210,7 +228,8 @@
 
 <style lang="scss">
   .container {
-    overflow: hidden;
+    overflow-x: hidden;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 
@@ -237,31 +256,14 @@
         grid-column-end: 3;
       }
 
-      .hint {
-        margin-top: 1rem;
-        font-size: 0.8rem;
-        color: var(--theme-content-color);
-      }
-
       .send {
         margin-top: 0rem;
       }
-    }
-    .grow-separator {
-      flex-grow: 1;
     }
     .footer {
       margin-top: 1.75rem;
       font-size: 0.8rem;
       color: var(--theme-content-color);
-      span {
-        color: var(--theme-darker-color);
-      }
-      a {
-        font-weight: 500;
-        text-decoration: underline;
-        color: var(--theme-content-color);
-      }
     }
   }
 </style>

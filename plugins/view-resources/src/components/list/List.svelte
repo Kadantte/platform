@@ -23,13 +23,15 @@
     Space,
     mergeQueries
   } from '@hcengineering/core'
-  import { IntlString, getResource } from '@hcengineering/platform'
+  import { IntlString } from '@hcengineering/platform'
   import { createQuery, getClient, reduceCalls } from '@hcengineering/presentation'
   import { AnyComponent, AnySvelteComponent } from '@hcengineering/ui'
-  import { BuildModelKey, ViewOptionModel, ViewOptions, ViewQueryOption, Viewlet } from '@hcengineering/view'
-  import { createEventDispatcher } from 'svelte'
+  import { BuildModelKey, ViewOptionModel, ViewOptions, Viewlet } from '@hcengineering/view'
+  import { createEventDispatcher, onDestroy } from 'svelte'
   import { SelectionFocusProvider } from '../../selection'
+  import { claimResultCountOwner, releaseResultCountOwner, setResultCount } from '../../stores'
   import { buildConfigLookup } from '../../utils'
+  import { getResultOptions, getResultQuery } from '../../viewOptions'
   import ListCategories from './ListCategories.svelte'
 
   export let _class: Ref<Class<Doc>>
@@ -52,6 +54,20 @@
   export let selection: number | undefined = undefined
   export let compactMode: boolean = false
   export let listProvider: SelectionFocusProvider
+  export let singleCategoryLimit: number | undefined = undefined
+  export let readonly: boolean = false
+  // Opt-in participation in the shared result-count protocol, evaluated once at
+  // mount. Defaults to `false` so the only List instance that touches the count
+  // store is the one that explicitly opts in — the PRIMARY tracker viewlet
+  // (ListView passes `true`). Every other List mount stays out by default:
+  // embedded sub-issues / related issues in an issue panel, card-panel children,
+  // process extensions, and any future embedding. An embedded List that claimed
+  // the owner token would supersede the primary list's token, then release it on
+  // close — stranding the primary list with a dead token whose future writes are
+  // no-ops, so the zero-hit card could never render again. Default-out keeps the
+  // primary viewlet the sole owner and makes new embeddings safe without having
+  // to remember to opt out.
+  export let reportResultCount: boolean = false
 
   const limiter = new RateLimiter(10)
 
@@ -62,23 +78,66 @@
   let fastDocs: Doc[] = []
   let slowDocs: Doc[] = []
 
+  // The opted-in PRIMARY viewlet writes its result-count into the shared
+  // result-count store (via the owner-token gate) so IssuesView's SearchEmptyState
+  // card can render when search has no matches. We claim ownership at init so a
+  // viewlet torn down after us can no longer clobber our count, and release on
+  // destroy. Instances that leave `reportResultCount` at its default (`false`)
+  // get no owner and never touch the gate — see the prop comment above.
+  // queryReady is RE-armed false on every query change (`$: queryReady = false`
+  // below) so a stale count from a previous query never lingers as truth —
+  // without this reset the SearchEmptyState card could remain stuck on `0`
+  // after a successful search produced new results.
+  const resultCountOwner = reportResultCount ? claimResultCountOwner() : undefined
+  let queryReady = false
+  $: if (queryReady && resultCountOwner !== undefined) setResultCount(resultCountOwner, docs.length)
+  onDestroy(() => {
+    if (resultCountOwner !== undefined) releaseResultCountOwner(resultCountOwner)
+  })
+
   $: orderBy = viewOptions.orderBy
 
   const docsQuery = createQuery()
   const docsQuerySlow = createQuery()
 
   $: lookup = buildConfigLookup(client.getHierarchy(), _class, config, options?.lookup)
-  $: resultOptions = { ...options, lookup, ...(orderBy !== undefined ? { sort: { [orderBy[0]]: orderBy[1] } } : {}) }
+  $: configOptions = options
+  $: resultOptions = {
+    ...configOptions,
+    ...(Object.keys(lookup).length > 0 ? { lookup } : {}),
+    ...(orderBy !== undefined ? { sort: { [orderBy[0]]: orderBy[1] } } : {})
+  }
+
+  const updateOptions = reduceCalls(async function (options: FindOptions<Doc> | undefined, viewOptions: ViewOptions) {
+    configOptions = await getResultOptions(options, viewOptionsConfig, viewOptions)
+  })
+  $: void updateOptions(options, viewOptions)
 
   let resultQuery: DocumentQuery<Doc> = query
 
   const update = reduceCalls(async function (query: DocumentQuery<Doc>, viewOptions: ViewOptions) {
-    const p = await getResultQuery(query, viewOptionsConfig, viewOptions)
+    const p = await getResultQuery(hierarchy, query, viewOptionsConfig, viewOptions)
     resultQuery = mergeQueries(p, query)
   })
   $: void update(query, viewOptions)
 
   $: queryNoLookup = noLookup(resultQuery)
+  // Re-arm queryReady whenever the underlying query mutates so the result
+  // count stops claiming the previous query's outcome (see comment above).
+  //
+  // Re-arm only when the query CONTENT changes, not on every new object
+  // identity. `queryNoLookup` is rebuilt as a fresh object on each cycle, but
+  // createQuery() skips the callback for a deep-equal query — so resetting
+  // queryReady on identity alone would strand it at `false` (callback never
+  // re-fires) and the count/SearchEmptyState would stay stale forever.
+  let lastQuerySig: string | undefined
+  $: {
+    const sig = JSON.stringify(queryNoLookup)
+    if (sig !== lastQuerySig) {
+      lastQuerySig = sig
+      queryReady = false
+    }
+  }
 
   let fastQueryIds = new Set<Ref<Doc>>()
 
@@ -98,13 +157,13 @@
     queryNoLookup,
     (res) => {
       fastDocs = res
-      // console.log('query, res', queryNoLookup, res)
       fastQueryIds = new Set(res.map((it) => it._id))
+      queryReady = true
     },
     { ...categoryQueryOptions, limit: 1000 }
   )
 
-  $: if (fastDocs.length === 1000) {
+  $: if (fastDocs.length === 1000 && queryNoLookup.$search == null) {
     docsQuerySlow.query(
       _class,
       queryNoLookup,
@@ -113,6 +172,8 @@
       },
       categoryQueryOptions
     )
+  } else {
+    slowDocs = []
   }
 
   $: docs = [...fastDocs, ...slowDocs.filter((it) => !fastQueryIds.has(it._id))]
@@ -161,27 +222,6 @@
 
   $: dispatch('content', docs)
 
-  async function getResultQuery (
-    query: DocumentQuery<Doc>,
-    viewOptions: ViewOptionModel[] | undefined,
-    viewOptionsStore: ViewOptions
-  ): Promise<DocumentQuery<Doc>> {
-    if (viewOptions === undefined) return query
-    let result: DocumentQuery<Doc> = hierarchy.clone(query)
-    for (const viewOption of viewOptions) {
-      if (viewOption.actionTarget !== 'query') continue
-      const queryOption = viewOption as ViewQueryOption
-      const f = await getResource(queryOption.action)
-      const resultP = f(viewOptionsStore[queryOption.key] ?? queryOption.defaultValue, result)
-      if (resultP instanceof Promise) {
-        result = await resultP
-      } else {
-        result = resultP
-      }
-    }
-    return result
-  }
-
   function uncheckAll (): void {
     dispatch('check', { docs, value: false })
     selectedObjectIds = []
@@ -226,6 +266,7 @@
     {createItemDialogProps}
     {createItemLabel}
     {createItemEvent}
+    {singleCategoryLimit}
     on:check
     on:uncheckAll={uncheckAll}
     on:row-focus
@@ -247,6 +288,7 @@
     on:collapsed
     {resultQuery}
     {resultOptions}
+    {readonly}
   />
 </div>
 
@@ -258,6 +300,6 @@
     width: 100%;
     height: max-content;
     min-width: auto;
-    min-height: auto;
+    min-height: 0;
   }
 </style>

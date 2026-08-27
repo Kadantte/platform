@@ -33,6 +33,12 @@
     formData[field] = formData[field].trim()
   }
 
+  export function clear (): void {
+    Object.keys(formData).forEach((key) => {
+      formData[key] = ''
+    })
+  }
+
   async function validateCode (): Promise<void> {
     const code = Object.values(formData).join('')
 
@@ -59,6 +65,9 @@
   }
 
   function onKeydown (e: KeyboardEvent): void {
+    if (e.key === undefined) {
+      return
+    }
     const key = e.key.toLowerCase()
     const target = e.target as HTMLInputElement
     if (key !== 'backspace' && key !== 'delete') return

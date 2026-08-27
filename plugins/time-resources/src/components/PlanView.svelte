@@ -15,8 +15,8 @@
 
 <script lang="ts">
   import { createEventDispatcher, afterUpdate, onDestroy } from 'svelte'
-  import calendar, { Calendar, generateEventId } from '@hcengineering/calendar'
-  import { PersonAccount } from '@hcengineering/contact'
+  import calendar, { AccessLevel, Calendar, generateEventId, getPrimaryCalendar } from '@hcengineering/calendar'
+  import { getCurrentEmployee } from '@hcengineering/contact'
   import { Ref, getCurrentAccount } from '@hcengineering/core'
   import { getClient } from '@hcengineering/presentation'
   import { TagElement } from '@hcengineering/tags'
@@ -25,7 +25,7 @@
   import PlanningCalendar from './PlanningCalendar.svelte'
   import ToDosNavigator from './ToDosNavigator.svelte'
   import ToDos from './ToDos.svelte'
-  import { timeSeparators } from '../utils'
+  import { findPrimaryCalendar, timeSeparators } from '../utils'
   import { dragging } from '../dragging'
   import time from '../plugin'
   import { Analytics } from '@hcengineering/analytics'
@@ -48,13 +48,8 @@
     if (dragItem === null) return
     const doc = dragItem
     const date = e.detail.date.getTime()
-    const currentUser = getCurrentAccount() as PersonAccount
-    const extCalendar = await client.findOne(calendar.class.ExternalCalendar, {
-      createdBy: currentUser._id,
-      hidden: false,
-      default: true
-    })
-    const _calendar = extCalendar ? extCalendar._id : (`${currentUser._id}_calendar` as Ref<Calendar>)
+    const currentAccount = getCurrentAccount()
+    const _calendar = await findPrimaryCalendar()
     const dueDate = date + defaultDuration
     await client.addCollection(time.class.WorkSlot, calendar.space.Calendar, doc._id, doc._class, 'workslots', {
       calendar: _calendar,
@@ -62,12 +57,14 @@
       date,
       dueDate,
       description: doc.description,
-      participants: [currentUser.person],
+      participants: [getCurrentEmployee()],
       title: doc.title,
       allDay: false,
-      access: 'owner',
+      blockTime: true,
+      access: AccessLevel.Owner,
       visibility: doc.visibility === 'public' ? 'public' : 'freeBusy',
-      reminders: []
+      reminders: [],
+      user: currentAccount.primarySocialId
     })
     Analytics.handleEvent(TimeEvents.ToDoScheduled, { id: doc._id })
   }
@@ -88,7 +85,12 @@
   <ToDosNavigator bind:mode bind:tag bind:currentDate />
   <Separator name={'time'} float={$deviceInfo.navigator.float} index={0} color={'var(--theme-divider-color)'} />
 {/if}
-<div class="flex-col w-full clear-mins" class:left-divider={!$deviceInfo.navigator.visible} bind:this={mainPanel}>
+<div
+  class="flex-col w-full clear-mins mobile-wrapper"
+  class:left-divider={!$deviceInfo.navigator.visible}
+  class:right-divider={!visibleCalendar}
+  bind:this={mainPanel}
+>
   <ToDos {mode} {tag} bind:currentDate />
 </div>
 {#if visibleCalendar}

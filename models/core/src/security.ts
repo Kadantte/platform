@@ -17,11 +17,15 @@ import {
   DOMAIN_MODEL,
   DOMAIN_SPACE,
   IndexKind,
-  type Account,
+  type ModulePermissionGroup,
   type AccountRole,
-  type Arr,
+  type AccountUuid,
+  type AnyAttribute,
+  type AttributePermission,
   type Class,
+  type ClassPermission,
   type CollectionSize,
+  type Doc,
   type Permission,
   type Ref,
   type Role,
@@ -29,6 +33,8 @@ import {
   type Space,
   type SpaceType,
   type SpaceTypeDescriptor,
+  type Tx,
+  type TxAccessLevel,
   type TypedSpace
 } from '@hcengineering/core'
 import {
@@ -39,15 +45,16 @@ import {
   Mixin,
   Model,
   Prop,
+  TypeAccountUuid,
   TypeBoolean,
+  TypeNumber,
   TypeRef,
   TypeString,
   UX
 } from '@hcengineering/model'
 import { getEmbeddedLabel, type Asset, type IntlString } from '@hcengineering/platform'
 import core from './component'
-import { TAttachedDoc, TDoc } from './core'
-
+import { TAttachedDoc, TClass, TDoc } from './core'
 // S P A C E
 
 @Model(core.class.Space, core.class.Doc, DOMAIN_SPACE)
@@ -68,15 +75,18 @@ export class TSpace extends TDoc implements Space {
   @Index(IndexKind.Indexed)
     archived!: boolean
 
-  @Prop(ArrOf(TypeRef(core.class.Account)), core.string.Members)
+  @Prop(ArrOf(TypeAccountUuid()), core.string.Members)
   @Index(IndexKind.Indexed)
-    members!: Arr<Ref<Account>>
+    members!: AccountUuid[]
 
-  @Prop(ArrOf(TypeRef(core.class.Account)), core.string.Owners)
-    owners?: Ref<Account>[]
+  @Prop(ArrOf(TypeAccountUuid()), core.string.Owners)
+    owners?: AccountUuid[]
 
   @Prop(TypeBoolean(), core.string.AutoJoin)
     autoJoin?: boolean
+
+  @Prop(ArrOf(TypeString()), core.string.AutoJoinGuests)
+    autoJoinForRoles?: AccountRole[]
 }
 
 @Model(core.class.SystemSpace, core.class.Space)
@@ -119,8 +129,8 @@ export class TSpaceType extends TDoc implements SpaceType {
   @Prop(Collection(core.class.Role), core.string.Roles)
     roles!: CollectionSize<Role>
 
-  @Prop(ArrOf(TypeRef(core.class.Account)), core.string.Members)
-    members!: Arr<Ref<Account>>
+  @Prop(ArrOf(TypeAccountUuid()), core.string.Members)
+    members!: AccountUuid[]
 
   @Prop(TypeBoolean(), core.string.AutoJoin)
     autoJoin?: boolean
@@ -155,19 +165,60 @@ export class TRole extends TAttachedDoc implements Role {
 @UX(core.string.Permission)
 export class TPermission extends TDoc implements Permission {
   label!: IntlString
+  txClass?: Ref<Class<Tx>>
+  forbid?: boolean
+  objectClass?: Ref<Class<Doc<Space>>>
+  scope?: 'space' | 'workspace'
   description?: IntlString
   icon?: Asset
+}
+
+@Model(core.class.AttributePermission, core.class.Permission)
+@UX(core.string.Permission)
+export class TAttributePermission extends TPermission implements AttributePermission {
+  attribute!: Ref<AnyAttribute>
+}
+
+@Model(core.class.ClassPermission, core.class.Permission)
+@UX(core.string.Permission)
+export class TClassPermission extends TPermission implements ClassPermission {
+  targetClass!: Ref<Class<Doc>>
 }
 
 @Mixin(core.mixin.SpacesTypeData, core.class.Space)
 @UX(getEmbeddedLabel("All spaces' type")) // TODO: add icon?
 export class TSpacesTypeData extends TSpace implements RolesAssignment {
-  [key: Ref<Role>]: Ref<Account>[]
+  [key: Ref<Role>]: AccountUuid[]
 }
 
-@Model(core.class.Account, core.class.Doc, DOMAIN_MODEL)
-@UX(core.string.Account, undefined, undefined, 'name')
-export class TAccount extends TDoc implements Account {
-  email!: string
-  role!: AccountRole
+@Mixin(core.mixin.TxAccessLevel, core.class.Class)
+export class TTxAccessLevel extends TClass implements TxAccessLevel {
+  createAccessLevel?: AccountRole
+  removeAccessLevel?: AccountRole
+  updateAccessLevel?: AccountRole
+  isIdentity?: boolean
+}
+
+@Model(core.class.ModulePermissionGroup, core.class.Doc, DOMAIN_MODEL)
+export class TModulePermissionGroup extends TDoc implements ModulePermissionGroup {
+  @Prop(TypeRef(core.class.Doc), core.string.AttachedTo)
+    application!: Ref<Doc>
+
+  @Prop(TypeString(), core.string.Roles)
+    role!: AccountRole
+
+  @Prop(ArrOf(TypeRef(core.class.Permission)), core.string.Permission)
+    permissions!: Ref<Permission>[]
+
+  @Prop(ArrOf(TypeRef(core.class.Permission)), core.string.Permission)
+    disabledPermissions?: Ref<Permission>[]
+
+  @Prop(TypeRef(core.class.Class), core.string.Class)
+    spaceClass!: Ref<Class<Space>>
+
+  @Prop(TypeBoolean(), core.string.Name)
+    enabled!: boolean
+
+  @Prop(TypeNumber(), core.string.Order)
+    order?: number
 }

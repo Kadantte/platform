@@ -27,7 +27,7 @@ import core, {
   type WithLookup
 } from '@hcengineering/core'
 import { getResource } from '@hcengineering/platform'
-import { getClient } from '@hcengineering/presentation'
+import { addRefreshListener, getClient } from '@hcengineering/presentation'
 import { getEventPositionElement, showPopup } from '@hcengineering/ui'
 import {
   type Action,
@@ -42,6 +42,18 @@ import { type FocusSelection, type SelectionStore } from './selection'
 import { restrictionStore } from './utils'
 
 /**
+ * Collapses a single-element array to the element, otherwise returns the original value.
+ *
+ * @public
+ */
+export function normalizeActionContext<T extends Doc> (doc: T | T[] | undefined): T | T[] | undefined {
+  if (Array.isArray(doc) && doc.length === 1) {
+    return doc[0]
+  }
+  return doc
+}
+
+/**
  * @public
  */
 export function getSelection (focus: FocusSelection, selection: SelectionStore): Doc[] {
@@ -53,6 +65,12 @@ export function getSelection (focus: FocusSelection, selection: SelectionStore):
   }
   return docs
 }
+
+const allActions = new Map<ViewContextType, Action[]>()
+
+addRefreshListener(() => {
+  allActions.clear()
+})
 
 /**
  * @public
@@ -68,9 +86,11 @@ export async function getActions (
   derived: Ref<Class<Doc>> = core.class.Doc,
   mode: ViewContextType = 'context'
 ): Promise<Action[]> {
-  const actions: Action[] = await client.findAll(view.class.Action, {
-    'context.mode': mode
-  })
+  let actions: Action[] | undefined = allActions.get(mode)
+  if (actions === undefined) {
+    actions = client.getModel().findAllSync(view.class.Action, { 'context.mode': mode })
+    allActions.set(mode, actions)
+  }
 
   const filteredActions = await filterAvailableActions(actions, client, doc, derived)
 
@@ -106,7 +126,7 @@ export async function filterAvailableActions (
     } else {
       const visibilityTester = await getResource(action.visibilityTester)
 
-      if (await visibilityTester(doc)) {
+      if (await visibilityTester(normalizeActionContext(doc))) {
         result.push(action)
       }
     }
@@ -124,7 +144,7 @@ export async function invokeAction (
 ): Promise<void> {
   const impl = await getResource(action.action)
   Analytics.handleEvent(action.analyticsEvent ?? action._id)
-  await impl(Array.isArray(object) && object.length === 1 ? object[0] : object, evt, {
+  await impl(normalizeActionContext(object), evt, {
     ...action.actionProps,
     ...props
   })
@@ -136,9 +156,10 @@ export async function getContextActions (
   context: {
     mode: ViewContextType
     application?: Ref<Doc>
-  }
+  },
+  derived: Ref<Class<Doc>> = core.class.Doc
 ): Promise<Action[]> {
-  const result = await getActions(client, doc, undefined, context.mode)
+  const result = await getActions(client, doc, derived, context.mode)
 
   if (context.application !== undefined) {
     return result.filter((it) => it.context.application === context.application || it.context.application === undefined)

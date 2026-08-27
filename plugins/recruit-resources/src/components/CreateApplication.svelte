@@ -18,16 +18,15 @@
   import type { Contact, Employee, Person } from '@hcengineering/contact'
   import contact from '@hcengineering/contact'
   import { EmployeeBox, ExpandRightDouble, UserBox } from '@hcengineering/contact-resources'
-  import {
-    Account,
+  import core, {
     AccountRole,
     Class,
     Client,
     Doc,
     FindOptions,
     Markup,
+    PersonId,
     Ref,
-    SortingOrder,
     Space,
     Status as TaskStatus,
     fillDefaults,
@@ -44,7 +43,7 @@
     getClient
   } from '@hcengineering/presentation'
   import { recruitId, type Applicant, type Candidate, type Vacancy, RecruitEvents } from '@hcengineering/recruit'
-  import task, { TaskType, getStates, makeRank } from '@hcengineering/task'
+  import { TaskType, getStates } from '@hcengineering/task'
   import { TaskKindSelector, selectedTypeStore, typeStore } from '@hcengineering/task-resources'
   import { EmptyMarkup, isEmptyMarkup } from '@hcengineering/text'
   import ui, {
@@ -99,7 +98,7 @@
     _id: generateId(),
     collection: 'applications',
     modifiedOn: Date.now(),
-    modifiedBy: '' as Ref<Account>,
+    modifiedBy: '' as PersonId,
     startDate: null,
     dueDate: null,
     kind: '' as Ref<TaskType>,
@@ -119,7 +118,7 @@
     if (selectedState === undefined) {
       throw new Error(`Please select initial state:${_space}`)
     }
-    const sequence = await client.findOne(task.class.Sequence, { attachedTo: recruit.class.Applicant })
+    const sequence = await client.findOne(core.class.Sequence, { attachedTo: recruit.class.Applicant })
     if (sequence === undefined) {
       throw new Error('sequence object not found')
     }
@@ -127,7 +126,6 @@
       throw new Error('kind is not specified')
     }
 
-    const lastOne = await client.findOne(recruit.class.Applicant, {}, { sort: { rank: SortingOrder.Descending } })
     const incResult = await client.update(sequence, { $inc: { sequence: 1 } }, true)
 
     const candidateInstance = await client.findOne(contact.class.Person, { _id: _candidate })
@@ -160,10 +158,7 @@
         status: selectedState._id,
         number,
         identifier: `APP-${number}`,
-        assignee: doc.assignee,
-        rank: makeRank(lastOne?.rank, undefined),
-        startDate: null,
-        dueDate: null,
+        rank: '',
         kind
       },
       doc._id
@@ -220,9 +215,10 @@
   const spaceQuery = createQuery()
 
   let vacancy: Vacancy | undefined
+  const acc = getCurrentAccount()
 
   $: if (_space) {
-    spaceQuery.query(recruit.class.Vacancy, { _id: _space }, (res) => {
+    spaceQuery.query(recruit.class.Vacancy, { _id: _space, members: acc.uuid }, (res) => {
       vacancy = res.shift()
     })
   }
@@ -306,7 +302,7 @@
         id={'vacancy.talant.selector'}
         focusIndex={1}
         readonly={preserveCandidate}
-        _class={recruit.mixin.Candidate}
+        _class={contact.class.Person}
         options={{ sort: { modifiedOn: -1 } }}
         excluded={existingApplicants}
         label={recruit.string.Talent}
@@ -329,7 +325,11 @@
     <div class="flex-grow">
       <SpaceSelect
         _class={recruit.class.Vacancy}
-        spaceQuery={{ archived: false, ...($selectedTypeStore !== undefined ? { type: $selectedTypeStore } : {}) }}
+        spaceQuery={{
+          archived: false,
+          members: acc.uuid,
+          ...($selectedTypeStore !== undefined ? { type: $selectedTypeStore } : {})
+        }}
         spaceOptions={orgOptions}
         readonly={preserveVacancy}
         label={recruit.string.Vacancy}
@@ -425,7 +425,7 @@
         <InlineAttributeBar
           _class={recruit.class.Applicant}
           object={doc}
-          toClass={task.class.Task}
+          toClass={core.class.AttachedDoc}
           ignoreKeys={['assignee', 'status']}
           extraProps={{ showNavigate: false, space: vacancy._id }}
         />

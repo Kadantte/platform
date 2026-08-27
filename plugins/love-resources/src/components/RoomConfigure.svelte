@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import contact, { Contact, Person } from '@hcengineering/contact'
-  import { AssigneeBox, personByIdStore } from '@hcengineering/contact-resources'
+  import { AssigneeBox } from '@hcengineering/contact-resources'
   import { Ref } from '@hcengineering/core'
   import { getClient } from '@hcengineering/presentation'
   import { ActionIcon, EditBox, Icon, IconDelete, resizeObserver } from '@hcengineering/ui'
@@ -26,6 +26,7 @@
   import { infos, lockedRoom } from '../stores'
   import { RoomSide, shadowNormal } from '../types'
   import { getRoomLabel } from '../utils'
+  import { IntlString } from '@hcengineering/platform'
 
   export let room: Room
   export let cellSize: number
@@ -75,7 +76,7 @@
   const dispatch = createEventDispatcher()
 
   let container: HTMLDivElement
-  let cursor: string = 'default'
+  let cursor: string = ''
   let dragStyle: string | undefined = undefined
   const roomSide: RoomSide = { top: false, bottom: false, left: false, right: false }
   let roomRect: DOMRect
@@ -98,7 +99,7 @@
   }
   function checkLeave () {
     if ($lockedRoom !== '') return
-    cursor = 'default'
+    cursor = ''
     clearShadow()
   }
 
@@ -160,6 +161,11 @@
         : undefined
   }
 
+  let roomLabel: IntlString
+  $: void getRoomLabel(room).then((label) => {
+    roomLabel = label
+  })
+
   onMount(() => {
     if (container) roomRect = container.getBoundingClientRect()
   })
@@ -198,13 +204,14 @@
           if (isOffice(room) && rX === 0 && rY === 0) e.stopPropagation()
         }}
       >
-        {#if isOffice(room) && rX === 0 && rY === 0}
+        {#if isOffice(room) && rX === 0 && rY === 0 && !room.person}
           <AssigneeBox
             _class={contact.class.Person}
             excluded={excludedPersons}
             shouldShowName={false}
             showNavigate={false}
             width={'100%'}
+            height={'100%'}
             label={contact.string.Person}
             value={room.person}
             avatarSize={'full'}
@@ -215,12 +222,7 @@
     {/each}
   {/each}
   <div class="floorGrid-configureRoom__header">
-    <EditBox
-      bind:value={room.name}
-      on:change={updateName}
-      placeholder={getRoomLabel(room, $personByIdStore)}
-      kind={'editbox'}
-    />
+    <EditBox bind:value={room.name} on:change={updateName} placeholder={roomLabel} kind={'editbox'} />
     {#if showButtons}
       <div
         class="flex-row-center flex-no-shrink h-full {zoomOut ? 'flex-gap-1' : 'flex-gap-2'}"
@@ -239,3 +241,13 @@
     {/if}
   </div>
 </div>
+
+<style lang="scss">
+  .floorGrid-configureRoom__field :global(.employee-presenter),
+  .floorGrid-configureRoom__field :global(.employee-presenter .antiPresenter),
+  .floorGrid-configureRoom__field :global(.employee-presenter .ap-icon) {
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+  }
+</style>

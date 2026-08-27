@@ -17,7 +17,7 @@
   import { Attachment } from '@hcengineering/attachment'
   import { Class, Data, Doc, DocumentQuery, Ref, Space } from '@hcengineering/core'
   import { IntlString } from '@hcengineering/platform'
-  import { Icon, Label, resizeObserver, Scroller, Spinner, Button, IconAdd } from '@hcengineering/ui'
+  import { Icon, Label, resizeObserver, Scroller, Spinner, ButtonIcon, IconAdd } from '@hcengineering/ui'
   import view, { BuildModelKey } from '@hcengineering/view'
   import { Table } from '@hcengineering/view-resources'
   import { getClient } from '@hcengineering/presentation'
@@ -52,12 +52,13 @@
   const client = getClient()
   const dispatch = createEventDispatcher()
 
-  async function onFileUploaded ({ uuid, name, file }: FileUploadCallbackParams): Promise<void> {
+  async function onFileUploaded ({ uuid, name, file, metadata }: FileUploadCallbackParams): Promise<void> {
     await createAttachment(
       client,
       uuid,
       name,
       file,
+      metadata,
       { objectClass: object?._class ?? _class, objectId, space },
       attachmentClass,
       attachmentClassOptions
@@ -70,11 +71,11 @@
 
     loading++
     try {
+      const target = { objectId, objectClass: object?._class ?? _class }
       const options = {
+        target,
         onFileUploaded,
-        showProgress: {
-          target: { objectId, objectClass: object?._class ?? _class }
-        }
+        showProgress: { target }
       }
       await uploadFiles(list, options)
     } finally {
@@ -109,7 +110,7 @@
         {#if loading}
           <Spinner />
         {:else if !readonly}
-          <Button icon={IconAdd} kind={'ghost'} on:click={openFile} />
+          <ButtonIcon icon={IconAdd} kind={'tertiary'} size={'small'} on:click={openFile} />
         {/if}
       </div>
     </div>
@@ -156,7 +157,7 @@
       </div>
     </AttachmentDroppable>
   {:else if wSection < 640}
-    <Scroller horizontal>
+    <Scroller horizontal noFade={false}>
       <Table
         _class={attachmentClass}
         config={[
@@ -171,7 +172,7 @@
           ...extraConfig,
           'lastModified'
         ]}
-        options={{ sort: { pinned: -1 } }}
+        options={{ sort: { pinned: -1 }, showArchived: true }}
         query={{ ...query, attachedTo: objectId }}
         loadingProps={{ length: attachments ?? 0 }}
         on:content={updateContent}
@@ -193,7 +194,7 @@
         ...extraConfig,
         'lastModified'
       ]}
-      options={{ sort: { pinned: -1 } }}
+      options={{ sort: { pinned: -1 }, showArchived: true }}
       query={{ ...query, attachedTo: objectId }}
       loadingProps={{ length: attachments ?? 0 }}
       on:content={updateContent}

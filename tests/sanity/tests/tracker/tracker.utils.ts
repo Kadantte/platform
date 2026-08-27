@@ -18,7 +18,8 @@ export interface IssueProps {
 
 export enum ViewletSelectors {
   Table = 'label[data-view*="List"]',
-  Board = 'label[data-view*="Board"]'
+  Board = 'label[data-view*="Board"]',
+  Gantt = 'label[data-view*="Gantt"]'
 }
 
 export const PRIORITIES = ['No priority', 'Urgent', 'High', 'Medium', 'Low']
@@ -35,7 +36,6 @@ export const DEFAULT_STATUSES_ID = new Map([
 
 export async function navigate (page: Page): Promise<void> {
   await (await page.goto(`${PlatformURI}/workbench/sanity-ws`))?.finished()
-  await page.click('[id="app-tracker\\:string\\:TrackerApplication"]')
 }
 
 export async function setViewGroup (page: Page, groupName: string): Promise<void> {
@@ -49,9 +49,13 @@ export async function setViewGroup (page: Page, groupName: string): Promise<void
 
 export async function setViewOrder (page: Page, orderName: string): Promise<void> {
   await page.click('button[data-id="btn-viewOptions"]')
-  await page.click('.antiCard >> .ordering >> button')
+  // The View-Options popup now renders more than one `.ordering` row: the
+  // Order-by dropdown plus any "other" toggles/dropdowns (e.g. the new
+  // searchScope selector). Target the first `.ordering` button, which is the
+  // Order-by control, to keep the locator unambiguous.
+  await page.click('.antiCard >> .ordering >> button >> nth=0')
   await page.click(`.menu-item:has-text("${orderName}")`)
-  await expect(page.locator('.antiCard >> .ordering >> button')).toContainText(orderName)
+  await expect(page.locator('.antiCard >> .ordering >> button >> nth=0')).toContainText(orderName)
 
   await page.keyboard.press('Escape')
 }
@@ -295,7 +299,7 @@ export function convertEstimation (estimation: number | string): string {
 
   const days = Math.floor(value / hoursInWorkingDay)
   const hours = Math.floor(value % hoursInWorkingDay)
-  const minutes = Math.floor((value % 1) * 60)
+  const minutes = Math.round((value % 1) * 60)
   const result = [
     ...(days === 0 ? [] : [`${days}d`]),
     ...(hours === 0 ? [] : [`${hours}h`]),

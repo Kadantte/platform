@@ -15,6 +15,9 @@
 
 import activity from '@hcengineering/activity'
 import {
+  type AccessLevel,
+  calendarId,
+  type PrimaryCalendar,
   type Calendar,
   type CalendarEventPresenter,
   type Event,
@@ -22,9 +25,11 @@ import {
   type ReccuringEvent,
   type ReccuringInstance,
   type RecurringRule,
+  type Schedule,
+  type ScheduleAvailability,
   type Visibility
 } from '@hcengineering/calendar'
-import { type Contact } from '@hcengineering/contact'
+import { type Contact, type Employee } from '@hcengineering/contact'
 import {
   DateRangeMode,
   IndexKind,
@@ -32,7 +37,10 @@ import {
   type Domain,
   type Markup,
   type Ref,
-  type Timestamp
+  type Timestamp,
+  type PersonId,
+  type ClassCollaborators,
+  AccountRole
 } from '@hcengineering/core'
 import {
   ArrOf,
@@ -60,6 +68,8 @@ import setting from '@hcengineering/setting'
 import { type AnyComponent } from '@hcengineering/ui/src/types'
 import workbench from '@hcengineering/model-workbench'
 import { WidgetType } from '@hcengineering/workbench'
+import preference, { TPreference } from '@hcengineering/model-preference'
+import { calendarIntegrationKind } from '@hcengineering/calendar'
 
 import calendar from './plugin'
 
@@ -68,6 +78,7 @@ export { calendarId } from '@hcengineering/calendar'
 export { calendarOperation } from './migration'
 
 export const DOMAIN_CALENDAR = 'calendar' as Domain
+export const DOMAIN_EVENT = 'event' as Domain
 
 @Model(calendar.class.Calendar, core.class.Doc, DOMAIN_CALENDAR)
 @UX(calendar.string.Calendar, calendar.icon.Calendar)
@@ -75,6 +86,8 @@ export class TCalendar extends TDoc implements Calendar {
   name!: string
   hidden!: boolean
   visibility!: Visibility
+  user!: PersonId
+  access!: AccessLevel
 }
 
 @Model(calendar.class.ExternalCalendar, calendar.class.Calendar)
@@ -85,7 +98,7 @@ export class TExternalCalendar extends TCalendar implements ExternalCalendar {
   externalUser!: string
 }
 
-@Model(calendar.class.Event, core.class.AttachedDoc, DOMAIN_CALENDAR)
+@Model(calendar.class.Event, core.class.AttachedDoc, DOMAIN_EVENT)
 @UX(calendar.string.Event, calendar.icon.Calendar)
 export class TEvent extends TAttachedDoc implements Event {
   declare space: Ref<SystemSpace>
@@ -127,13 +140,24 @@ export class TEvent extends TAttachedDoc implements Event {
     reminders?: number[]
 
   @Prop(ArrOf(TypeString()), calendar.string.ExternalParticipants)
+  @Index(IndexKind.Indexed)
     externalParticipants?: string[]
 
-  access!: 'freeBusyReader' | 'reader' | 'writer' | 'owner'
+  access!: AccessLevel
 
   visibility?: Visibility
 
   timeZone?: string
+
+  @Index(IndexKind.Indexed)
+    user!: PersonId
+
+  blockTime!: boolean
+}
+
+@Model(calendar.class.PrimaryCalendar, preference.class.Preference)
+export class TPrimaryCalendar extends TPreference implements PrimaryCalendar {
+  declare attachedTo: Ref<Calendar>
 }
 
 @Model(calendar.class.ReccuringEvent, calendar.class.Event)
@@ -154,6 +178,19 @@ export class TReccuringInstance extends TReccuringEvent implements ReccuringInst
   virtual?: boolean
 }
 
+@Model(calendar.class.Schedule, core.class.Doc, DOMAIN_CALENDAR)
+@UX(calendar.string.Schedule, calendar.icon.Calendar)
+export class TSchedule extends TDoc implements Schedule {
+  calendar?: Ref<Calendar>
+  owner!: Ref<Employee>
+  title!: string
+  description?: string
+  meetingDuration!: number
+  meetingInterval!: number
+  availability!: ScheduleAvailability
+  timeZone!: string
+}
+
 @Mixin(calendar.mixin.CalendarEventPresenter, core.class.Class)
 export class TCalendarEventPresenter extends TClass implements CalendarEventPresenter {
   presenter!: AnyComponent
@@ -166,7 +203,9 @@ export function createModel (builder: Builder): void {
     TReccuringEvent,
     TReccuringInstance,
     TEvent,
-    TCalendarEventPresenter
+    TSchedule,
+    TCalendarEventPresenter,
+    TPrimaryCalendar
   )
 
   builder.createDoc(
@@ -210,8 +249,11 @@ export function createModel (builder: Builder): void {
       allowMultiple: true,
       createComponent: calendar.component.IntegrationConnect,
       onDisconnect: calendar.handler.DisconnectHandler,
+      onDisconnectAll: calendar.handler.DisconnectAllHandler,
       reconnectComponent: calendar.component.IntegrationConnect,
-      configureComponent: calendar.component.IntegrationConfigure
+      configureComponent: calendar.component.IntegrationConfigure,
+      stateComponent: calendar.component.IntegrationState,
+      kind: calendarIntegrationKind
     },
     calendar.integrationType.Calendar
   )
@@ -226,7 +268,8 @@ export function createModel (builder: Builder): void {
     calendar.ids.CalendarNotificationGroup
   )
 
-  builder.mixin(calendar.class.Event, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<Event>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: calendar.class.Event,
     fields: ['participants']
   })
 
@@ -236,23 +279,32 @@ export function createModel (builder: Builder): void {
     {
       hidden: false,
       generated: false,
+      allowedForAuthor: true,
       label: calendar.string.Reminder,
       group: calendar.ids.CalendarNotificationGroup,
-      txClasses: [],
+      // Scheduled reminders are created by the events-processor worker, but provider/type settings still expect a
+      // tx class list. The notification doc itself is materialized via a direct createDoc, not by a tx trigger.
+      txClasses: [core.class.TxCreateDoc],
       objectClass: calendar.class.Event,
-      allowedForAuthor: true,
+      onlyOwn: true,
+      defaultEnabled: true,
       templates: {
-        textTemplate: 'Reminder: {doc}',
-        htmlTemplate: 'Reminder: {doc}',
-        subjectTemplate: 'Reminder: {doc}'
-      },
-      defaultEnabled: false
+        textTemplate: '{body}',
+        htmlTemplate: '<p>{body}</p><p>{link}</p>',
+        subjectTemplate: '{title}'
+      }
     },
     calendar.ids.ReminderNotification
   )
 
   builder.createDoc(notification.class.NotificationProviderDefaults, core.space.Model, {
     provider: notification.providers.InboxNotificationProvider,
+    ignoredTypes: [],
+    enabledTypes: [calendar.ids.ReminderNotification]
+  })
+
+  builder.createDoc(notification.class.NotificationProviderDefaults, core.space.Model, {
+    provider: notification.providers.PushNotificationProvider,
     ignoredTypes: [],
     enabledTypes: [calendar.ids.ReminderNotification]
   })
@@ -339,6 +391,25 @@ export function createModel (builder: Builder): void {
       { state: 1 }
     ]
   })
+
+  builder.mixin(calendar.class.Event, core.class.Class, view.mixin.ObjectTitle, {
+    titleProvider: calendar.function.EventTitleProvider
+  })
+
+  builder.createDoc(
+    setting.class.SettingsCategory,
+    core.space.Model,
+    {
+      name: calendarId,
+      label: calendar.string.Calendar,
+      icon: calendar.icon.Calendar,
+      component: calendar.component.CalendarSettings,
+      group: 'settings-account',
+      role: AccountRole.User,
+      order: 1600
+    },
+    calendar.ids.Settings
+  )
 }
 
 export default calendar

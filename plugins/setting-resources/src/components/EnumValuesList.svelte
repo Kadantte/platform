@@ -20,7 +20,8 @@
     IconMoreV,
     IconMoreV2,
     showPopup,
-    eventToHTMLElement
+    eventToHTMLElement,
+    ModernEditbox
   } from '@hcengineering/ui'
   import type { DropdownIntlItem } from '@hcengineering/ui'
   import { createEventDispatcher } from 'svelte'
@@ -44,7 +45,7 @@
     return false
   }
 
-  function dragover (ev: MouseEvent, item: string) {
+  function dragover (ev: MouseEvent, item: string): void {
     const s = values.findIndex((p) => p === selected)
     const i = values.findIndex((p) => p === item)
     if (dragswap(ev, item)) {
@@ -54,11 +55,11 @@
 
   const dispatch = createEventDispatcher()
 
-  async function remove (target: string) {
+  async function remove (target: string): Promise<void> {
     dispatch('remove', target)
   }
 
-  async function onDrop () {
+  async function onDrop (): Promise<void> {
     dispatch('drop')
   }
 
@@ -69,7 +70,7 @@
       label: setting.string.Delete,
       action: () => {
         if (opened !== undefined) {
-          remove(values[opened])
+          void remove(values[opened])
           opened = undefined
         }
       }
@@ -90,6 +91,19 @@
         opened = undefined
       })
     }
+  }
+
+  const handleKeydown = (evt: KeyboardEvent): void => {
+    if (evt.key === 'Enter') {
+      update()
+    }
+    if (evt.key === 'Escape') {
+      evt.stopPropagation()
+    }
+  }
+
+  function update (): void {
+    dispatch('update', values)
   }
 </script>
 
@@ -116,7 +130,17 @@
       <IconMoreV2 size={'small'} />
     </button>
     <div class="hulyTableAttr-content__row-label font-regular-14 accent">
-      {item}
+      <ModernEditbox
+        kind={'ghost'}
+        size={'small'}
+        label={setting.string.EnterOptionTitle}
+        on:keydown={handleKeydown}
+        on:blur={() => {
+          update()
+        }}
+        bind:value={values[i]}
+        width={'100%'}
+      />
     </div>
     <div class="hulyTableAttr-content__row-label grow" />
     {#if !disableMouseOver}

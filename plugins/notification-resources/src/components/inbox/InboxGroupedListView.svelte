@@ -18,7 +18,7 @@
     DisplayInboxNotification,
     DocNotifyContext
   } from '@hcengineering/notification'
-  import { Ref } from '@hcengineering/core'
+  import { Ref, Timestamp } from '@hcengineering/core'
   import { createEventDispatcher } from 'svelte'
   import { ListView } from '@hcengineering/ui'
   import { getClient } from '@hcengineering/presentation'
@@ -40,6 +40,10 @@
   let list: ListView
   let listSelection = 0
   let element: HTMLDivElement | undefined
+  let prevArchived = false
+
+  let archivingContexts = new Set<Ref<DocNotifyContext>>()
+  let archivedContexts = new Map<Ref<DocNotifyContext>, Timestamp>()
 
   let displayData: [Ref<DocNotifyContext>, DisplayInboxNotification[]][] = []
   let viewlets: ActivityNotificationViewlet[] = []
@@ -48,37 +52,86 @@
     viewlets = res
   })
 
+  $: if (prevArchived !== archived) {
+    prevArchived = archived
+    archivedContexts.clear()
+  }
   $: updateDisplayData(data)
 
   function updateDisplayData (data: InboxData): void {
-    displayData = Array.from(data.entries()).sort(([, notifications1], [, notifications2]) =>
+    let result: [Ref<DocNotifyContext>, DisplayInboxNotification[]][] = Array.from(data.entries())
+    if (archivedContexts.size > 0) {
+      result = result.filter(([contextId]) => {
+        const context = $contextByIdStore.get(contextId)
+        return (
+          !archivedContexts.has(contextId) ||
+          (context?.lastUpdateTimestamp ?? 0) > (archivedContexts.get(contextId) ?? 0)
+        )
+      })
+    }
+
+    displayData = result.sort(([, notifications1], [, notifications2]) =>
       notificationsComparator(notifications1[0], notifications2[0])
     )
   }
 
-  function onKeydown (key: KeyboardEvent): void {
-    if (key.code === 'ArrowUp') {
-      key.stopPropagation()
-      key.preventDefault()
-      list.select(listSelection - 1)
+  async function archiveContext (listSelection: number): Promise<void> {
+    const contextId = displayData[listSelection]?.[0]
+    const context = $contextByIdStore.get(contextId)
+    if (contextId === undefined || context === undefined) {
+      return
     }
-    if (key.code === 'ArrowDown') {
-      key.stopPropagation()
-      key.preventDefault()
-      list.select(listSelection + 1)
-    }
-    if (key.code === 'Backspace') {
-      key.preventDefault()
-      key.stopPropagation()
 
-      const contextId = displayData[listSelection]?.[0]
-      const context = $contextByIdStore.get(contextId)
+    archivingContexts = archivingContexts.add(contextId)
+    try {
+      const nextContextId = displayData[listSelection + 1]?.[0] ?? displayData[listSelection - 1]?.[0]
+      const nextContext = $contextByIdStore.get(nextContextId)
 
       if (archived) {
         void unarchiveContextNotifications(context)
       } else {
         void archiveContextNotifications(context)
       }
+
+      list.select(Math.min(listSelection, displayData.length - 2))
+      archivedContexts = archivedContexts.set(contextId, context.lastUpdateTimestamp ?? 0)
+      displayData = displayData.filter(([id]) => id !== contextId)
+
+      if (selectedContext === contextId || selectedContext === undefined) {
+        dispatch('click', { context: nextContext })
+      }
+    } catch (e) {}
+
+    archivingContexts.delete(contextId)
+    archivingContexts = archivingContexts
+  }
+
+  async function onKeydown (key: KeyboardEvent): Promise<void> {
+    if (key.code === 'ArrowUp') {
+      key.stopPropagation()
+      key.preventDefault()
+      selectIndex(listSelection - 1)
+    }
+    if (key.code === 'ArrowDown') {
+      key.stopPropagation()
+      key.preventDefault()
+      selectIndex(listSelection + 1)
+    }
+    if (key.code === 'Home') {
+      key.stopPropagation()
+      key.preventDefault()
+      selectIndex(0)
+    }
+    if (key.code === 'End') {
+      key.stopPropagation()
+      key.preventDefault()
+      selectIndex(displayData.length - 1)
+    }
+    if (key.code === 'Backspace' || key.code === 'Delete') {
+      key.preventDefault()
+      key.stopPropagation()
+
+      await archiveContext(listSelection)
     }
     if (key.code === 'Enter') {
       key.preventDefault()
@@ -98,11 +151,22 @@
     const contextId = displayData[index][0]
     return contextId ?? index.toString()
   }
+
+  function selectIndex (index: number): void {
+    if (displayData.length === 0) return
+
+    list.select(Math.max(0, Math.min(index, displayData.length - 1)))
+  }
 </script>
 
-<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="root" bind:this={element} tabindex="0" on:keydown={onKeydown}>
+<div
+  class="root"
+  bind:this={element}
+  tabindex="0"
+  role="listbox"
+  aria-label="Inbox notifications"
+  on:keydown={onKeydown}
+>
   <ListView
     bind:this={list}
     bind:selection={listSelection}
@@ -126,6 +190,8 @@
           notifications={contextNotifications}
           {archived}
           {viewlets}
+          isArchiving={archivingContexts.has(contextId)}
+          on:archive={() => archiveContext(itemIndex)}
           on:click={(event) => {
             dispatch('click', event.detail)
             listSelection = itemIndex

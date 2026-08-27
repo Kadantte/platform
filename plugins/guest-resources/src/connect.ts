@@ -1,80 +1,93 @@
 import { Analytics } from '@hcengineering/analytics'
 import client from '@hcengineering/client'
+import { setCurrentEmployee, type Employee } from '@hcengineering/contact'
 import core, {
   ClientConnectEvent,
   concatLink,
   setCurrentAccount,
   versionToString,
-  type AccountClient,
+  type Account,
   type Client,
+  type PersonId,
+  type Ref,
   type Version
 } from '@hcengineering/core'
-import login, { loginId } from '@hcengineering/login'
+import login, { type WorkspaceLoginInfo } from '@hcengineering/login'
 import { getMetadata, getResource, setMetadata } from '@hcengineering/platform'
 import presentation, {
-  closeClient,
   loadServerConfig,
   refreshClient,
   setClient,
+  setCommunicationClient,
   setPresentationCookie,
   upgradeDownloadProgress
 } from '@hcengineering/presentation'
-import {
-  desktopPlatform,
-  fetchMetadataLocalStorage,
-  getCurrentLocation,
-  navigate,
-  setMetadataLocalStorage
-} from '@hcengineering/ui'
-import { writable, get } from 'svelte/store'
+import { desktopPlatform, getCurrentLocation } from '@hcengineering/ui'
+import { logOut } from '@hcengineering/workbench'
+import { get, writable } from 'svelte/store'
 
 export const versionError = writable<string | undefined>(undefined)
+export const invalidError = writable<boolean>(false)
 const versionStorageKey = 'last_server_version'
 
 let _token: string | undefined
-let _client: AccountClient | undefined
+let _client: Client | undefined
 let _clientSet: boolean = false
 
 export async function connect (title: string): Promise<Client | undefined> {
   const loc = getCurrentLocation()
   const token = loc.query?.token
-  const ws = loc.path[1]
-  if (ws === undefined || token == null) {
-    navigate({
-      path: [loginId]
-    })
+  const wsUrl = loc.path[1]
+  if (wsUrl === undefined || token == null) {
+    invalidError.set(true)
     return
   }
-  setMetadata(presentation.metadata.Token, token)
+
+  const exchangeGuestToken = await getResource(login.function.ExchangeGuestToken)
+  const exchangedToken = await exchangeGuestToken(token)
 
   const selectWorkspace = await getResource(login.function.SelectWorkspace)
-  const workspaceLoginInfo = (await selectWorkspace(ws, token))[1]
-  if (workspaceLoginInfo == null) {
-    navigate({
-      path: [loginId]
-    })
-    return
+  let workspaceLoginInfo: WorkspaceLoginInfo | undefined
+  while (true) {
+    const selectResult = await selectWorkspace(wsUrl, exchangedToken)
+    if (!selectResult[2]) {
+      // Connection error happen, wait and retry
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      continue
+    }
+    workspaceLoginInfo = selectResult[1]
+    if (workspaceLoginInfo == null) {
+      const err = `Error selecting workspace ${wsUrl}. There might be something wrong with the token. Please try to log in again.`
+      console.error(err)
+      // something went wrong with selecting workspace with the selected token
+      Analytics.handleError(new Error(err))
+      await logOut()
+      invalidError.set(true)
+      return
+    }
+    break
   }
 
-  setPresentationCookie(token, workspaceLoginInfo.workspaceId)
+  setPresentationCookie(exchangedToken, workspaceLoginInfo.workspace)
 
-  setMetadata(presentation.metadata.Token, token)
-  setMetadata(presentation.metadata.Workspace, workspaceLoginInfo.workspace)
-  setMetadata(presentation.metadata.WorkspaceId, workspaceLoginInfo.workspaceId)
+  setMetadata(presentation.metadata.Token, exchangedToken)
+  setMetadata(presentation.metadata.WorkspaceUuid, workspaceLoginInfo.workspace)
+  setMetadata(presentation.metadata.WorkspaceName, workspaceLoginInfo.name ?? workspaceLoginInfo.workspaceUrl)
+  setMetadata(presentation.metadata.WorkspaceDataId, workspaceLoginInfo.workspaceDataId)
   setMetadata(presentation.metadata.Endpoint, workspaceLoginInfo.endpoint)
 
-  if (_token !== token && _client !== undefined) {
+  if (_token !== exchangedToken && _client !== undefined) {
     await _client.close()
     _client = undefined
   }
   if (_client !== undefined) {
     return _client
   }
-  _token = token
+  _token = exchangedToken
 
   let version: Version | undefined
   const clientFactory = await getResource(client.function.GetClient)
-  _client = await clientFactory(token, workspaceLoginInfo.endpoint, {
+  _client = await clientFactory(exchangedToken, workspaceLoginInfo.endpoint, {
     onHello: (serverVersion?: string) => {
       const frontVersion = getMetadata(presentation.metadata.FrontVersion)
       if (
@@ -117,15 +130,13 @@ export async function connect (title: string): Promise<Client | undefined> {
     onUpgrade: () => {
       location.reload()
     },
-    onUnauthorized: () => {
-      clearMetadata(ws)
-      navigate({
-        path: [loginId],
-        query: {}
+    onError: () => {
+      void logOut().then(() => {
+        invalidError.set(true)
       })
     },
     // We need to refresh all active live queries and clear old queries.
-    onConnect: (event: ClientConnectEvent, data: any) => {
+    onConnect: async (event: ClientConnectEvent, data: any) => {
       console.log('WorkbenchClient: onConnect', event)
       try {
         if (event === ClientConnectEvent.Connected) {
@@ -179,14 +190,30 @@ export async function connect (title: string): Promise<Client | undefined> {
     }
   })
   console.log('logging in as guest')
-  Analytics.handleEvent('GUEST LOGIN')
-  Analytics.setWorkspace(ws)
-  const me = await _client?.getAccount()
+
+  const account = workspaceLoginInfo.account
+
+  const me: Account = {
+    uuid: account,
+    role: workspaceLoginInfo.role,
+    primarySocialId: '' as PersonId,
+    socialIds: [],
+    fullSocialIds: []
+  }
+
+  const data: Record<string, any> = {
+    guest_uuid: account,
+    visited_workspace: wsUrl,
+    visited_workspace_uuid: workspaceLoginInfo.workspace
+  }
+  Analytics.handleEvent('GUEST LOGIN', data)
+
   if (me !== undefined) {
-    Analytics.setUser(me.email)
-    Analytics.setWorkspace(ws)
+    Analytics.setUser(data.guest_uuid, data)
+    Analytics.setWorkspace(wsUrl, true)
     console.log('login: employee account', me)
     setCurrentAccount(me)
+    setCurrentEmployee('' as Ref<Employee>)
   }
 
   try {
@@ -214,30 +241,13 @@ export async function connect (title: string): Promise<Client | undefined> {
     }
   }
 
+  invalidError.set(false)
   versionError.set(undefined)
   // Update window title
-  document.title = [ws, title].filter((it) => it).join(' - ')
+  document.title = [wsUrl, title].filter((it) => it).join(' - ')
   _clientSet = true
   await setClient(_client)
+  await setCommunicationClient(_client)
 
   return _client
-}
-
-function clearMetadata (ws: string): void {
-  const tokens = fetchMetadataLocalStorage(login.metadata.LoginTokens)
-  if (tokens !== null) {
-    const loc = getCurrentLocation()
-    // eslint-disable-next-line
-    delete tokens[loc.path[1]]
-    setMetadataLocalStorage(login.metadata.LoginTokens, tokens)
-  }
-  const currentWorkspace = getMetadata(presentation.metadata.WorkspaceId)
-  if (currentWorkspace !== undefined) {
-    setPresentationCookie('', currentWorkspace)
-  }
-
-  setMetadata(presentation.metadata.Token, null)
-  setMetadataLocalStorage(login.metadata.LastToken, null)
-  setMetadataLocalStorage(login.metadata.LoginEmail, null)
-  void closeClient()
 }

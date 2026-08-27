@@ -32,8 +32,8 @@
 
   $: query.query(drive.class.FileVersion, { _id: object.file }, (res) => {
     ;[version] = res
-    blob = version.file
-    contentType = version.type
+    blob = version?.file
+    contentType = version?.type
   })
 
   onMount(() => {
@@ -42,7 +42,13 @@
 </script>
 
 {#if object !== undefined && version !== undefined && blob !== undefined && contentType !== undefined}
-  <FilePreview file={blob} {contentType} name={version.title} metadata={version.metadata} fit />
+  <FilePreview
+    file={blob}
+    {contentType}
+    name={version.title}
+    metadata={version.metadata}
+    fit={contentType !== 'application/pdf'}
+  />
 
   {#if object.versions > 1}
     <div class="w-full mt-6">

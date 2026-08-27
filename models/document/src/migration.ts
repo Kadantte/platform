@@ -13,9 +13,20 @@
 // limitations under the License.
 //
 
-import { type CollaborativeDoc, DOMAIN_TX, MeasureMetricsContext, SortingOrder } from '@hcengineering/core'
-import { type DocumentSnapshot, type Document, type Teamspace } from '@hcengineering/document'
 import {
+  DOMAIN_MODEL_TX,
+  DOMAIN_TX,
+  makeDocCollabId,
+  type Ref,
+  SortingOrder,
+  type Class,
+  type CollaborativeDoc,
+  type Doc,
+  type AccountUuid
+} from '@hcengineering/core'
+import { type Document, type DocumentSnapshot, type Teamspace } from '@hcengineering/document'
+import {
+  migrateSpaceRanks,
   tryMigrate,
   type MigrateOperation,
   type MigrateUpdate,
@@ -23,11 +34,14 @@ import {
   type MigrationDocumentQuery,
   type MigrationUpgradeClient
 } from '@hcengineering/model'
-import core, { DOMAIN_SPACE } from '@hcengineering/model-core'
+import { DOMAIN_ACTIVITY } from '@hcengineering/model-activity'
+import core, { DOMAIN_SPACE, getAccountUuidBySocialKey, getSocialKeyByOldAccount } from '@hcengineering/model-core'
+import { DOMAIN_NOTIFICATION } from '@hcengineering/notification'
 import { type Asset } from '@hcengineering/platform'
 import { makeRank } from '@hcengineering/rank'
 
-import { loadCollaborativeDoc, saveCollaborativeDoc, yDocCopyXmlField } from '@hcengineering/collaboration'
+import { loadCollabYdoc, saveCollabYdoc, yDocCopyXmlField } from '@hcengineering/collaboration'
+import attachment, { DOMAIN_ATTACHMENT } from '@hcengineering/model-attachment'
 import document, { documentId, DOMAIN_DOCUMENT } from './index'
 
 async function migrateDocumentIcons (client: MigrationClient): Promise<void> {
@@ -62,9 +76,7 @@ async function migrateTeamspaces (client: MigrationClient): Promise<void> {
       type: { $exists: false }
     },
     {
-      $set: {
-        type: document.spaceType.DefaultTeamspaceType
-      }
+      type: document.spaceType.DefaultTeamspaceType
     }
   )
 }
@@ -74,15 +86,13 @@ async function migrateTeamspacesMixins (client: MigrationClient): Promise<void> 
   const newSpaceTypeMixin = document.mixin.DefaultTeamspaceTypeData
 
   await client.update(
-    DOMAIN_TX,
+    DOMAIN_MODEL_TX,
     {
       objectClass: core.class.Attribute,
       'attributes.attributeOf': oldSpaceTypeMixin
     },
     {
-      $set: {
-        'attributes.attributeOf': newSpaceTypeMixin
-      }
+      'attributes.attributeOf': newSpaceTypeMixin
     }
   )
 
@@ -116,7 +126,7 @@ async function migrateRank (client: MigrationClient): Promise<void> {
   for (const doc of documents) {
     operations.push({
       filter: { _id: doc._id },
-      update: { $set: { rank } }
+      update: { rank }
     })
     rank = makeRank(rank, undefined)
   }
@@ -173,7 +183,6 @@ async function renameFields (client: MigrationClient): Promise<void> {
 }
 
 async function renameFieldsRevert (client: MigrationClient): Promise<void> {
-  const ctx = new MeasureMetricsContext('renameFieldsRevert', {})
   const storage = client.storageAdapter
 
   type ExDocument = Document & {
@@ -196,23 +205,22 @@ async function renameFieldsRevert (client: MigrationClient): Promise<void> {
       }
     )
 
-    if (document.description.includes('%description:')) {
-      try {
-        const ydoc = await loadCollaborativeDoc(ctx, storage, client.workspaceId, document.description)
-        if (ydoc === undefined) {
-          continue
-        }
-
-        if (!ydoc.share.has('description') || ydoc.share.has('content')) {
-          continue
-        }
-
-        yDocCopyXmlField(ydoc, 'description', 'content')
-
-        await saveCollaborativeDoc(ctx, storage, client.workspaceId, document.description, ydoc)
-      } catch (err) {
-        ctx.error('error document content migration', { error: err, document: document.title })
+    try {
+      const collabId = makeDocCollabId(document, 'content')
+      const ydoc = await loadCollabYdoc(client.ctx, storage, client.wsIds, collabId)
+      if (ydoc === undefined) {
+        continue
       }
+
+      if (!ydoc.share.has('description') || ydoc.share.has('content')) {
+        continue
+      }
+
+      yDocCopyXmlField(ydoc, 'description', 'content')
+
+      await saveCollabYdoc(client.ctx, storage, client.wsIds, collabId, ydoc)
+    } catch (err) {
+      client.logger.error('error document content migration', { error: err, document: document.title })
     }
   }
 
@@ -235,7 +243,6 @@ async function renameFieldsRevert (client: MigrationClient): Promise<void> {
 }
 
 async function restoreContentField (client: MigrationClient): Promise<void> {
-  const ctx = new MeasureMetricsContext('restoreContentField', {})
   const storage = client.storageAdapter
 
   const documents = await client.find<Document>(DOMAIN_DOCUMENT, {
@@ -245,9 +252,10 @@ async function restoreContentField (client: MigrationClient): Promise<void> {
 
   for (const document of documents) {
     try {
-      const ydoc = await loadCollaborativeDoc(ctx, storage, client.workspaceId, document.content)
+      const collabId = makeDocCollabId(document, 'content')
+      const ydoc = await loadCollabYdoc(client.ctx, storage, client.wsIds, collabId)
       if (ydoc === undefined) {
-        ctx.error('document content not found', { document: document.title })
+        client.logger.error('document content not found', { document: document.title })
         continue
       }
 
@@ -259,56 +267,223 @@ async function restoreContentField (client: MigrationClient): Promise<void> {
       if (ydoc.share.has('')) {
         yDocCopyXmlField(ydoc, '', 'content')
         if (ydoc.share.has('content')) {
-          await saveCollaborativeDoc(ctx, storage, client.workspaceId, document.content, ydoc)
+          await saveCollabYdoc(client.ctx, storage, client.wsIds, collabId, ydoc)
         } else {
-          ctx.error('document content still not found', { document: document.title })
+          client.logger.error('document content still not found', { document: document.title })
         }
       }
     } catch (err) {
-      ctx.error('error document content migration', { error: err, document: document.title })
+      client.logger.error('error document content migration', { error: err, document: document.title })
     }
   }
 }
 
+async function migrateRanks (client: MigrationClient): Promise<void> {
+  const classes = client.hierarchy.getDescendants(document.class.Teamspace)
+  for (const _class of classes) {
+    const spaces = await client.find<Teamspace>(DOMAIN_SPACE, { _class })
+    for (const space of spaces) {
+      await migrateSpaceRanks(client, DOMAIN_DOCUMENT, space)
+    }
+  }
+}
+
+async function migrateAccountsToSocialIds (client: MigrationClient): Promise<void> {
+  const socialKeyByAccount = await getSocialKeyByOldAccount(client)
+
+  client.logger.log('processing document lockedBy ', {})
+  const iterator = await client.traverse(DOMAIN_DOCUMENT, { _class: document.class.Document })
+
+  try {
+    let processed = 0
+    while (true) {
+      const docs = await iterator.next(200)
+      if (docs === null || docs.length === 0) {
+        break
+      }
+
+      const operations: { filter: MigrationDocumentQuery<Document>, update: MigrateUpdate<Document> }[] = []
+
+      for (const doc of docs) {
+        const document = doc as Document
+        const newLockedBy: any =
+          document.lockedBy != null ? (socialKeyByAccount[document.lockedBy] ?? document.lockedBy) : document.lockedBy
+
+        if (newLockedBy === document.lockedBy) continue
+
+        operations.push({
+          filter: { _id: document._id },
+          update: {
+            lockedBy: newLockedBy
+          }
+        })
+      }
+
+      if (operations.length > 0) {
+        await client.bulk(DOMAIN_DOCUMENT, operations)
+      }
+
+      processed += docs.length
+      client.logger.log('...processed', { count: processed })
+    }
+  } finally {
+    await iterator.close()
+  }
+  client.logger.log('finished processing document lockedBy ', {})
+}
+
+async function migrateSocialIdsToGlobalAccounts (client: MigrationClient): Promise<void> {
+  const accountUuidBySocialKey = new Map<string, AccountUuid | null>()
+
+  client.logger.log('processing document lockedBy ', {})
+  const iterator = await client.traverse(DOMAIN_DOCUMENT, { _class: document.class.Document })
+
+  try {
+    let processed = 0
+    while (true) {
+      const docs = await iterator.next(200)
+      if (docs === null || docs.length === 0) {
+        break
+      }
+
+      const operations: { filter: MigrationDocumentQuery<Document>, update: MigrateUpdate<Document> }[] = []
+
+      for (const doc of docs) {
+        const document = doc as Document
+        const newLockedBy =
+          document.lockedBy != null
+            ? ((await getAccountUuidBySocialKey(client, document.lockedBy, accountUuidBySocialKey)) ??
+              document.lockedBy)
+            : document.lockedBy
+
+        if (newLockedBy === document.lockedBy) continue
+
+        operations.push({
+          filter: { _id: document._id },
+          update: {
+            lockedBy: newLockedBy
+          }
+        })
+      }
+
+      if (operations.length > 0) {
+        await client.bulk(DOMAIN_DOCUMENT, operations)
+      }
+
+      processed += docs.length
+      client.logger.log('...processed', { count: processed })
+    }
+  } finally {
+    await iterator.close()
+  }
+  client.logger.log('finished processing document lockedBy ', {})
+}
+
+async function removeOldClasses (client: MigrationClient): Promise<void> {
+  const classes = [
+    'document:class:DocumentContent',
+    'document:class:DocumentSnapshot',
+    'document:class:DocumentVersion',
+    'document:class:DocumentRequest'
+  ] as Ref<Class<Doc>>[]
+
+  for (const _class of classes) {
+    await client.deleteMany(DOMAIN_DOCUMENT, { _class })
+    await client.deleteMany(DOMAIN_ACTIVITY, { attachedToClass: _class })
+    await client.deleteMany(DOMAIN_ACTIVITY, { objectClass: _class })
+    await client.deleteMany(DOMAIN_NOTIFICATION, { attachedToClass: _class })
+    await client.deleteMany(DOMAIN_TX, { objectClass: _class })
+    await client.deleteMany(DOMAIN_TX, { 'tx.objectClass': _class })
+  }
+}
 export const documentOperation: MigrateOperation = {
-  async migrate (client: MigrationClient): Promise<void> {
-    await tryMigrate(client, documentId, [
+  async migrate (client: MigrationClient, mode): Promise<void> {
+    await tryMigrate(mode, client, documentId, [
       {
         state: 'updateDocumentIcons',
+        mode: 'upgrade',
         func: migrateDocumentIcons
       },
       {
         state: 'migrate-timespaces',
+        mode: 'upgrade',
         func: migrateTeamspaces
       },
       {
         state: 'migrate-teamspaces-mixins',
+        mode: 'upgrade',
         func: migrateTeamspacesMixins
       },
       {
         state: 'migrateRank',
+        mode: 'upgrade',
         func: migrateRank
       },
       {
         state: 'renameFields',
+        mode: 'upgrade',
         func: renameFields
       },
       {
-        state: 'fix-rename-backups',
-        func: async (client: MigrationClient): Promise<void> => {
-          await client.update(DOMAIN_DOCUMENT, { '%hash%': { $exists: true } }, { $set: { '%hash%': null } })
-        }
-      },
-      {
         state: 'renameFieldsRevert',
+        mode: 'upgrade',
         func: renameFieldsRevert
       },
       {
         state: 'restoreContentField',
+        mode: 'upgrade',
         func: restoreContentField
+      },
+      {
+        state: 'migrateRanks',
+        mode: 'upgrade',
+        func: migrateRanks
+      },
+      {
+        state: 'removeOldClasses',
+        mode: 'upgrade',
+        func: removeOldClasses
+      },
+      {
+        state: 'migrateEmbeddings',
+        mode: 'upgrade',
+        func: migrateEmbeddings
+      },
+      {
+        state: 'accounts-to-social-ids',
+        func: migrateAccountsToSocialIds
+      },
+      {
+        state: 'migrateEmbeddingsRefs',
+        mode: 'upgrade',
+        func: migrateEmbeddingsRefs
+      },
+      {
+        state: 'social-ids-to-global-accounts',
+        mode: 'upgrade',
+        func: migrateSocialIdsToGlobalAccounts
       }
     ])
   },
 
   async upgrade (state: Map<string, Set<string>>, client: () => Promise<MigrationUpgradeClient>): Promise<void> {}
+}
+
+async function migrateEmbeddings (client: MigrationClient): Promise<void> {
+  await client.update(
+    DOMAIN_DOCUMENT,
+    { _class: 'document:class:DocumentEmbedding' as Ref<Class<Doc>> },
+    { _class: attachment.class.Embedding }
+  )
+  await client.move(DOMAIN_DOCUMENT, { _class: attachment.class.Embedding }, DOMAIN_ATTACHMENT)
+}
+
+async function migrateEmbeddingsRefs (client: MigrationClient): Promise<void> {
+  const _class = 'document:class:DocumentEmbedding'
+
+  await client.update(DOMAIN_ACTIVITY, { attachedToClass: _class }, { attachedToClass: attachment.class.Embedding })
+  await client.update(DOMAIN_ACTIVITY, { objectClass: _class }, { objectClass: attachment.class.Embedding })
+  await client.update(DOMAIN_NOTIFICATION, { attachedToClass: _class }, { attachedToClass: attachment.class.Embedding })
+  await client.update(DOMAIN_TX, { objectClass: _class }, { objectClass: attachment.class.Embedding })
+  await client.update(DOMAIN_TX, { 'tx.objectClass': _class }, { 'tx.objectClass': attachment.class.Embedding })
 }

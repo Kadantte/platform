@@ -1,9 +1,23 @@
-import contact, { type Employee, type PersonAccount, getFirstName, getLastName } from '@hcengineering/contact'
-import { employeeByIdStore } from '@hcengineering/contact-resources'
-import { type Class, type Doc, type Hierarchy, type Ref } from '@hcengineering/core'
-import { getMetadata } from '@hcengineering/platform'
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { getClient as getAccountClientRaw, type AccountClient } from '@hcengineering/account-client'
+import contact, { getFirstName, getLastName } from '@hcengineering/contact'
+import { employeeByPersonIdStore } from '@hcengineering/contact-resources'
+import {
+  type Class,
+  type Doc,
+  type Hierarchy,
+  type IntegrationKind,
+  type PluginConfiguration,
+  type Ref
+} from '@hcengineering/core'
+import {
+  getIntegrationClient as getIntegrationClientRaw,
+  type IntegrationClient
+} from '@hcengineering/integration-client'
 import login from '@hcengineering/login'
+import { getMetadata } from '@hcengineering/platform'
 import presentation, { getClient } from '@hcengineering/presentation'
+import type { PersonRating } from '@hcengineering/rating'
 import setting from '@hcengineering/setting'
 import { type TemplateDataProvider } from '@hcengineering/templates'
 import { get } from 'svelte/store'
@@ -15,17 +29,22 @@ function isEditable (hierarchy: Hierarchy, p: Class<Doc>): boolean {
   } catch (err: any) {
     console.error(err)
   }
+  let result = false
   for (const ao of ancestors) {
     try {
       const cl = hierarchy.getClass(ao)
-      if (hierarchy.hasMixin(cl, setting.mixin.Editable) && hierarchy.as(cl, setting.mixin.Editable).value) {
-        return true
+      if (hierarchy.hasMixin(cl, setting.mixin.Editable)) {
+        if (hierarchy.as(cl, setting.mixin.Editable).value) {
+          result = true
+        } else {
+          return false
+        }
       }
     } catch (err: any) {
       return false
     }
   }
-  return false
+  return result
 }
 export function filterDescendants (
   hierarchy: Hierarchy,
@@ -62,79 +81,43 @@ export async function getValue (provider: TemplateDataProvider): Promise<string 
 export async function getOwnerFirstName (provider: TemplateDataProvider): Promise<string | undefined> {
   const value = provider.get(setting.class.Integration)
   if (value === undefined) return
-  const client = getClient()
-  const employeeAccount = await client.findOne(contact.class.PersonAccount, {
-    _id: value.modifiedBy as Ref<PersonAccount>
-  })
-  if (employeeAccount !== undefined) {
-    const employee = get(employeeByIdStore).get(employeeAccount.person as Ref<Employee>)
-    return employee != null ? getFirstName(employee.name) : undefined
-  }
+
+  const employee = get(employeeByPersonIdStore).get(value.modifiedBy)
+  return employee != null ? getFirstName(employee.name) : undefined
 }
 
 export async function getOwnerLastName (provider: TemplateDataProvider): Promise<string | undefined> {
   const value = provider.get(setting.class.Integration)
   if (value === undefined) return
-  const client = getClient()
-  const employeeAccount = await client.findOne(contact.class.PersonAccount, {
-    _id: value.modifiedBy as Ref<PersonAccount>
-  })
-  if (employeeAccount !== undefined) {
-    const employee = get(employeeByIdStore).get(employeeAccount.person as Ref<Employee>)
-    return employee != null ? getLastName(employee.name) : undefined
-  }
+
+  const employee = get(employeeByPersonIdStore).get(value.modifiedBy)
+  return employee != null ? getLastName(employee.name) : undefined
 }
 
 export async function getOwnerPosition (provider: TemplateDataProvider): Promise<string | undefined> {
   const value = provider.get(setting.class.Integration)
   if (value === undefined) return
+
   const client = getClient()
-  const employeeAccount = await client.findOne(contact.class.PersonAccount, {
-    _id: value.modifiedBy as Ref<PersonAccount>
-  })
-  if (employeeAccount !== undefined) {
-    const employee = get(employeeByIdStore).get(employeeAccount.person as Ref<Employee>)
-    if (employee != null && client.getHierarchy().hasMixin(employee, contact.mixin.Employee)) {
-      return client.getHierarchy().as(employee, contact.mixin.Employee)?.position ?? undefined
-    }
-    return undefined
+
+  const employee = get(employeeByPersonIdStore).get(value.modifiedBy)
+  if (employee != null && client.getHierarchy().hasMixin(employee, contact.mixin.Employee)) {
+    return client.getHierarchy().as(employee, contact.mixin.Employee)?.position ?? undefined
   }
 }
 
-export async function rpcAccount (method: string, ...params: any[]): Promise<any> {
+export function getAccountClient (): AccountClient {
   const accountsUrl = getMetadata(login.metadata.AccountsUrl)
-
-  if (accountsUrl === undefined) {
-    throw new Error('accounts url not specified')
-  }
-
   const token = getMetadata(presentation.metadata.Token)
-  if (token === undefined) {
-    throw new Error('no token available for the session')
+
+  return getAccountClientRaw(accountsUrl, token)
+}
+
+export async function getIntegrationClient (kind: IntegrationKind): Promise<IntegrationClient> {
+  const accountsUrl = getMetadata(login.metadata.AccountsUrl)
+  const token = getMetadata(presentation.metadata.Token)
+  if (accountsUrl === undefined || token === undefined) {
+    throw new Error('Accounts URL or token is not defined')
   }
-
-  const request = {
-    method,
-    params
-  }
-
-  try {
-    const response = await fetch(accountsUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(request)
-    })
-    const res = await response.json()
-
-    if (res.error != null) {
-      throw new Error(`Failed to ${method}: ${res.error}`)
-    }
-
-    return res
-  } catch (err: any) {
-    throw new Error(`Fetch error when calling ${method}: ${err.message}`)
-  }
+  return getIntegrationClientRaw(accountsUrl, token, kind, 'settings')
 }

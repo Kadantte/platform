@@ -1,5 +1,5 @@
 //
-// Copyright © 2024 Hardcore Engineering Inc.
+// Copyright © 2024-2025 Hardcore Engineering Inc.
 //
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-
+import type { Asset, IntlString, Resource } from '@hcengineering/platform'
 import type { Blob as PlatformBlob, Class, Doc, Ref } from '@hcengineering/core'
 
 /** @public */
@@ -27,6 +27,21 @@ export type UploadFilesPopupFn = (options: FileUploadOptions, popupOptions: File
 export type UploadFilesFn = (files: File[] | FileList, options: FileUploadOptions) => Promise<void>
 
 /** @public */
+export type UploadHandler = (options: FileUploadOptions) => Promise<void>
+
+/** @public */
+export type GetUploadHandlers = () => Promise<UploadHandlerDefinition[]>
+
+/** @public */
+export interface UploadHandlerDefinition extends Doc {
+  icon: Asset
+  label: IntlString
+  order?: number
+  category?: string
+  handler: Resource<UploadHandler>
+}
+
+/** @public */
 export interface FileUploadTarget {
   objectId: Ref<Doc>
   objectClass: Ref<Class<Doc>>
@@ -39,27 +54,39 @@ export interface FileUploadProgressOptions {
 
 /** @public */
 export interface FileUploadOptions {
-  // Uppy options
-  maxFileSize?: number
-  maxNumberOfFiles?: number
-  allowedFileTypes?: string[] | null
+  /**
+   * Max number of files to be uploaded at the same time.
+   */
+  maxParallelUploads?: number
 
+  /**
+   * Callback to be called when file is uploaded.
+   */
   onFileUploaded?: FileUploadCallback
+
+  /**
+   * Whether to show progress for uploading files.
+   */
   showProgress?: FileUploadProgressOptions
+
+  target?: FileUploadTarget
 }
 
 /** @public */
 export interface FileUploadPopupOptions {
-  fileManagerSelectionType?: 'files' | 'folders' | 'both'
+  itemsCount?: 'single' | 'multiple'
+  itemsType?: 'files' | 'folders'
+  allowedFileTypes?: string[]
 }
 
 /** @public */
 export interface FileUploadCallbackParams {
   uuid: Ref<PlatformBlob>
   name: string
-  file: FileWithPath | Blob
+  type: string
+  file: File | Blob
   path: string | undefined
-  metadata: Record<string, any> | undefined
+  metadata: Record<string, any>
 }
 
 /** @public */

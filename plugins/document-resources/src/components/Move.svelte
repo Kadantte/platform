@@ -46,7 +46,7 @@
     if (space !== value.space) {
       const children = await findChildren(value)
       for (const child of children) {
-        await client.updateDoc(document.class.Document, value.space, child, {
+        await ops.updateDoc(document.class.Document, value.space, child, {
           space
         })
       }
@@ -116,7 +116,7 @@
       docQuery={{ space }}
       kind={'regular'}
       size={'small'}
-      searchField={'name'}
+      searchField={'title'}
       allowDeselect={true}
       showNavigate={false}
       docProps={{ disabled: true, noUnderline: true }}

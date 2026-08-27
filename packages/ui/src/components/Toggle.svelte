@@ -25,7 +25,7 @@
   const dispatch = createEventDispatcher()
 </script>
 
-<label {id} class="toggle" use:tooltip={showTooltip} class:disabled>
+<label {id} class="toggle" use:tooltip={showTooltip} class:disabled {...$$restProps}>
   <input
     class="chBox"
     type="checkbox"
@@ -47,6 +47,7 @@
     // line-height: 1.75rem;
     vertical-align: middle;
     font-size: inherit;
+    -webkit-user-select: none;
     user-select: none;
     cursor: pointer;
 

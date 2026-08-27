@@ -14,31 +14,31 @@
 //
 import activity, { type ActivityMessage, type SavedMessage } from '@hcengineering/activity'
 import core, { type Ref, SortingOrder, type WithLookup } from '@hcengineering/core'
+import { createQuery, onClient } from '@hcengineering/presentation'
 import { writable } from 'svelte/store'
-import { createQuery, getClient } from '@hcengineering/presentation'
+import { getCurrentLocation, navigate } from '@hcengineering/ui'
 
 export const savedMessagesStore = writable<Array<WithLookup<SavedMessage>>>([])
 export const messageInFocus = writable<Ref<ActivityMessage> | undefined>(undefined)
+export const editingMessageStore = writable<Ref<ActivityMessage> | undefined>(undefined)
 
 const savedMessagesQuery = createQuery(true)
 
-export function loadSavedMessages (): void {
-  const client = getClient()
-
-  if (client !== undefined) {
-    savedMessagesQuery.query(
-      activity.class.SavedMessage,
-      { space: core.space.Workspace },
-      (res) => {
-        savedMessagesStore.set(res.filter(({ $lookup }) => $lookup?.attachedTo !== undefined))
-      },
-      { lookup: { attachedTo: activity.class.ActivityMessage }, sort: { modifiedOn: SortingOrder.Descending } }
-    )
-  } else {
-    setTimeout(() => {
-      loadSavedMessages()
-    }, 50)
+export function clearMessageInLocation (): void {
+  const loc = getCurrentLocation()
+  if (loc.query?.message != null) {
+    delete loc.query.message
+    navigate(loc, true)
   }
 }
 
-loadSavedMessages()
+onClient(() => {
+  savedMessagesQuery.query(
+    activity.class.SavedMessage,
+    { space: core.space.Workspace },
+    (res) => {
+      savedMessagesStore.set(res.filter(({ $lookup }) => $lookup?.attachedTo !== undefined))
+    },
+    { lookup: { attachedTo: activity.class.ActivityMessage }, sort: { modifiedOn: SortingOrder.Descending } }
+  )
+})

@@ -34,7 +34,7 @@
   export let shouldShowAvatar: boolean = true
 
   function getProductVersionName (value: ProductVersion): string {
-    const version = `${value.major}.${value.minor}`
+    const version = `${value.major}.${value.minor}.${value.patch}`
     const codename = value.codename ?? ''
     return codename !== '' ? `${version} ${codename}` : version
   }
@@ -46,7 +46,7 @@
 
 {#if value}
   {#if inline}
-    <ObjectMention object={value} {disabled} {accent} {noUnderline} title={name} />
+    <ObjectMention object={value} {disabled} title={name} />
   {:else}
     <DocNavLink object={value} {disabled} {accent} {noUnderline}>
       <div class="flex-presenter" use:tooltip={{ label: getEmbeddedLabel(name) }}>

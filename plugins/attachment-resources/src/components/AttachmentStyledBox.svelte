@@ -1,5 +1,5 @@
 <!--
-// Copyright © 2022 Hardcore Engineering Inc.
+// Copyright © 2022, 2025 Hardcore Engineering Inc.
 //
 // Licensed under the Eclipse Public License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License. You may
@@ -13,17 +13,18 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Attachment, BlobMetadata } from '@hcengineering/attachment'
+  import { Attachment } from '@hcengineering/attachment'
   import {
-    Account,
+    type Blob,
+    BlobMetadata,
     Class,
     Doc,
     generateId,
     Markup,
+    PersonId,
     Ref,
     Space,
     toIdMap,
-    type Blob,
     TxOperations
   } from '@hcengineering/core'
   import { IntlString, setPlatformStatus, unknownError } from '@hcengineering/platform'
@@ -34,12 +35,11 @@
     draftsStore,
     FileOrBlob,
     getClient,
-    getFileMetadata,
     uploadFile
   } from '@hcengineering/presentation'
   import { EmptyMarkup } from '@hcengineering/text'
   import textEditor, { type RefAction } from '@hcengineering/text-editor'
-  import { AttachIcon, StyledTextBox } from '@hcengineering/text-editor-resources'
+  import { AttachIcon, EditorKitOptions, StyledTextBox } from '@hcengineering/text-editor-resources'
   import { ButtonSize } from '@hcengineering/ui'
   import { type FileUploadCallbackParams, uploadFiles } from '@hcengineering/uploader'
   import { createEventDispatcher, onDestroy } from 'svelte'
@@ -63,8 +63,9 @@
   export let useAttachmentPreview = false
   export let focusIndex: number | undefined = -1
   export let enableAttachments: boolean = true
-  export let enableBackReferences: boolean = false
   export let isScrollable = true
+  export let kitOptions: Partial<EditorKitOptions> = {}
+  export let fullWidth = false
 
   export let useDirectAttachDelete = false
   export let boundary: HTMLElement | undefined = undefined
@@ -154,8 +155,7 @@
 
   async function attachFile (file: File): Promise<{ file: Ref<Blob>, type: string } | undefined> {
     try {
-      const uuid = await uploadFile(file)
-      const metadata = await getFileMetadata(file, uuid)
+      const { uuid, metadata } = await uploadFile(file)
       await createAttachment(uuid, file.name, file, metadata)
       return { file: uuid, type: file.type }
     } catch (err: any) {
@@ -182,7 +182,7 @@
         _class: attachment.class.Attachment,
         collection: 'attachments',
         modifiedOn: 0,
-        modifiedBy: '' as Ref<Account>,
+        modifiedBy: '' as PersonId,
         space,
         attachedTo: objectId,
         attachedToClass: _class,
@@ -372,6 +372,10 @@
     }
   }
 
+  export function getAttachments (): Attachment[] {
+    return Array.from(attachments.values())
+  }
+
   $: dispatch('attachments', {
     size: attachments.size,
     values: attachments.size === 0 ? true : attachments
@@ -407,6 +411,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
   class="flex-col clear-mins"
+  class:w-full={fullWidth}
   on:paste={(ev) => pasteAction(ev)}
   on:dragover|preventDefault={() => {}}
   on:dragleave={() => {}}
@@ -425,7 +430,7 @@
     {maxHeight}
     {focusable}
     {kind}
-    {enableBackReferences}
+    {kitOptions}
     {isScrollable}
     {boundary}
     {extraActions}
@@ -433,14 +438,14 @@
     on:changeContent
     on:blur
     on:focus
-    on:open-document
     {attachFile}
-  />
+  >
+    <slot name="actions" slot="actions" />
+  </StyledTextBox>
   {#if attachments.size > 0 && enableAttachments}
     <AttachmentsGrid
       attachments={Array.from(attachments.values())}
       {progress}
-      {progressItems}
       {useAttachmentPreview}
       on:remove={async (evt) => {
         if (evt.detail !== undefined) {

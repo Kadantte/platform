@@ -14,15 +14,14 @@
 // limitations under the License.
 -->
 <script lang="ts">
+  /* eslint-disable @typescript-eslint/no-unused-vars */
   import { Channel, Contact } from '@hcengineering/contact'
-  import { employeeByIdStore, personAccountByIdStore } from '@hcengineering/contact-resources'
   import { Ref, SortingOrder } from '@hcengineering/core'
   import { Message, SharedMessage } from '@hcengineering/gmail'
   import { InboxNotificationsClientImpl } from '@hcengineering/notification-resources'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import plugin, { Button, Icon, IconShare, Label, Scroller } from '@hcengineering/ui'
 
-  import { Integration } from '@hcengineering/setting'
   import gmail from '../plugin'
   import { convertMessages } from '../utils'
   import Messages from './Messages.svelte'
@@ -32,7 +31,6 @@
   export let channel: Channel
   export let newMessage: boolean
   export let enabled: boolean
-  export let allIntegrations: Integration[]
 
   let plainMessages: Message[] = []
   let newMessages: Message[] = []
@@ -64,7 +62,7 @@
       { attachedTo: channelId },
       (res) => {
         plainMessages = res
-        inboxClient.readDoc(getClient(), channelId)
+        inboxClient.readDoc(channelId)
       },
       { sort: { sendOn: SortingOrder.Descending } }
     )
@@ -83,17 +81,10 @@
       object._class,
       'gmailSharedMessages',
       {
-        messages: convertMessages(
-          object,
-          channel,
-          selectedMessages,
-          allIntegrations,
-          $personAccountByIdStore,
-          $employeeByIdStore
-        )
+        messages: await convertMessages(object, channel, selectedMessages)
       }
     )
-    await inboxClient.readDoc(getClient(), channel._id)
+    await inboxClient.readDoc(channel._id)
     clear()
   }
 
@@ -106,7 +97,9 @@
 
 <div class="flex-between bottom-divider min-h-12 px-2">
   {#if selectable}
-    <span class="pl-2"><b>{selected.size}</b> <Label label={gmail.string.MessagesSelected} /></span>
+    <span class="pl-2"
+      ><b>{selected.size}</b> <Label label={gmail.string.MessagesSelected} params={{ count: selected.size }} /></span
+    >
     <div class="flex-row-center gap-3">
       <Button label={gmail.string.Cancel} on:click={clear} />
       <Button label={gmail.string.PublishSelected} kind={'primary'} disabled={!selected.size} on:click={share} />
@@ -135,24 +128,14 @@
 </div>
 
 {#if messages && messages.length > 0}
-  <div class="antiVSpacer x2" />
-  <Scroller padding={'.5rem 1rem'}>
-    <Messages
-      messages={convertMessages(
-        object,
-        channel,
-        messages,
-        allIntegrations,
-        $personAccountByIdStore,
-        $employeeByIdStore
-      )}
-      {selectable}
-      bind:selected
-      on:select
-    />
+  {#await convertMessages(object, channel, messages) then convertedMessages}
     <div class="antiVSpacer x2" />
-  </Scroller>
-  <div class="antiVSpacer x2" />
+    <Scroller padding={'.5rem 1rem'}>
+      <Messages messages={convertedMessages} {selectable} bind:selected on:select />
+      <div class="antiVSpacer x2" />
+    </Scroller>
+    <div class="antiVSpacer x2" />
+  {/await}
 {:else}
   <div class="flex-col-center justify-center h-full">
     <Icon icon={IconInbox} size={'full'} />

@@ -14,11 +14,10 @@
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
-  import { ModernEditbox, ButtonMenu, Label, Modal, TextArea } from '@hcengineering/ui'
+  import { ModernEditbox, ButtonMenu, Label, Modal, TextArea, Toggle } from '@hcengineering/ui'
   import presentation, { getClient } from '@hcengineering/presentation'
-  import core, { getCurrentAccount } from '@hcengineering/core'
-  import notification from '@hcengineering/notification'
-  import contact, { PersonAccount } from '@hcengineering/contact'
+  import core, { AccountRole, getCurrentAccount, setWorkspaceGuestAutoJoinRoles } from '@hcengineering/core'
+  import contact, { getCurrentEmployee } from '@hcengineering/contact'
 
   import Lock from '../../icons/Lock.svelte'
   import chunter from '../../../plugin'
@@ -42,8 +41,18 @@
 
   let selectedVisibilityId = visibilityOptions[0].id
   let channelName = ''
-  let description = ''
+  let topic = ''
   let canSave = true
+  let autoJoin = false
+  let autoJoinForRoles: AccountRole[] = []
+
+  function normalizeAutoJoinForRoles (roles: AccountRole[]): AccountRole[] | undefined {
+    return roles.length > 0 ? [...roles] : undefined
+  }
+
+  function setGuestAutoJoin (enabled: boolean): void {
+    autoJoinForRoles = setWorkspaceGuestAutoJoinRoles(autoJoinForRoles, enabled)
+  }
 
   $: visibilityIcon = visibilityOptions.find(({ id }) => id === selectedVisibilityId)?.icon ?? visibilityOptions[0].icon
   $: visibilityLabel =
@@ -52,21 +61,21 @@
   $: canSave = !!channelName
 
   async function save (): Promise<void> {
-    const account = getCurrentAccount() as PersonAccount
-    const space = await client.findOne(
-      contact.class.PersonSpace,
-      { person: account.person },
-      { projection: { _id: 1 } }
-    )
+    const myAcc = getCurrentAccount().uuid
+    const employee = getCurrentEmployee()
+    const space = await client.findOne(contact.class.PersonSpace, { person: employee }, { projection: { _id: 1 } })
     if (!space) return
+
     const channelId = await client.createDoc(chunter.class.Channel, core.space.Space, {
       name: channelName,
       description: '',
       private: selectedVisibilityId === 'private',
       archived: false,
-      members: [account._id],
-      topic: description,
-      owners: [account._id]
+      members: [myAcc],
+      topic,
+      owners: [myAcc],
+      autoJoin,
+      autoJoinForRoles: normalizeAutoJoinForRoles(autoJoinForRoles)
     })
 
     openChannel(channelId, chunter.class.Channel)
@@ -89,12 +98,12 @@
   <div class="hulyModal-content__titleGroup" style="padding: 0">
     <ModernEditbox bind:value={channelName} label={chunter.string.NewChannel} size="large" kind="ghost" />
     <TextArea
-      placeholder={chunter.string.DescriptionOptional}
+      placeholder={chunter.string.TopicOptional}
       width="100%"
       height="6.5rem"
       margin="var(--spacing-1) var(--spacing-2)"
       noFocusBorder
-      bind:value={description}
+      bind:value={topic}
     />
   </div>
   <div class="hulyModal-content__settingsSet">
@@ -112,5 +121,32 @@
         }}
       />
     </div>
+    <div class="hulyModal-content__settingsSet-line create-channel-join-line flex-col items-start w-full">
+      <div class="flex-row-center gap-2 w-full justify-start">
+        <span class="label"><Label label={core.string.AutoJoin} /></span>
+        <Toggle data-id="channel-auto-join-toggle" bind:on={autoJoin} />
+      </div>
+      <span class="text-sm content-dark-color text-left w-full"><Label label={core.string.AutoJoinDescr} /></span>
+    </div>
+    <div class="hulyModal-content__settingsSet-line create-channel-join-line flex-col items-start w-full">
+      <div class="flex-row-center gap-2 w-full justify-start">
+        <span class="label"><Label label={core.string.AutoJoinGuests} /></span>
+        <Toggle
+          data-id="channel-guest-auto-join-toggle"
+          on={autoJoinForRoles.includes(AccountRole.Guest)}
+          on:change={(ev) => {
+            setGuestAutoJoin(ev.detail)
+          }}
+        />
+      </div>
+      <span class="text-sm content-dark-color text-left w-full"><Label label={core.string.AutoJoinGuestsDescr} /></span>
+    </div>
   </div>
 </Modal>
+
+<style lang="scss">
+  .create-channel-join-line:global(.hulyModal-content__settingsSet-line) {
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+</style>

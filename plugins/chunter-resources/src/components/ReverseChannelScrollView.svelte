@@ -13,35 +13,32 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import core, {
-    Doc,
-    generateId,
-    getCurrentAccount,
-    Ref,
-    Space,
-    Timestamp,
-    Tx,
-    TxCollectionCUD,
-    TxProcessor
-  } from '@hcengineering/core'
   import activity, { ActivityMessage } from '@hcengineering/activity'
-  import { ModernButton, Scroller } from '@hcengineering/ui'
-  import { addTxListener, getClient, removeTxListener } from '@hcengineering/presentation'
-  import { ActivityMessagePresenter, canGroupMessages, messageInFocus } from '@hcengineering/activity-resources'
-  import { InboxNotificationsClientImpl } from '@hcengineering/notification-resources'
-  import { afterUpdate, onDestroy, onMount, tick } from 'svelte'
+  import {
+    ActivityMessagePresenter,
+    canGroupMessages,
+    messageInFocus,
+    editingMessageStore,
+    clearMessageInLocation
+  } from '@hcengineering/activity-resources'
+  import core, { Doc, generateId, getCurrentAccount, Ref, Space, Timestamp, Tx, TxCUD } from '@hcengineering/core'
   import { DocNotifyContext } from '@hcengineering/notification'
+  import { InboxNotificationsClientImpl } from '@hcengineering/notification-resources'
+  import { addTxListener, getClient, removeTxListener } from '@hcengineering/presentation'
+  import { ModernButton, Scroller } from '@hcengineering/ui'
+  import { afterUpdate, onDestroy, onMount, tick } from 'svelte'
+  import { ChatMessage } from '@hcengineering/chunter'
 
-  import HistoryLoading from './LoadingHistory.svelte'
-  import { chatReadMessagesStore, recheckNotifications } from '../utils'
-  import { getScrollToDateOffset, getSelectedDate, jumpToDate, readViewportMessages } from '../scroll'
+  import { ChannelDataProvider, MessageMetadata } from '../channelDataProvider'
   import chunter from '../plugin'
+  import { getScrollToDateOffset, getSelectedDate, jumpToDate, messageInView, readViewportMessages } from '../scroll'
+  import { chatReadMessagesStore, recheckNotifications } from '../utils'
+  import BaseChatScroller from './BaseChatScroller.svelte'
   import BlankView from './BlankView.svelte'
+  import ChannelInput from './ChannelInput.svelte'
   import ActivityMessagesSeparator from './ChannelMessagesSeparator.svelte'
   import JumpToDateSelector from './JumpToDateSelector.svelte'
-  import BaseChatScroller from './BaseChatScroller.svelte'
-  import { ChannelDataProvider, MessageMetadata } from '../channelDataProvider'
-  import ChannelInput from './ChannelInput.svelte'
+  import HistoryLoading from './LoadingHistory.svelte'
 
   export let provider: ChannelDataProvider
   export let object: Doc
@@ -52,12 +49,17 @@
   export let fullHeight = true
   export let freeze = false
   export let loadMoreAllowed = true
+  export let autofocus = true
+  export let withInput: boolean = true
+  export let readonly: boolean = false
+  export let onReply: ((message: ActivityMessage) => void) | undefined = undefined
 
   const minMsgHeightRem = 2
   const loadMoreThreshold = 200
   const newSeparatorOffset = 150
 
-  const me = getCurrentAccount()
+  const account = getCurrentAccount()
+  const socialStrings = account.socialIds
   const client = getClient()
   const hierarchy = client.getHierarchy()
   const inboxClient = InboxNotificationsClientImpl.getClient()
@@ -110,7 +112,9 @@
   $: notifyContext = $contextByDocStore.get(doc._id)
   $: isThread = hierarchy.isDerived(doc._class, activity.class.ActivityMessage)
   $: isChunterSpace = hierarchy.isDerived(doc._class, chunter.class.ChunterSpace)
-  $: readonly = hierarchy.isDerived(channel._class, core.class.Space) ? (channel as Space).archived : false
+  $: readonly = hierarchy.isDerived(channel._class, core.class.Space)
+    ? readonly || (channel as Space).archived
+    : readonly
 
   $: separatorIndex =
     $newTimestampStore !== undefined
@@ -128,8 +132,8 @@
     }
   })
 
-  $: void initializeScroll($isLoadingStore, separatorDiv, separatorIndex)
   $: adjustScrollPosition(selectedMessageId)
+  $: void initializeScroll($isLoadingStore, separatorDiv, separatorIndex)
   $: void handleMessagesUpdated(messages.length)
 
   function adjustScrollPosition (selectedMessageId?: Ref<ActivityMessage>): void {
@@ -144,9 +148,6 @@
       } else {
         scrollToMessage()
       }
-    } else if (selectedMessageId === undefined) {
-      provider.jumpToEnd()
-      reinitializeScroll()
     }
   }
 
@@ -230,13 +231,15 @@
 
   function scrollToStartOfNew (): void {
     if (scrollDiv == null || lastMsgBeforeFreeze === undefined) return
-    if (needUpdateTimestamp) {
+    if (needUpdateTimestamp || $newTimestampStore === undefined) {
       void provider.updateNewTimestamp(notifyContext)
       needUpdateTimestamp = false
     }
     const lastIndex = messages.findIndex(({ _id }) => _id === lastMsgBeforeFreeze)
     if (lastIndex === -1) return
-    const firstNewMessage = messages.find(({ createdBy }, index) => index > lastIndex && createdBy !== me._id)
+    const firstNewMessage = messages.find(
+      ({ createdBy }, index) => index > lastIndex && (createdBy === undefined || !socialStrings.includes(createdBy))
+    )
 
     if (firstNewMessage === undefined) {
       scrollToBottom()
@@ -253,8 +256,8 @@
 
     if (topOffset < 0) {
       scroller?.scrollBy(topOffset)
-    } else if (topOffset > 0) {
-      scroller?.scrollBy(topOffset)
+    } else if (scrollDiv.scrollTop > 0) {
+      scrollDiv.scroll({ top: 0, behavior: 'instant' })
     }
   }
 
@@ -340,7 +343,7 @@
 
   function read (): void {
     if (isFreeze() || notifyContext === undefined || !isScrollInitialized) return
-    readViewportMessages(messages, notifyContext, scrollDiv, contentDiv)
+    readViewportMessages(messages, notifyContext._id, scrollDiv, contentDiv)
   }
 
   function updateScrollData (): void {
@@ -387,6 +390,7 @@
   async function handleScrollToLatestMessage (): Promise<void> {
     selectedMessageId = undefined
     messageInFocus.set(undefined)
+    clearMessageInLocation()
 
     const metadata = $metadataStore
     const lastMetadata = metadata[metadata.length - 1]
@@ -400,9 +404,7 @@
       scrollToBottom()
     }
 
-    const op = client.apply(undefined, 'chunter.scrollDown')
-    await inboxClient.readDoc(op, doc._id)
-    await op.commit()
+    await inboxClient.readDoc(doc._id)
   }
 
   let forceRead = false
@@ -419,9 +421,7 @@
 
     if (unViewed.length === 0) {
       forceRead = true
-      const op = client.apply(undefined, 'chunter.forceReadContext', true)
-      await inboxClient.readDoc(op, object._id)
-      await op.commit()
+      await inboxClient.readDoc(object._id)
     }
   }
 
@@ -543,13 +543,12 @@
     loadMore()
   }
 
-  const newMessageTxListener = (tx: Tx): void => {
-    if (tx._class !== core.class.TxCollectionCUD) return
-    const ctx = tx as TxCollectionCUD<Doc, ActivityMessage>
-    if (ctx.objectId !== doc._id) return
-    const etx = TxProcessor.extractTx(tx)
-    if (etx._class !== core.class.TxCreateDoc) return
-    if (shouldScrollToNew) {
+  const newMessageTxListener = (txes: Tx[]): void => {
+    const ctx = txes
+      .map((it) => it as TxCUD<ActivityMessage>)
+      .filter((it) => it.attachedTo === doc._id && it._class === core.class.TxCreateDoc)
+
+    if (ctx.length > 0 && shouldScrollToNew) {
       void wait().then(scrollToNewMessages)
     }
   }
@@ -575,6 +574,47 @@
     window.removeEventListener('blur', handleWindowBlur)
     removeTxListener(newMessageTxListener)
   })
+
+  $: showBlankView = !$isLoadingStore && messages.length === 0 && !isThread
+
+  export function editLastMessage (): void {
+    if ($isLoadingStore || !isScrollInitialized || !$isTailLoadedStore || scrollDiv == null) {
+      return
+    }
+    if (!isScrollAtBottom) return
+    const me = getCurrentAccount()
+    let lastMessage: ChatMessage | undefined = undefined
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (!hierarchy.isDerived(message._class, chunter.class.ChatMessage)) continue
+      if (message.createdBy == null || !me.socialIds.includes(message.createdBy)) continue
+      lastMessage = message as ChatMessage
+      break
+    }
+
+    if (lastMessage == null) return
+    editingMessageStore.set(lastMessage._id)
+    const messagesElements = contentDiv?.getElementsByClassName('activityMessage')
+    const msgElement = messagesElements?.[selectedMessageId as any]
+    if (msgElement == null) return
+    const scrollRect = scrollDiv.getBoundingClientRect()
+
+    if (!messageInView(msgElement, scrollRect)) {
+      msgElement.scrollIntoView({ behavior: 'instant', block: 'end' })
+    }
+  }
+
+  function handleKeyDown (e: KeyboardEvent): void {
+    const key = e.key
+
+    if (key === 'ArrowUp') {
+      if ($editingMessageStore !== undefined) return
+      editLastMessage()
+    }
+  }
+  function getKey (messages: ActivityMessage[]): string {
+    return `${messages.length}-${Math.max(...messages.map((m) => m.modifiedOn))}`
+  }
 </script>
 
 <div class="flex-col relative" class:h-full={fullHeight}>
@@ -587,15 +627,17 @@
     bind:scroller
     bind:scrollDiv
     bind:contentDiv
+    bottomStart={!showBlankView}
     loadingOverlay={$isLoadingStore || !isScrollInitialized}
     onScroll={handleScroll}
     onResize={handleResize}
+    key={getKey(messages)}
   >
-    {#if !$isLoadingStore && messages.length === 0 && !isThread && !readonly}
+    {#if showBlankView}
       <BlankView
         icon={chunter.icon.Thread}
         header={chunter.string.NoMessagesInChannel}
-        label={chunter.string.SendMessagesInChannel}
+        label={readonly ? undefined : chunter.string.SendMessagesInChannel}
       />
     {/if}
 
@@ -625,12 +667,14 @@
         {doc}
         value={message}
         skipLabel={isThread || isChunterSpace}
+        hideLink
         hoverStyles="filledHover"
         attachmentImageSize="x-large"
         type={canGroup ? 'short' : 'default'}
         isHighlighted={isSelected}
         shouldScroll={false}
         {readonly}
+        {onReply}
       />
     {/each}
 
@@ -641,8 +685,16 @@
     {#if loadMoreAllowed && $canLoadNextForwardStore}
       <HistoryLoading isLoading={$isLoadingMoreStore} />
     {/if}
-    {#if !fixedInput}
-      <ChannelInput {object} {readonly} boundary={scrollDiv} {collection} {isThread} />
+    {#if !fixedInput && withInput && !readonly}
+      <ChannelInput
+        {object}
+        {readonly}
+        boundary={scrollDiv}
+        {collection}
+        {isThread}
+        {autofocus}
+        onKeyDown={handleKeyDown}
+      />
     {/if}
   </BaseChatScroller>
   {#if !isThread && isLatestMessageButtonVisible}
@@ -658,8 +710,20 @@
   {/if}
 </div>
 
-{#if fixedInput}
-  <ChannelInput {object} {readonly} boundary={scrollDiv} {collection} {isThread} />
+{#if fixedInput && withInput && !readonly}
+  <ChannelInput
+    {object}
+    {readonly}
+    boundary={scrollDiv}
+    {collection}
+    {isThread}
+    {autofocus}
+    onKeyDown={handleKeyDown}
+  />
+{/if}
+
+{#if readonly}
+  <div class="h-6" />
 {/if}
 
 <style lang="scss">

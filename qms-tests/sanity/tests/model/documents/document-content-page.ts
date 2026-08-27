@@ -6,6 +6,7 @@ import { DocumentHistoryPage } from './document-history-page'
 
 export class DocumentContentPage extends DocumentCommonPage {
   readonly page: Page
+  readonly panel: Locator
   readonly buttonDocumentTitle: Locator
   readonly buttonMoreActions: Locator
   readonly textDocumentStatus: Locator
@@ -13,10 +14,10 @@ export class DocumentContentPage extends DocumentCommonPage {
   readonly textCategory: Locator
   readonly textVersion: Locator
   readonly textStatus: Locator
-  readonly textOwner: Locator
   readonly textAuthor: Locator
-  readonly buttonSelectNewOwner: Locator
-  readonly buttonSelectNewOwnerChange: Locator
+  readonly textCreator: Locator
+  readonly buttonSelectNewAuthor: Locator
+  readonly buttonSelectNewAuthorChange: Locator
   readonly buttonSendForReview: Locator
   readonly buttonSendForApproval: Locator
   readonly buttonAddMembers: Locator
@@ -30,6 +31,7 @@ export class DocumentContentPage extends DocumentCommonPage {
   readonly buttonCompleteReview: Locator
   readonly inputPassword: Locator
   readonly buttonSubmit: Locator
+  readonly buttonSubmitSignature: Locator
   readonly buttonReject: Locator
   readonly inputRejectionReason: Locator
   readonly buttonApprove: Locator
@@ -39,7 +41,7 @@ export class DocumentContentPage extends DocumentCommonPage {
   readonly buttonDocument: Locator
   readonly buttonDocumentApprovals: Locator
   readonly textPageHeader: Locator
-  readonly buttonSelectNewOwnerChangeByQaraManager: Locator
+  readonly buttonSelectNewAuthorChangeByQaraManager: Locator
   readonly textId: Locator
   readonly contentLocator: Locator
   readonly addSpaceButton: Locator
@@ -103,6 +105,7 @@ export class DocumentContentPage extends DocumentCommonPage {
   constructor (page: Page) {
     super(page)
     this.page = page
+    this.panel = page.locator('.popupPanel-body')
     this.buttonDocumentTitle = page.locator('button.version-item span.name')
     this.buttonMoreActions = page.locator('.hulyHeader-buttonsGroup > .no-print > .antiButton').first()
     this.textDocumentStatus = page.locator('button.version-item div.root span.label')
@@ -110,10 +113,10 @@ export class DocumentContentPage extends DocumentCommonPage {
     this.textCategory = page.locator('div.flex:has(div.label:text("Category")) div.field')
     this.textVersion = page.locator('div.flex:has(div.label:text("Version")) div.field')
     this.textStatus = page.locator('div.flex:has(div.label:text("Status")) div.field')
-    this.textOwner = page.locator('div.flex:has(div.label:text("Owner")) div.field')
     this.textAuthor = page.locator('div.flex:has(div.label:text("Author")) div.field')
-    this.buttonSelectNewOwner = page.locator('div.popup button.small')
-    this.buttonSelectNewOwnerChange = page.locator('div.popup button.dangerous')
+    this.textCreator = page.locator('div.flex:has(div.label:text("Creator")) div.field')
+    this.buttonSelectNewAuthor = page.locator('div.popup button.small')
+    this.buttonSelectNewAuthorChange = page.locator('div.popup button.dangerous')
     this.buttonSendForReview = page.locator('div.hulyHeader-buttonsGroup.extra button[type="button"] > span', {
       hasText: 'Send for review'
     })
@@ -135,6 +138,7 @@ export class DocumentContentPage extends DocumentCommonPage {
     })
     this.inputPassword = page.locator('input[name="documents:string:Password"]')
     this.buttonSubmit = page.locator('div.popup button[type="submit"]')
+    this.buttonSubmitSignature = page.locator('.signature-dialog button[type="submit"]')
     this.buttonReject = page.locator('button[type="button"] > span', { hasText: 'Reject' })
     this.inputRejectionReason = page.locator('div.popup div[id="rejection-reason"] input')
     this.buttonApprove = page.locator('button[type="button"] > span', { hasText: 'Approve' })
@@ -148,7 +152,7 @@ export class DocumentContentPage extends DocumentCommonPage {
     this.buttonDocumentInformation = page.locator('button[id$="info"]')
     this.buttonDocumentApprovals = page.locator('button[id$="approvals"]')
     this.textPageHeader = page.locator('div.hulyNavPanel-header')
-    this.buttonSelectNewOwnerChangeByQaraManager = page.locator('div.popup button[type="submit"]')
+    this.buttonSelectNewAuthorChangeByQaraManager = page.locator('div.popup button[type="submit"]')
     this.textId = page.locator('div.flex:has(div.label:text("ID")) div.field')
     this.contentLocator = page.locator('div.textInput div.tiptap')
     this.addSpaceButton = page.locator('#tree-orgspaces')
@@ -203,7 +207,7 @@ export class DocumentContentPage extends DocumentCommonPage {
     this.employeeDropdown = page.locator('div:nth-child(4) > button').first()
     this.kickEmployee = page.getByRole('button', { name: 'Kick employee' })
     this.confirmKickEmployee = page.getByRole('button', { name: 'Ok' })
-    this.openTeam = page.getByText('Team')
+    this.openTeam = page.getByText('Team', { exact: true })
     this.privateToggle = page.locator('#teamspace-private span')
     this.inputTeamspaceName = page.getByPlaceholder('New teamspace')
     this.teamspaceArrow = page.locator('.w-full > button:nth-child(2)')
@@ -246,8 +250,15 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.confirmKickEmployee.click()
   }
 
+  async toggleHideInactive (): Promise<void> {
+    await this.page.locator('[data-id="btn-viewOptions"]').click()
+    await this.page.locator('.antiCard-menu__item', { hasText: 'Hide inactive' }).click()
+    await this.page.keyboard.press('Escape')
+  }
+
   async checkIfEmployeeIsKicked (employee: string): Promise<void> {
     await this.page.getByRole('link', { name: 'Employee' }).getByRole('button').first().click()
+    await this.toggleHideInactive()
     await expect(this.page.getByText(employee + ' Inactive')).toBeVisible()
   }
 
@@ -260,16 +271,16 @@ export class DocumentContentPage extends DocumentCommonPage {
   }
 
   async checkIfReviewersAndApproversAreVisible (): Promise<void> {
-    await expect(this.page.getByText('Appleseed John').first()).toBeVisible()
-    await expect(this.page.getByText('Dirak Kainin')).toBeVisible()
-    await expect(this.page.getByText('Appleseed John').nth(1)).toBeVisible()
+    await expect(this.panel.getByText('Appleseed John').first()).toBeVisible()
+    await expect(this.panel.getByText('Dirak Kainin')).toBeVisible()
+    await expect(this.panel.getByText('Appleseed John').nth(1)).toBeVisible()
   }
 
   async checkTheUserCantChangeReviewersAndApprovers (): Promise<void> {
-    await this.page.getByText('Appleseed John').first().click()
-    await expect(this.page.getByText('Dirak Kainin').nth(1)).not.toBeVisible()
-    await this.page.getByText('Dirak Kainin').click()
-    await expect(this.page.getByText('Dirak Kainin').nth(1)).not.toBeVisible()
+    await this.panel.getByText('Appleseed John').first().click()
+    await expect(this.panel.getByText('Dirak Kainin').nth(1)).not.toBeVisible()
+    await this.panel.getByText('Dirak Kainin').click()
+    await expect(this.panel.getByText('Dirak Kainin').nth(1)).not.toBeVisible()
   }
 
   async clickDocumentHeader (name: string): Promise<void> {
@@ -327,7 +338,7 @@ export class DocumentContentPage extends DocumentCommonPage {
   }
 
   async clickAddMember (): Promise<void> {
-    await this.addMember.click()
+    await this.addMember.first().click()
   }
 
   async checkIfMemberDropdownHasMember (member: string, contains: boolean): Promise<void> {
@@ -484,7 +495,8 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.page.getByRole('button', { name: 'AQ Admin Qara' }).click()
     await this.page.getByRole('button', { name: 'AJ Appleseed John' }).nth(1).click()
     await this.page.keyboard.press('Escape')
-    await this.page.getByRole('button', { name: 'Create' }).click()
+    await expect(this.page.locator('.selectPopup')).not.toBeAttached()
+    await this.page.getByRole('button', { name: 'Create' }).click({ timeout: 3000 })
   }
 
   async checkIfUserCanCreateDocument (spaceName: string): Promise<void> {
@@ -584,6 +596,17 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.createButton.click()
   }
 
+  async addThirdUserToMembers (spaceName: string): Promise<void> {
+    await this.page.getByRole('button', { name: spaceName }).hover()
+    await this.page.getByRole('button', { name: spaceName }).getByRole('button').click()
+    await this.editDocumentSpace.click()
+    await this.page.getByRole('button', { name: 'AJ DK 2 members' }).click()
+    await this.page.getByRole('button', { name: 'VC Velasquez Cain' }).click()
+    await this.page.keyboard.press('Escape')
+    await this.page.waitForTimeout(1000)
+    await this.saveButton.click()
+  }
+
   async checkIfTheSpaceIsVisible (spaceName: string, visible: boolean): Promise<void> {
     if (visible) {
       await expect(this.page.getByRole('button', { name: spaceName })).toBeVisible()
@@ -604,6 +627,7 @@ export class DocumentContentPage extends DocumentCommonPage {
       await expect(this.editDocumentSpace).not.toBeVisible()
       await expect(this.createNewTemplateFromSpace).not.toBeVisible()
     }
+    await this.page.keyboard.press('Escape')
   }
 
   async checkSpaceFormIsCreated (spaceName: string): Promise<void> {
@@ -673,7 +697,7 @@ export class DocumentContentPage extends DocumentCommonPage {
   async checkIfHistoryVersionExists (description: string): Promise<void> {
     await this.page.waitForTimeout(200)
     await expect(this.page.getByText(description)).toBeVisible()
-    await expect(this.page.getByText('v0.1', { exact: true })).toBeVisible()
+    await expect(this.page.getByText('v1.0', { exact: true })).toBeVisible()
   }
 
   async checkDocumentStatus (status: DocumentStatus): Promise<void> {
@@ -701,20 +725,20 @@ export class DocumentContentPage extends DocumentCommonPage {
       await expect(this.textStatus).toHaveText(data.status)
     }
     if (data.owner != null) {
-      await expect(this.textOwner).toHaveText(data.owner)
+      await expect(this.textAuthor).toHaveText(data.owner)
     }
     if (data.author != null) {
-      await expect(this.textAuthor).toHaveText(data.author)
+      await expect(this.textCreator).toHaveText(data.author)
     }
     if (data.id != null) {
       await expect(this.textId).toHaveText(data.id)
     }
   }
 
-  async fillChangeDocumentOwnerPopup (newOwner: string): Promise<void> {
-    await this.buttonSelectNewOwner.click()
-    await this.selectListItemWithSearch(this.page, newOwner)
-    await this.buttonSelectNewOwnerChange.click()
+  async fillChangeDocumentAuthorPopup (newAuthor: string): Promise<void> {
+    await this.buttonSelectNewAuthor.click()
+    await this.selectListItemWithSearch(this.page, newAuthor)
+    await this.buttonSelectNewAuthorChange.click()
   }
 
   async fillSelectReviewersForm (reviewers: Array<string>): Promise<void> {
@@ -724,15 +748,17 @@ export class DocumentContentPage extends DocumentCommonPage {
     }
     await this.textSelectReviewersPopup.click({ force: true })
     await this.buttonSelectMemberSubmit.click()
+    await this.confirmSubmission()
   }
 
-  async fillSelectApproversForm (approvers: Array<string>): Promise<void> {
-    await this.buttonAddMembers.click()
+  async fillSelectApproversForm (approvers: Array<string>, skipConfirm: boolean = false): Promise<void> {
+    await this.buttonAddMembers.first().click()
     for (const approver of approvers) {
       await this.selectListItemWithSearch(this.page, approver)
     }
     await this.textSelectApproversPopup.click({ force: true })
     await this.buttonSelectMemberSubmit.click()
+    if (!skipConfirm) await this.confirmSubmission()
   }
 
   async checkCurrentRights (right: DocumentRights): Promise<void> {
@@ -743,6 +769,13 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.page.getByText(text).click()
     await this.page.getByText(text).dblclick()
 
+    // NOTE: without the resize the menu popup might be placed in a wrong place initially
+    // and only update its position on the button click (MouseDown) which leads
+    // to the MouseUp land not on the button and the click handler is not triggered
+    // Resize event ensures that the menu popup is placed correctly before clicking
+    await this.page.evaluate(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
     await this.buttonAddMessageToText.click()
     await this.addMessage(message)
 
@@ -769,6 +802,7 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.addReasonAndImpactToTheDocument(reason, impact)
     await this.buttonSendForApproval.click()
     await this.buttonSelectMemberSubmit.click()
+    await this.confirmSubmission()
     await this.checkDocumentStatus(DocumentStatus.IN_APPROVAL)
     await this.checkDocument({
       ...documentDetails,
@@ -814,6 +848,11 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.buttonSubmit.click()
   }
 
+  async confirmSubmission (): Promise<void> {
+    await this.inputPassword.fill(PlatformPassword)
+    await this.buttonSubmitSignature.click()
+  }
+
   async changeCurrentRight (newRight: DocumentRights): Promise<void> {
     await this.buttonCurrentRights.click()
     await this.selectMenuItem(this.page, newRight)
@@ -844,9 +883,9 @@ export class DocumentContentPage extends DocumentCommonPage {
     await this.buttonDocumentApprovals.click({ position: { x: 1, y: 1 }, force: true })
   }
 
-  async fillChangeDocumentOwnerPopupByQaraManager (newOwner: string): Promise<void> {
-    await this.buttonSelectNewOwner.click()
+  async fillChangeDocumentAuthorPopupByQaraManager (newOwner: string): Promise<void> {
+    await this.buttonSelectNewAuthor.click()
     await this.selectListItemWithSearch(this.page, newOwner)
-    await this.buttonSelectNewOwnerChangeByQaraManager.click()
+    await this.buttonSelectNewAuthorChangeByQaraManager.click()
   }
 }

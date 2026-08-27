@@ -1,57 +1,74 @@
 <script lang="ts">
   import documents, {
+    ControlledDocument,
     ControlledDocumentState,
     DocumentRequest,
-    DocumentState
+    DocumentState,
+    DocumentValidationState,
+    emptyBundle
   } from '@hcengineering/controlled-documents'
-  import { SortingOrder } from '@hcengineering/core'
 
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { Label, Scroller } from '@hcengineering/ui'
 
-  import { $controlledDocument as controlledDocument } from '../../../stores/editors/document'
-  import document from '../../../plugin'
-  import RightPanelTabHeader from './RightPanelTabHeader.svelte'
-  import DocumentApprovalItem from './DocumentApprovalItem.svelte'
+  import chunter, { ChatMessage } from '@hcengineering/chunter'
+  import documentsRes from '../../../plugin'
+  import {
+    $controlledDocument as controlledDocument,
+    $documentSnapshots as documentSnapshots,
+    $isDocumentOwner as isDocumentOwner
+  } from '../../../stores/editors/document'
   import DocumentApprovalGuideItem from './DocumentApprovalGuideItem.svelte'
+  import DocumentApprovalItem from './DocumentApprovalItem.svelte'
+  import RightPanelTabHeader from './RightPanelTabHeader.svelte'
+  import { extractValidationWorkflow } from '../../../utils'
+  import { Ref } from '@hcengineering/core'
 
   const client = getClient()
   const hierarchy = client.getHierarchy()
 
   let requests: DocumentRequest[] = []
-  let approvals: DocumentRequest[] = []
+  let messages: ChatMessage[] = []
 
-  $: approvals = requests.filter((p) => hierarchy.isDerived(p._class, documents.class.DocumentApprovalRequest))
+  $: doc = $controlledDocument
+  const requestQuery = createQuery()
+  $: if (doc) {
+    requestQuery.query(documents.class.DocumentRequest, { attachedTo: doc._id }, (r) => {
+      requests = r
+    })
+  }
 
-  const query = createQuery()
-  $: query.query(
-    documents.class.DocumentRequest,
-    {
-      _class: {
-        $in: [documents.class.DocumentApprovalRequest, documents.class.DocumentReviewRequest]
-      },
-      attachedTo: $controlledDocument?._id
-    },
-    (result) => {
-      requests = result
-    },
-    {
-      sort: { createdOn: SortingOrder.Descending }
-    }
-  )
+  const messageQuery = createQuery()
+  $: if (doc) {
+    messageQuery.query(chunter.class.ChatMessage, { attachedTo: { $in: requests.map((r) => r._id) } }, (r) => {
+      messages = r
+    })
+  }
 
+  let workflow: Map<Ref<ControlledDocument>, DocumentValidationState[]> | undefined
+  $: void extractValidationWorkflow(hierarchy, {
+    ...emptyBundle(),
+    ControlledDocument: doc ? [doc] : [],
+    DocumentRequest: requests,
+    DocumentSnapshot: $documentSnapshots,
+    ChatMessage: messages
+  }).then((res) => {
+    workflow = res
+  })
+
+  $: validationStates = ((doc ? workflow?.get(doc._id) : []) ?? []).slice()
+
+  const noGuideStates: (ControlledDocumentState | undefined)[] = [
+    ControlledDocumentState.Approved,
+    ControlledDocumentState.Rejected,
+    ControlledDocumentState.InApproval
+  ]
   $: hasGuide =
-    $controlledDocument?.state === DocumentState.Draft &&
-    ($controlledDocument?.controlledState == null ||
-      ![
-        ControlledDocumentState.Approved,
-        ControlledDocumentState.Rejected,
-        ControlledDocumentState.InApproval
-      ].includes($controlledDocument?.controlledState))
+    doc && doc.state === DocumentState.Draft && !noGuideStates.includes(doc.controlledState) && $isDocumentOwner
 </script>
 
 <RightPanelTabHeader>
-  <Label label={document.string.DocumentApprovals} />
+  <Label label={documentsRes.string.ValidationWorkflow} />
 </RightPanelTabHeader>
 
 <Scroller>
@@ -60,13 +77,13 @@
       <DocumentApprovalGuideItem />
     </div>
   {/if}
-  {#if requests.length > 0}
-    {#each requests as object, idx}
-      <DocumentApprovalItem request={object} initiallyExpanded={!hasGuide && idx === 0} />
+  {#if validationStates.length > 0}
+    {#each validationStates as state, idx}
+      <DocumentApprovalItem {state} initiallyExpanded={!hasGuide && idx === 0} />
     {/each}
   {/if}
-  {#if !hasGuide && approvals.length === 0}
-    <div class="no-approvals-message"><Label label={document.string.NoApprovalsDescription} /></div>
+  {#if !hasGuide && requests.length === 0}
+    <div class="no-approvals-message"><Label label={documentsRes.string.NoApprovalsDescription} /></div>
   {/if}
 </Scroller>
 

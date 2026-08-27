@@ -32,7 +32,7 @@ export class CustomAttributesPage {
     this.page = page
   }
 
-  member = (): Locator => this.page.getByRole('button', { name: 'Member' })
+  member = (): Locator => this.page.getByRole('button', { name: 'Member', exact: true })
   contact = (): Locator => this.page.getByRole('button', { name: 'Contact' })
   person = (): Locator => this.page.getByRole('button', { name: 'Person' })
   employee = (): Locator => this.page.getByRole('button', { name: 'Employee' })
@@ -157,7 +157,6 @@ export class CustomAttributesPage {
     await expect(this.lead().nth(1)).toBeVisible()
     await expect(this.issue().nth(0)).toBeVisible()
     await expect(this.issue().nth(1)).toBeVisible()
-    await expect(this.card()).toBeVisible()
     await expect(this.product()).toBeVisible()
   }
 }

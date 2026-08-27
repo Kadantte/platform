@@ -15,7 +15,7 @@
 
 import activity from '@hcengineering/activity'
 import chunter from '@hcengineering/chunter'
-import { AccountRole, type Ref, type Status } from '@hcengineering/core'
+import { AccountRole, type ClassCollaborators, type Ref, type Status } from '@hcengineering/core'
 import { type Builder } from '@hcengineering/model'
 import core from '@hcengineering/model-core'
 import { generateClassNotificationTypes } from '@hcengineering/model-notification'
@@ -23,20 +23,25 @@ import presentation from '@hcengineering/model-presentation'
 import task from '@hcengineering/model-task'
 import view from '@hcengineering/model-view'
 import workbench from '@hcengineering/model-workbench'
+import converter from '@hcengineering/converter'
 import notification from '@hcengineering/notification'
 import setting from '@hcengineering/setting'
-import pluginState, { trackerId } from '@hcengineering/tracker'
+import pluginState, { type Issue, trackerId } from '@hcengineering/tracker'
 
 import type { TaskStatusFactory } from '@hcengineering/task'
 import { PaletteColorIndexes } from '@hcengineering/ui/src/colors'
 import { createActions as defineActions } from './actions'
 import tracker from './plugin'
 import { definePresenters } from './presenters'
+import { definePermissions } from './permissions'
 import {
   DOMAIN_TRACKER,
   TClassicProjectTypeData,
   TComponent,
+  TDependencyShiftedNotification,
+  TDependencyShiftRequest,
   TIssue,
+  TIssueRelation,
   TIssueStatus,
   TIssueTemplate,
   TIssueTypeData,
@@ -81,6 +86,10 @@ export const classicIssueTaskStatuses: TaskStatusFactory[] = [
 ]
 
 function defineSortAndGrouping (builder: Builder): void {
+  builder.mixin(tracker.class.Issue, core.class.Class, converter.mixin.MarkdownValueFormatter, {
+    formatter: tracker.function.FormatIssueMarkdownValue
+  })
+
   builder.mixin(tracker.class.IssueStatus, core.class.Class, view.mixin.SortFuncs, {
     func: tracker.function.IssueStatusSort
   })
@@ -154,6 +163,34 @@ function defineNotifications (builder: Builder): void {
     tracker.ids.AssigneeNotification
   )
 
+  // Notification on Dependency-Shift.
+  // The cascade bundle is created client-side as a CommonInboxNotification
+  // subclass (see `dependency-shift-send.ts`); this NotificationType wires it
+  // into the user's tracker notification group so settings/Inbox provider
+  // routing work the same as the assignee type. `field` is bound to the
+  // `cascadeToken` attribute so the auto-`dueDate` generated type stays
+  // distinct (and they don't compete on the same `dueDate` notify channel).
+  builder.createDoc(
+    notification.class.NotificationType,
+    core.space.Model,
+    {
+      hidden: false,
+      generated: false,
+      label: tracker.string.DependencyShifted,
+      group: tracker.ids.TrackerNotificationGroup,
+      field: 'cascadeToken',
+      txClasses: [core.class.TxCreateDoc],
+      objectClass: tracker.class.DependencyShiftedNotification,
+      templates: {
+        textTemplate: '{sender} shifted {trigger} — {count} dependent issues moved',
+        htmlTemplate: '<p>{sender} shifted {trigger} — {count} dependent issues moved</p>',
+        subjectTemplate: 'Dependency shift'
+      },
+      defaultEnabled: true
+    },
+    tracker.ids.DependencyShiftedNotification
+  )
+
   generateClassNotificationTypes(
     builder,
     tracker.class.Issue,
@@ -189,7 +226,9 @@ function defineFilters (builder: Builder): void {
         key: 'milestone',
         component: view.component.ObjectFilter,
         showNested: false
-      }
+      },
+      'startDate',
+      'dueDate'
     ],
     ignoreKeys: ['number', 'estimation', 'attachedTo'],
     getVisibleFilters: tracker.function.GetVisibleFilters
@@ -304,6 +343,7 @@ function defineApplication (
     componentsId: string
     milestonesId: string
     templatesId: string
+    labelsId: string
   }
 ): void {
   builder.createDoc(
@@ -365,6 +405,15 @@ function defineApplication (
               icon: view.icon.List,
               label: tracker.string.AllProjects
             }
+          },
+          {
+            id: opt.labelsId,
+            component: tracker.component.LabelsView,
+            accessLevel: AccountRole.User,
+            icon: tracker.icon.Labels,
+            label: tracker.string.Labels,
+            // createItemLabel: task.string.TaskCreateLabel,
+            position: 'bottom'
           }
         ],
         spaces: [
@@ -425,6 +474,7 @@ export function createModel (builder: Builder): void {
     TProject,
     TComponent,
     TIssue,
+    TIssueRelation,
     TIssueTemplate,
     TIssueStatus,
     TTypeIssuePriority,
@@ -435,7 +485,9 @@ export function createModel (builder: Builder): void {
     TRelatedIssueTarget,
     TTypeEstimation,
     TTypeRemainingTime,
-    TProjectTargetPreference
+    TProjectTargetPreference,
+    TDependencyShiftedNotification,
+    TDependencyShiftRequest
   )
 
   builder.mixin(tracker.class.Project, core.class.Class, activity.mixin.ActivityDoc, {})
@@ -451,25 +503,36 @@ export function createModel (builder: Builder): void {
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: tracker.class.Issue,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: tracker.class.Milestone,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: tracker.class.Component,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   builder.createDoc(activity.class.ActivityExtension, core.space.Model, {
     ofClass: tracker.class.IssueTemplate,
-    components: { input: chunter.component.ChatMessageInput }
+    components: { input: { component: chunter.component.ChatMessageInput } }
   })
 
   defineViewlets(builder)
+
+  builder.createDoc(
+    view.class.ViewletViewAction,
+    core.space.Model,
+    {
+      descriptor: view.viewlet.List,
+      extension: converter.extensions.CopyAsMarkdownAction,
+      applicableToClass: tracker.class.Issue
+    },
+    tracker.specialViewAction.IssueList
+  )
 
   const issuesId = 'issues'
   const componentsId = 'components'
@@ -477,6 +540,7 @@ export function createModel (builder: Builder): void {
   const templatesId = 'templates'
   const myIssuesId = 'my-issues'
   const allIssuesId = 'all-issues'
+  const labelsId = 'labels'
   // const scrumsId = 'scrums'
 
   definePresenters(builder)
@@ -491,11 +555,20 @@ export function createModel (builder: Builder): void {
 
   defineSortAndGrouping(builder)
 
-  builder.mixin(tracker.class.Issue, core.class.Class, notification.mixin.ClassCollaborators, {
+  builder.createDoc<ClassCollaborators<Issue>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: tracker.class.Issue,
     fields: ['createdBy', 'assignee']
   })
 
   builder.mixin(tracker.class.Issue, core.class.Class, setting.mixin.Editable, {
+    value: true
+  })
+
+  builder.mixin(tracker.class.Milestone, core.class.Class, setting.mixin.Editable, {
+    value: true
+  })
+
+  builder.mixin(tracker.class.Component, core.class.Class, setting.mixin.Editable, {
     value: true
   })
 
@@ -557,6 +630,35 @@ export function createModel (builder: Builder): void {
     tracker.ids.IssueRemovedActivityViewlet
   )
 
+  // Activity-Log Remove-Detail Fix.
+  // Three symmetric viewlets so IssueRelation add/remove/update show up in
+  // the issue activity feed with a kind+lag+target.title snapshot instead
+  // of the previous empty "removed related to:" row. The
+  // RelationActivityPresenter reuses IssueRelationPresenter, which is
+  // already registered as the ObjectPresenter for tracker.class.IssueRelation
+  // (models/tracker/src/presenters.ts).
+  builder.createDoc(activity.class.DocUpdateMessageViewlet, core.space.Model, {
+    objectClass: tracker.class.IssueRelation,
+    action: 'create',
+    icon: tracker.icon.Issue,
+    label: tracker.string.AddedRelation,
+    component: tracker.component.RelationActivityPresenter
+  })
+  builder.createDoc(activity.class.DocUpdateMessageViewlet, core.space.Model, {
+    objectClass: tracker.class.IssueRelation,
+    action: 'remove',
+    icon: tracker.icon.Issue,
+    label: tracker.string.RemovedRelation,
+    component: tracker.component.RelationActivityPresenter
+  })
+  builder.createDoc(activity.class.DocUpdateMessageViewlet, core.space.Model, {
+    objectClass: tracker.class.IssueRelation,
+    action: 'update',
+    icon: tracker.icon.Issue,
+    label: tracker.string.UpdatedRelation,
+    component: tracker.component.RelationActivityPresenter
+  })
+
   builder.createDoc(
     activity.class.DocUpdateMessageViewlet,
     core.space.Model,
@@ -587,7 +689,7 @@ export function createModel (builder: Builder): void {
     tracker.ids.IssueTemplateUpdatedActivityViewlet
   )
 
-  defineApplication(builder, { myIssuesId, allIssuesId, issuesId, componentsId, milestonesId, templatesId })
+  defineApplication(builder, { myIssuesId, allIssuesId, issuesId, componentsId, milestonesId, templatesId, labelsId })
 
   defineActions(builder, issuesId, componentsId, myIssuesId)
 
@@ -619,6 +721,45 @@ export function createModel (builder: Builder): void {
     role: AccountRole.Maintainer,
     order: 4000
   })
+
+  builder.createDoc(
+    core.class.ClassPermission,
+    core.space.Model,
+    {
+      label: tracker.string.AllowCreatingIssues,
+      scope: 'space',
+      targetClass: tracker.class.Issue
+    },
+    tracker.ids.GuestIssueClassPermission
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: tracker.app.Tracker,
+      role: AccountRole.Guest,
+      permissions: [tracker.ids.GuestIssueClassPermission],
+      spaceClass: tracker.class.Project,
+      enabled: true,
+      order: 10
+    },
+    tracker.ids.ModulePermissionGroup
+  )
+
+  builder.createDoc(
+    core.class.ModulePermissionGroup,
+    core.space.Model,
+    {
+      application: tracker.app.Tracker,
+      role: AccountRole.ReadOnlyGuest,
+      permissions: [],
+      spaceClass: tracker.class.Project,
+      enabled: true,
+      order: 10
+    },
+    tracker.ids.ModulePermissionGroupReadOnlyGuest
+  )
 
   builder.createDoc(
     chunter.class.ChatMessageViewlet,
@@ -689,6 +830,7 @@ export function createModel (builder: Builder): void {
     ]
   })
 
+  definePermissions(builder)
   defineSpaceType(builder)
 }
 
@@ -722,7 +864,8 @@ function defineSpaceType (builder: Builder): void {
       description: tracker.string.Issue,
       icon: tracker.icon.Issue,
       name: tracker.string.Issue,
-      statusCategoriesFunc: tracker.function.GetIssueStatusCategories
+      statusCategoriesFunc: tracker.function.GetIssueStatusCategories,
+      openTasks: tracker.function.OpenIssuesOfTaskType
     },
     tracker.descriptors.Issue
   )
@@ -761,7 +904,7 @@ function defineSpaceType (builder: Builder): void {
     task.class.TaskType,
     core.space.Model,
     {
-      parent: tracker.ids.ClassingProjectType,
+      parent: pluginState.ids.ClassingProjectType,
       statuses: classicStatuses,
       descriptor: tracker.descriptors.Issue,
       name: 'Issue',
@@ -789,6 +932,6 @@ function defineSpaceType (builder: Builder): void {
       statuses: classicStatuses.map((s) => ({ _id: s, taskType: tracker.taskTypes.Issue })),
       targetClass: tracker.mixin.ClassicProjectTypeData
     },
-    tracker.ids.ClassingProjectType
+    pluginState.ids.ClassingProjectType
   )
 }

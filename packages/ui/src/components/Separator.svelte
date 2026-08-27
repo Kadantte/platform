@@ -38,6 +38,8 @@
 
   let sState: SeparatorState
   $: sState = typeof float === 'string' ? SeparatorState.FLOAT : float ? SeparatorState.HIDDEN : SeparatorState.NORMAL
+  const checkFullWidth = (): boolean =>
+    sState === SeparatorState.FLOAT && $deviceInfo.isMobile && $deviceInfo.isPortrait
 
   const direction: 'horizontal' | 'vertical' = 'horizontal'
   let separators: SeparatedItem[] | null = null
@@ -67,6 +69,21 @@
   let disabled: boolean = false
   let side: 'start' | 'end' | undefined = undefined
 
+  $: fs = $deviceInfo.fontSize
+  const remToPx = (rem: number): number => rem * fs
+  const pxToRem = (px: number): number => px / fs
+
+  const disableUserSelect = (): void => {
+    document.body.style.userSelect = 'none'
+    document.body.style.webkitUserSelect = 'none'
+    document.body.style.pointerEvents = 'none'
+  }
+  const enableUserSelect = (): void => {
+    document.body.style.userSelect = ''
+    document.body.style.webkitUserSelect = ''
+    document.body.style.pointerEvents = ''
+  }
+
   const fetchSeparators = (): void => {
     const res = getSeparators(name, float)
     if (res !== null && !Array.isArray(res)) panel = res
@@ -89,10 +106,6 @@
     }
     checkSizes()
   }
-
-  $: fs = $deviceInfo.fontSize
-  const remToPx = (rem: number): number => rem * fs
-  const pxToRem = (px: number): number => px / fs
 
   const convertSize = (prop: TSeparatedItem): string => (typeof prop === 'number' ? `${prop}px` : '')
 
@@ -229,6 +242,12 @@
 
   const checkSizes = (): void => {
     if (sState === SeparatorState.FLOAT) {
+      if (checkFullWidth() && panel != null) {
+        const s = pxToRem(window.innerWidth)
+        panel.size = s
+        panel.maxSize = s
+        panel.minSize = s
+      }
       if (parentElement != null && panel != null) initSize(parentElement, panel)
     } else if (sState === SeparatorState.NORMAL) {
       if (prevElement != null && prevElSize != null) initSize(prevElement, prevElSize)
@@ -305,29 +324,32 @@
 
   function floatMouseMove (event: PointerEvent): void {
     if (!isSeparate || parentSize === null || parentElement === null) return
-    const coord: number = Math.round(direction === 'horizontal' ? event.x - offset : event.y - offset)
-    const parentCoord: number = coord - parentSize.start
+    const coord: number = Math.round(direction === 'horizontal' ? event.clientX - offset : event.clientY - offset)
+    let parentCoord: number = coord - parentSize.start
     const min = remToPx(panel.minSize === 'auto' ? 10 : panel.minSize)
     const max = remToPx(panel.maxSize === 'auto' ? 30 : panel.maxSize)
+    // Clamp parentCoord to valid range to prevent panel from going off-screen
+    if (parentCoord < 0) parentCoord = 0
+    if (parentCoord > parentSize.size - separatorSize) parentCoord = parentSize.size - separatorSize
     const newCoord =
       side === 'start'
-        ? parentSize.size - parentCoord < min - separatorSize
+        ? parentSize.size - parentCoord < min
           ? min
-          : parentSize.size - parentCoord > max - separatorSize
+          : parentSize.size - parentCoord > max
             ? max
             : parentSize.size - parentCoord
-        : parentCoord < min - separatorSize
+        : parentCoord < min
           ? min
-          : parentCoord > max - separatorSize
+          : parentCoord > max
             ? max
-            : parentCoord - separatorSize
+            : parentCoord
     panel.size = pxToRem(newCoord)
     setSize(parentElement, newCoord)
   }
 
   function normalMouseMove (event: PointerEvent): void {
     if (!isSeparate || separatorMap === undefined || parentSize === null || separatorsSizes === null) return
-    const coord: number = Math.round(direction === 'horizontal' ? event.x - offset : event.y - offset)
+    const coord: number = Math.round(direction === 'horizontal' ? event.clientX - offset : event.clientY - offset)
     let parentCoord: number = coord - parentSize.start
     let prevCoord: number = separatorMap
       .filter((f) => f.begin)
@@ -403,7 +425,6 @@
           if (needAdd > 0) needAdd = resizeContainer(box.id, box.size, box.maxSize, needAdd, true)
         })
       }
-      separatorMap = separatorMap
     }
     applyStyles()
     if ($panelstore.panel?.refit !== undefined) $panelstore.panel.refit()
@@ -411,6 +432,7 @@
 
   function pointerUp (): void {
     finalSeparation()
+    enableUserSelect()
     document.removeEventListener('pointermove', pointerMove)
     document.removeEventListener('pointerup', pointerUp)
   }
@@ -442,12 +464,15 @@
       }
     } else if (sState === SeparatorState.FLOAT && parentElement != null) {
       parentElement.style.pointerEvents = 'all'
-      saveSeparator(name, float, panel)
+      if (!checkFullWidth()) saveSeparator(name, float, panel)
     }
     document.body.style.cursor = ''
   }
 
   function pointerDown (event: PointerEvent): void {
+    if (checkFullWidth()) return
+    event.preventDefault()
+    disableUserSelect()
     prepareSeparation(event)
     document.addEventListener('pointermove', pointerMove)
     document.addEventListener('pointerup', pointerUp)
@@ -461,7 +486,6 @@
       checkSibling()
       return
     }
-    offset = Math.round(direction === 'horizontal' ? event.offsetX : event.offsetY)
     const p = parentElement.getBoundingClientRect()
     parentSize =
       direction === 'horizontal'
@@ -471,7 +495,20 @@
       calculateSeparators()
       generateMap()
       applyStyles(true)
-    } else if (sState === SeparatorState.FLOAT) preparePanel()
+      // Calculate offset based on separator's actual position after generateMap
+      // prevCoord is the sum of all elements before separator + separators before
+      const prevCoord: number =
+        separatorMap
+          .filter((f) => f.begin)
+          .map((m) => m.size)
+          .reduce((prev, a) => prev + a, 0) + separatorsWide.before
+      const mousePos = direction === 'horizontal' ? event.clientX : event.clientY
+      // offset = mouse position relative to where separator should be
+      offset = mousePos - parentSize.start - prevCoord
+    } else if (sState === SeparatorState.FLOAT) {
+      offset = Math.round(direction === 'horizontal' ? event.offsetX : event.offsetY)
+      preparePanel()
+    }
     document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize'
   }
 
@@ -495,6 +532,27 @@
     if (parentElement != null && typeof float === 'string') parentElement.setAttribute('data-float', float)
   }
 
+  const clearContainer = (container: HTMLElement): void => {
+    if (container === null) return
+    if (container.hasAttribute('data-float')) container.removeAttribute('data-float')
+    if (container.hasAttribute('data-size')) container.removeAttribute('data-size')
+    container.style.width = ''
+    container.style.minWidth = ''
+    container.style.maxWidth = ''
+  }
+  const clearSibling = (): void => {
+    if (separators != null && prevElement != null && separators[index].float !== undefined) {
+      clearContainer(prevElement)
+    }
+    if (separators != null && nextElement != null && separators[index + 1].float !== undefined) {
+      clearContainer(nextElement)
+    }
+  }
+  const clearParent = (): void => {
+    if (parentElement === null && separator != null) parentElement = separator.parentElement as HTMLElement
+    if (parentElement != null && typeof float === 'string') clearContainer(parentElement)
+  }
+
   const calculateSeparators = (): void => {
     if (parentElement != null) {
       const elements: Element[] = Array.from(parentElement.children)
@@ -509,6 +567,7 @@
 
   let checkElements: boolean = false
   const resizeDocument = (): void => {
+    if (checkFullWidth()) checkSizes()
     if (parentElement == null || checkElements || sState !== SeparatorState.NORMAL) return
     checkElements = true
     setTimeout(() => {
@@ -539,17 +598,18 @@
             .filter((separ) => separ.float !== undefined && !hasSep.includes(separ.float))
             .map((separ) => separ.float)
           const reverseSep = [...separators].reverse()
-          let ind: number = 0
           reverseSep.forEach((separ, i) => {
             const pass = excluded.includes(separ.float)
             if (diff > 0 && !pass && separators != null) {
-              const box = rects.get(reverseSep.length - ind - 1)
+              const originalIndex = separators.length - 1 - i
+              const box = rects.get(originalIndex - excluded.filter((_, idx) => idx <= originalIndex).length)
               if (box != null) {
                 const minSize: number = remToPx(separ.minSize === 'auto' ? 20 : separ.minSize)
-                const forCrop = box.size - minSize
-                if (forCrop > 0) {
-                  const newSize = forCrop - diff < 0 ? minSize : box.size - diff
-                  diff -= forCrop
+                const availableForCrop = box.size - minSize
+                if (availableForCrop > 0) {
+                  const actualCrop = Math.min(diff, availableForCrop)
+                  const newSize = box.size - actualCrop
+                  diff -= actualCrop
                   if (separ.maxSize !== 'auto') {
                     if (direction === 'horizontal') {
                       box.element.style.width = `${newSize}px`
@@ -561,10 +621,9 @@
                       box.element.style.maxHeight = `${newSize}px`
                     }
                   }
-                  separators[separators.length - i - 1].size = newSize
+                  separators[originalIndex].size = pxToRem(newSize)
                 }
               }
-              ind++
             }
           })
         }
@@ -590,6 +649,10 @@
     }
   })
   onDestroy(() => {
+    if (mounted) {
+      if (sState === SeparatorState.FLOAT) clearParent()
+      else if (sState === SeparatorState.NORMAL) clearSibling()
+    }
     window.removeEventListener('resize', resizeDocument)
     if (sState !== SeparatorState.FLOAT && $separatorsStore.filter((f) => f === name).length > 0) {
       $separatorsStore = $separatorsStore.filter((f) => f !== name)
@@ -623,6 +686,7 @@
   .antiSeparator {
     position: relative;
     flex-shrink: 0;
+    touch-action: none;
 
     &::after,
     &::before {

@@ -13,48 +13,53 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Markup } from '@hcengineering/core'
+  import { Blob, Class, Doc, Markup, Ref } from '@hcengineering/core'
   import { Asset, IntlString } from '@hcengineering/platform'
-  import { EmptyMarkup, isEmptyMarkup } from '@hcengineering/text'
+  import { EmptyMarkup, isEmptyMarkup, mergeKitOptions } from '@hcengineering/text'
+  import textEditor, { RefAction, TextEditorHandler } from '@hcengineering/text-editor'
   import {
     AnySvelteComponent,
     Button,
     ButtonKind,
-    handler,
-    registerFocus,
+    checkAdaptiveMatching,
     deviceOptionsStore as deviceInfo,
-    checkAdaptiveMatching
+    handler,
+    IconClose,
+    registerFocus
   } from '@hcengineering/ui'
-  import { createEventDispatcher } from 'svelte'
   import { FocusPosition } from '@tiptap/core'
   import { EditorView } from '@tiptap/pm/view'
-  import textEditor, { RefAction, TextEditorHandler } from '@hcengineering/text-editor'
+  import { createEventDispatcher } from 'svelte'
 
-  import { Completion } from '../Completion'
+  import view from '@hcengineering/view'
   import TextEditor from './TextEditor.svelte'
   import { defaultRefActions, getModelRefActions } from './editor/actions'
-  import { completionConfig } from './extensions'
-  import { EmojiExtension } from './extension/emoji'
-  import { IsEmptyContentExtension } from './extension/isEmptyContent'
   import Send from './icons/Send.svelte'
+  import { EditorKitOptions } from '../kits/editor-kit'
 
   export let content: Markup = EmptyMarkup
   export let showHeader = false
   export let showActions = true
   export let showSend = true
+  export let showCancel = false
   export let iconSend: Asset | AnySvelteComponent | undefined = undefined
   export let labelSend: IntlString | undefined = undefined
+  export let labelCancel: IntlString | undefined = undefined
   export let kindSend: ButtonKind = 'ghost'
+  export let kindCancel: ButtonKind = 'ghost'
   export let haveAttachment = false
   export let placeholder: IntlString | undefined = undefined
   export let extraActions: RefAction[] = []
   export let loading: boolean = false
   export let focusable: boolean = false
+  export let noborder: boolean = false
   export let boundary: HTMLElement | undefined = undefined
   export let autofocus: FocusPosition = false
-  export let canEmbedFiles = true
-  export let canEmbedImages = true
   export let onPaste: ((view: EditorView, event: ClipboardEvent) => boolean) | undefined = undefined
+  export let onCancel: (() => void) | undefined = undefined
+  export let docClass: Ref<Class<Doc>> | undefined = undefined
+  export let kitOptions: Partial<EditorKitOptions> = {}
+  export let onKeyDown: ((view: EditorView, event: KeyboardEvent) => boolean) | undefined = undefined
 
   const dispatch = createEventDispatcher()
   const buttonSize = 'medium'
@@ -77,6 +82,9 @@
   const editorHandler: TextEditorHandler = {
     insertText: (text) => {
       editor?.insertText(text)
+    },
+    insertEmoji: (text: string, image?: Ref<Blob>) => {
+      editor?.insertEmoji(text, image)
     },
     insertMarkup: (markup) => {
       editor?.insertMarkup(markup)
@@ -102,10 +110,16 @@
   }
 
   let actions: RefAction[] = defaultRefActions.concat(...extraActions).sort((a, b) => a.order - b.order)
+  let modelActions: RefAction[] = []
 
-  void getModelRefActions().then((modelActions) => {
-    actions = actions.concat(...modelActions).sort((a, b) => a.order - b.order)
+  void getModelRefActions().then((actions) => {
+    modelActions = actions
   })
+
+  $: actions = defaultRefActions
+    .concat(...extraActions)
+    .concat(...modelActions)
+    .sort((a, b) => a.order - b.order)
 
   export function submit (): void {
     editor?.submit()
@@ -134,15 +148,9 @@
       focusManager?.setFocus(idx)
     }
   }
-  const completionPlugin = Completion.configure({
-    ...completionConfig,
-    showDoc (event: MouseEvent, _id: string, _class: string) {
-      dispatch('open-document', { event, _id, _class })
-    }
-  })
 </script>
 
-<div class="ref-container" class:focusable>
+<div class="ref-container" class:focusable class:noborder>
   {#if showHeader && $$slots.header}
     <div class="header">
       <slot name="header" />
@@ -154,13 +162,11 @@
       bind:this={editor}
       {autofocus}
       {boundary}
-      {canEmbedFiles}
-      {canEmbedImages}
       on:content={(ev) => {
         if (canSubmit) {
           dispatch('message', ev.detail)
           content = EmptyMarkup
-          editor?.clear()
+          editor?.clear?.()
         }
       }}
       on:blur={() => {
@@ -172,13 +178,25 @@
         updateFocus()
         dispatch('focus')
       }}
-      extensions={[
-        completionPlugin,
-        EmojiExtension.configure(),
-        IsEmptyContentExtension.configure({ onChange: (value) => (isEmpty = value) })
-      ]}
       {onPaste}
+      {onKeyDown}
       on:update
+      kitOptions={mergeKitOptions(
+        {
+          emoji: true,
+          dropcursor: false,
+          reference: {
+            docClass,
+            multipleMentions: true
+          },
+          hooks: {
+            emptyContent: {
+              onChange: (a) => (isEmpty = a)
+            }
+          }
+        },
+        kitOptions
+      )}
       placeholder={placeholder ?? textEditor.string.EditorPlaceholder}
     />
   </div>
@@ -186,7 +204,10 @@
     <div class="buttons-panel flex-between clear-mins">
       <div class="buttons-group {shrinkButtons ? 'xxsmall-gap' : 'xsmall-gap'}">
         {#if showActions}
-          {#each actions as a}
+          {#each actions as a, idx (a)}
+            {#if idx !== 0 && a.order % 10 === 0}
+              <div class="buttons-divider" />
+            {/if}
             <Button
               disabled={a.disabled}
               icon={a.icon}
@@ -194,20 +215,45 @@
               kind="ghost"
               showTooltip={{ label: a.label }}
               size={buttonSize}
+              noFocus
               on:click={handler(a, (a, evt) => {
                 if (a.disabled !== true) {
                   handleAction(a, evt)
                 }
               })}
             />
-            {#if a.order % 10 === 1}
-              <div class="buttons-divider" />
-            {/if}
           {/each}
         {/if}
       </div>
 
-      {#if showSend}
+      {#if showCancel && showSend}
+        <div class="buttons-group {shrinkButtons ? 'xxsmall-gap' : 'xsmall-gap'}">
+          <Button
+            {loading}
+            icon={IconClose}
+            iconProps={{ size: buttonSize }}
+            kind={kindCancel}
+            size={buttonSize}
+            showTooltip={{
+              label: labelCancel ?? view.string.Cancel
+            }}
+            on:click={onCancel}
+          />
+          <Button
+            {loading}
+            disabled={!canSubmit}
+            icon={iconSend ?? Send}
+            iconProps={{ size: buttonSize }}
+            kind={kindSend}
+            size={buttonSize}
+            showTooltip={{
+              label: labelSend ?? textEditor.string.Send
+            }}
+            on:click={submit}
+          />
+        </div>
+      {/if}
+      {#if showSend && !showCancel}
         <Button
           {loading}
           disabled={!canSubmit}
@@ -237,6 +283,10 @@
       &:focus-within {
         border-color: var(--primary-edit-border-color);
       }
+    }
+
+    &.noborder {
+      border: none;
     }
   }
 

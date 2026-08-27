@@ -18,9 +18,11 @@
   import { OK, Severity, Status } from '@hcengineering/platform'
   import { createEventDispatcher, onDestroy } from 'svelte'
   import { Timestamp } from '@hcengineering/core'
+  import { LoginInfo } from '@hcengineering/account-client'
 
   import Tabs from './Tabs.svelte'
-  import { BottomAction, doLoginNavigate, loginWithOtp, OtpLoginSteps, sendOtp } from '../index'
+  import { loginFormMinHeight, loginFormPadding } from '../loginFormLayout'
+  import { BottomAction, doLoginNavigate, doValidateOtp, OtpLoginSteps, loginOtp } from '../index'
   import login from '../plugin'
   import BottomActionComponent from './BottomAction.svelte'
   import StatusControl from './StatusControl.svelte'
@@ -29,6 +31,10 @@
   export let email: string
   export let retryOn: Timestamp
   export let signUpDisabled = false
+  export let loginState: 'login' | 'signup' | 'none' = 'none'
+  export let canChangeEmail = true
+  export let password: string | undefined = undefined
+  export let onLogin: ((loginInfo: LoginInfo | null, status: Status) => void | Promise<void>) | undefined = undefined
 
   const dispatch = createEventDispatcher()
 
@@ -62,16 +68,20 @@
     status = new Status(Severity.INFO, login.status.ConnectingToServer, {})
 
     const otp = otpData.otp1 + otpData.otp2 + otpData.otp3 + otpData.otp4 + otpData.otp5 + otpData.otp6
-    const [loginStatus, result] = await loginWithOtp(email, otp)
+    const [loginStatus, result] = await doValidateOtp(loginState === 'signup', email, otp, password)
     status = loginStatus
 
-    await doLoginNavigate(
-      result,
-      (st) => {
-        status = st
-      },
-      navigateUrl
-    )
+    if (onLogin !== undefined) {
+      void onLogin(result, status)
+    } else {
+      await doLoginNavigate(
+        result,
+        (st) => {
+          status = st
+        },
+        navigateUrl
+      )
+    }
   }
 
   function onInput (e: Event): void {
@@ -195,10 +205,10 @@
 
   async function resendCode (): Promise<void> {
     status = new Status(Severity.INFO, login.status.ConnectingToServer, {})
-    const [otpStatus, result] = await sendOtp(email)
+    const [otpStatus, result] = await loginOtp(email)
     status = otpStatus
 
-    if (result !== undefined && result.sent && otpStatus === OK) {
+    if (result?.sent === true && otpStatus === OK) {
       retryOn = result.retryOn
       clearOtpData()
       if (timer !== undefined) timer.restart(retryOn)
@@ -229,11 +239,11 @@
 <form
   bind:this={formElement}
   class="container"
-  style:padding={$deviceInfo.docWidth <= 480 ? '.25rem 1.25rem' : '4rem 5rem'}
-  style:min-height={$deviceInfo.docHeight > 720 ? '42rem' : '0'}
+  style:padding={loginFormPadding($deviceInfo.docWidth, $deviceInfo.docHeight)}
+  style:min-height={loginFormMinHeight($deviceInfo.docHeight)}
 >
   <div class="header">
-    <Tabs loginState="login" {signUpDisabled} />
+    <Tabs {loginState} {signUpDisabled} />
     <div class="description">
       <Label label={login.string.SentTo} />
       <span class="email ml-1">
@@ -275,7 +285,9 @@
       </span>
     </span>
 
-    <BottomActionComponent action={changeEmailAction} />
+    {#if canChangeEmail}
+      <BottomActionComponent action={changeEmailAction} />
+    {/if}
     {#if canResend}
       <BottomActionComponent action={resendCodeAction} />
     {/if}
@@ -323,7 +335,8 @@
   }
 
   .container {
-    overflow: hidden;
+    overflow-x: hidden;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 

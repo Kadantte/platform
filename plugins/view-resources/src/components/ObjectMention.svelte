@@ -15,12 +15,15 @@
 <script lang="ts">
   import { Class, Doc, Ref } from '@hcengineering/core'
   import { getResource, translateCB } from '@hcengineering/platform'
-  import { createQuery, getClient } from '@hcengineering/presentation'
-  import { AnyComponent, LabelAndProps, themeStore, tooltip } from '@hcengineering/ui'
+  import { createQuery, getClient, IconWithEmoji } from '@hcengineering/presentation'
+  import { AnyComponent, Icon, LabelAndProps, themeStore, tooltip } from '@hcengineering/ui'
   import view from '@hcengineering/view'
+  import activity, { ActivityMessage } from '@hcengineering/activity'
 
-  import { getDocIdentifier } from '../utils'
+  import { getReferenceLabel } from '@hcengineering/text-editor-resources/src/components/extension/reference'
+  import { classIcon } from '../utils'
   import DocNavLink from './DocNavLink.svelte'
+  import contact from '@hcengineering/contact'
 
   export let _id: Ref<Doc> | undefined = undefined
   export let _class: Ref<Class<Doc>> | undefined = undefined
@@ -28,26 +31,27 @@
   export let title: string = ''
   export let component: AnyComponent | undefined = undefined
   export let disabled: boolean = false
-  export let accent: boolean = false
-  export let noUnderline: boolean = false
-  export let colorInherit: boolean = false
   export let onClick: ((event: MouseEvent) => void) | undefined = undefined
+  export let transparent: boolean = false
 
   const client = getClient()
   const hierarchy = client.getHierarchy()
   const docQuery = createQuery()
 
+  let parentDoc: Doc | undefined = undefined
   let doc: Doc | undefined = object ?? undefined
 
   let docLabel: string = ''
   let docTitle: string | undefined = undefined
-  let docTooltip: LabelAndProps = {}
+  let docTooltip: LabelAndProps = {
+    label: view.string.Loading
+  }
   let docComponent: AnyComponent
 
   let displayTitle = ''
 
   $: displayTitle = docTitle || title || docLabel
-  $: docComponent = getPanelComponent(doc, _class)
+  $: docComponent = getPanelComponent(parentDoc ?? doc, _class)
 
   $: if (object == null && _class != null && _id != null) {
     docQuery.query(_class, { _id }, (r) => {
@@ -58,19 +62,54 @@
     doc = object
   }
 
-  $: void updateDocTitle(doc)
-  $: void updateDocTooltip(doc)
-  $: void updateDocLabel(doc, _class)
+  $: void updateParentDoc(doc, _class)
 
-  function getPanelComponent (doc?: Doc, _class?: Ref<Class<Doc>>): AnyComponent {
-    if (component !== undefined) {
-      return component
+  async function updateParentDoc (doc: Doc | undefined, _class: Ref<Class<Doc>> | undefined): Promise<void> {
+    const resultClass = doc?._class ?? _class
+    if (resultClass == null) {
+      parentDoc = undefined
+      return
     }
 
+    if (hierarchy.isDerived(resultClass, activity.class.ActivityMessage)) {
+      const message = doc as ActivityMessage
+      if (parentDoc?._id === message.attachedTo) return
+      parentDoc = await client.findOne(message.attachedToClass, { _id: message.attachedTo })
+    } else {
+      parentDoc = undefined
+    }
+  }
+
+  $: docClass = doc?._class ?? _class
+  $: docId = doc?._id ?? _id
+
+  $: cl = parentDoc?._class ?? docClass
+  $: clazz = cl ? hierarchy.findClass(cl) : undefined
+  $: icon = getIcon(doc)
+
+  $: void updateDocTitle(doc)
+  $: void updateDocTooltip(doc)
+  $: void updateDocLabel(parentDoc ?? doc, _class)
+
+  function getIcon (doc: Doc | undefined): any {
+    if (doc == null) return undefined
+    if (hierarchy.isDerived(doc._class, contact.class.Contact)) return undefined
+
+    return classIcon(client, doc._class)
+  }
+
+  function getPanelComponent (doc?: Doc, _class?: Ref<Class<Doc>>): AnyComponent {
+    if (component !== undefined) return component
     const resultClass = doc?._class ?? _class
 
     if (resultClass === undefined) {
       return view.component.EditDoc
+    } else if (hierarchy.isDerived(resultClass, activity.class.ActivityMessage)) {
+      if (doc == null) return view.component.EditDoc
+      const message = doc as ActivityMessage
+      const panelComponent = hierarchy.classHierarchyMixin(message.attachedToClass, view.mixin.ObjectPanel)
+
+      return panelComponent?.component ?? view.component.EditDoc
     } else {
       const panelComponent = hierarchy.classHierarchyMixin(resultClass, view.mixin.ObjectPanel)
 
@@ -91,7 +130,7 @@
   }
 
   async function updateDocTitle (doc: Doc | undefined): Promise<void> {
-    docTitle = doc ? await getDocIdentifier(client, doc._id, doc._class, doc) : undefined
+    docTitle = doc ? await getReferenceLabel(doc._class, doc._id, doc) : undefined
   }
 
   async function updateDocTooltip (doc?: Doc): Promise<void> {
@@ -113,19 +152,29 @@
 </script>
 
 {#if displayTitle}
-  <DocNavLink
-    object={doc}
-    component={docComponent}
-    {disabled}
-    {accent}
-    {colorInherit}
-    {noUnderline}
-    inline
-    noOverflow
-    {onClick}
+  <span
+    data-type={'reference'}
+    data-id={doc?._id}
+    data-objectclass={doc?._class}
+    data-label={displayTitle}
+    use:tooltip={docTooltip}
   >
-    <span class="antiMention" class:reference={!disabled} use:tooltip={disabled ? undefined : docTooltip}>
-      @{displayTitle}
-    </span>
-  </DocNavLink>
+    <DocNavLink
+      object={parentDoc ?? doc}
+      component={docComponent}
+      {disabled}
+      inlineReference
+      {onClick}
+      {transparent}
+      query={docClass && docId && hierarchy.isDerived(docClass, activity.class.ActivityMessage)
+        ? { message: docId }
+        : undefined}
+    >
+      {#if icon}{#if icon === view.ids.IconWithEmoji}<IconWithEmoji
+            icon={clazz?.color ?? 0}
+            size={'smaller'}
+            inline
+          />{:else}<Icon {icon} size="small" />{/if}{' '}{:else}@{/if}{displayTitle}
+    </DocNavLink>
+  </span>
 {/if}

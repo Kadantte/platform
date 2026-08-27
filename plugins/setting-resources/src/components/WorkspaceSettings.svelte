@@ -13,9 +13,8 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { PersonAccount } from '@hcengineering/contact'
   import { getCurrentAccount, hasAccountRole } from '@hcengineering/core'
-  import { createQuery, isAdminUser } from '@hcengineering/presentation'
+  import { createQuery, isAdminUser, isDisabled } from '@hcengineering/presentation'
   import setting, { SettingsCategory } from '@hcengineering/setting'
   import {
     Component,
@@ -36,8 +35,7 @@
   let categoryId: string = ''
 
   let categories: SettingsCategory[] = []
-  const account = getCurrentAccount() as PersonAccount
-
+  const account = getCurrentAccount()
   const admin = isAdminUser()
 
   const settingsQuery = createQuery()
@@ -45,7 +43,7 @@
     setting.class.WorkspaceSettingCategory,
     {},
     (res) => {
-      categories = res.filter((p) => hasAccountRole(account, p.role))
+      categories = res.filter((p) => hasAccountRole(account, p.role) && !isDisabled(p.feature ?? ''))
       if (!admin) {
         categories = categories.filter((p) => !(p.adminOnly ?? false))
       }
@@ -103,5 +101,5 @@
 {:else if kind === 'content' && category === undefined}
   <div class="hulyComponent" />
 {:else if category}
-  <Component is={category.component} props={{ kind: 'content' }} on:change />
+  <Component is={category.component} props={{ kind: 'content', ...category.props }} on:change />
 {/if}

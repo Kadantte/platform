@@ -15,37 +15,47 @@
 
 import activity from '@hcengineering/activity'
 import contact from '@hcengineering/contact'
-import { AccountRole, DOMAIN_MODEL, type Account, type Blob, type Domain, type Ref } from '@hcengineering/core'
-import { Mixin, Model, type Builder, UX } from '@hcengineering/model'
+import {
+  AccountRole,
+  DOMAIN_MODEL,
+  type AccountUuid,
+  type Blob,
+  type ClassCollaborators,
+  type Ref,
+  type IntegrationKind
+} from '@hcengineering/core'
+import exportPlugin from '@hcengineering/export'
+import { Mixin, Model, Prop, TypeRecord, UX, type Builder } from '@hcengineering/model'
 import core, { TClass, TConfiguration, TDoc } from '@hcengineering/model-core'
 import view, { createAction } from '@hcengineering/model-view'
 import notification from '@hcengineering/notification'
 import type { Asset, IntlString } from '@hcengineering/platform'
 import {
+  DOMAIN_SETTING,
   settingId,
   type Editable,
   type Handler,
   type Integration,
   type IntegrationType,
   type InviteSettings,
-  type WorkspaceSetting,
+  type OfficeSettings,
+  type RoleCapabilitySettings,
   type SettingsCategory,
-  type UserMixin,
+  type SpaceTypeCreator,
   type SpaceTypeEditor,
   type SpaceTypeEditorSection,
-  type SpaceTypeCreator
+  type UserMixin,
+  type WorkspaceSetting
 } from '@hcengineering/setting'
 import templates from '@hcengineering/templates'
 import setting from './plugin'
 
-import workbench from '@hcengineering/model-workbench'
+import workbench, { WidgetType } from '@hcengineering/model-workbench'
 import { type AnyComponent } from '@hcengineering/ui/src/types'
 
 export { settingId } from '@hcengineering/setting'
 export { settingOperation } from './migration'
 export { default } from './plugin'
-
-export const DOMAIN_SETTING = 'setting' as Domain
 
 @Model(setting.class.Integration, core.class.Doc, DOMAIN_SETTING)
 @UX(setting.string.Integrations)
@@ -53,7 +63,7 @@ export class TIntegration extends TDoc implements Integration {
   type!: Ref<IntegrationType>
   disabled!: boolean
   value!: string
-  shared!: Ref<Account>[]
+  shared!: AccountUuid[]
   error?: IntlString | null
 }
 @Model(setting.class.SettingsCategory, core.class.Doc, DOMAIN_MODEL)
@@ -85,6 +95,8 @@ export class TIntegrationType extends TDoc implements IntegrationType {
   reconnectComponent?: AnyComponent
   onDisconnect!: Handler
   configureComponent?: AnyComponent
+  kind!: IntegrationKind
+  stateComponent?: AnyComponent
 }
 
 @Mixin(setting.mixin.Editable, core.class.Class)
@@ -101,6 +113,22 @@ export class TInviteSettings extends TConfiguration implements InviteSettings {
   expirationTime!: number
   emailMask!: string
   limit!: number
+  defaultInviteRole!: AccountRole
+  inviteLinkGeneratorRoles!: AccountRole[]
+}
+
+@Model(setting.class.RoleCapabilitySettings, core.class.Configuration, DOMAIN_SETTING)
+@UX(setting.string.RoleCapabilitySettings)
+export class TRoleCapabilitySettings extends TConfiguration implements RoleCapabilitySettings {
+  @Prop(TypeRecord(), setting.string.RoleCapabilitySettings)
+    roleByCapability!: Record<string, AccountRole[]>
+}
+
+@Model(setting.class.OfficeSettings, core.class.Configuration, DOMAIN_SETTING)
+@UX(setting.string.OfficeSettings)
+export class TOfficeSettings extends TConfiguration implements OfficeSettings {
+  defaultStartWithTranscription!: boolean
+  defaultStartWithRecording!: boolean
 }
 
 @Model(setting.class.WorkspaceSetting, core.class.Doc, DOMAIN_SETTING)
@@ -128,17 +156,28 @@ export function createModel (builder: Builder): void {
     TEditable,
     TUserMixin,
     TInviteSettings,
+    TRoleCapabilitySettings,
+    TOfficeSettings,
     TWorkspaceSetting,
     TSpaceTypeEditor,
     TSpaceTypeCreator
   )
 
-  builder.mixin(setting.class.Integration, core.class.Class, notification.mixin.ClassCollaborators, {
-    fields: ['modifiedBy']
-  })
+  builder.createDoc(
+    workbench.class.Widget,
+    core.space.Model,
+    {
+      label: setting.string.Settings,
+      type: WidgetType.Flexible,
+      icon: setting.icon.Setting,
+      component: setting.component.SettingsWidget
+    },
+    setting.ids.SettingsWidget
+  )
 
-  builder.mixin(setting.class.Integration, core.class.Class, view.mixin.ObjectPanel, {
-    component: setting.component.IntegrationPanel
+  builder.createDoc<ClassCollaborators<Integration>>(core.class.ClassCollaborators, core.space.Model, {
+    attachedTo: setting.class.Integration,
+    fields: ['modifiedBy']
   })
 
   builder.createDoc(
@@ -170,6 +209,22 @@ export function createModel (builder: Builder): void {
     },
     setting.ids.Password
   )
+
+  builder.createDoc(
+    setting.class.SettingsCategory,
+    core.space.Model,
+    {
+      name: 'security',
+      label: setting.string.Security,
+      icon: setting.icon.Password,
+      component: setting.component.TwoFactorSettings,
+      group: 'settings-account',
+      role: AccountRole.Guest,
+      order: 1200
+    },
+    setting.ids.Security
+  )
+
   builder.createDoc(
     setting.class.SettingsCategory,
     core.space.Model,
@@ -197,9 +252,25 @@ export function createModel (builder: Builder): void {
       component: setting.component.Integrations,
       group: 'settings-account',
       role: AccountRole.User,
+      feature: 'integrations',
       order: 1500
     },
     setting.ids.Integrations
+  )
+  builder.createDoc(
+    setting.class.SettingsCategory,
+    core.space.Model,
+    {
+      name: 'mailboxes',
+      label: setting.string.Mailboxes,
+      icon: setting.icon.Mailbox,
+      component: setting.component.Mailboxes,
+      group: 'settings-account',
+      feature: 'mailboxes',
+      role: AccountRole.User,
+      order: 1700
+    },
+    setting.ids.Mailboxes
   )
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
@@ -218,14 +289,41 @@ export function createModel (builder: Builder): void {
     setting.class.WorkspaceSettingCategory,
     core.space.Model,
     {
+      name: 'backup',
+      label: setting.string.Backup,
+      icon: setting.icon.Setting,
+      component: setting.component.Backup,
+      feature: 'backup',
+      order: 950,
+      role: AccountRole.Owner
+    },
+    setting.ids.Backup
+  )
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
       name: 'owners',
-      label: setting.string.Owners,
-      icon: setting.icon.Owners,
-      component: setting.component.Owners,
+      label: setting.string.Members,
+      icon: setting.icon.Members,
+      component: setting.component.Members,
       order: 1000,
       role: AccountRole.Maintainer
     },
-    setting.ids.Owners
+    setting.ids.Members
+  )
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
+      name: 'guestPermissions',
+      label: setting.string.GuestPermissionsSettings,
+      icon: setting.icon.GuestPermissions,
+      component: setting.component.GuestPermissionsSettings,
+      role: AccountRole.Owner,
+      order: 1050
+    },
+    'setting:ids:AccountPermissionsSettings' as Ref<any>
   )
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
@@ -249,8 +347,7 @@ export function createModel (builder: Builder): void {
       icon: setting.icon.Setting,
       component: setting.component.Configure,
       order: 1200,
-      role: AccountRole.Owner,
-      adminOnly: true
+      role: AccountRole.Owner
     },
     setting.ids.Configure
   )
@@ -267,6 +364,20 @@ export function createModel (builder: Builder): void {
       order: 4500
     },
     setting.ids.ClassSetting
+  )
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
+      name: 'relation',
+      label: core.string.Relations,
+      icon: setting.icon.Relations,
+      component: setting.component.RelationSetting,
+      group: 'settings-editor',
+      role: AccountRole.Maintainer,
+      order: 4501
+    },
+    setting.ids.Relations
   )
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
@@ -292,10 +403,59 @@ export function createModel (builder: Builder): void {
       icon: setting.icon.InviteSettings,
       component: setting.component.InviteSetting,
       group: 'settings-editor',
+      feature: 'invites',
       role: AccountRole.Maintainer,
       order: 4700
     },
     setting.ids.InviteSettings
+  )
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
+      name: 'export',
+      label: exportPlugin.string.Export,
+      icon: exportPlugin.icon.Export,
+      component: exportPlugin.component.ExportSettings,
+      group: 'settings-editor',
+      feature: 'export',
+      role: AccountRole.Owner,
+      order: 4800
+    },
+    setting.ids.Export
+  )
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
+      name: 'office',
+      label: setting.string.OfficeSettings,
+      icon: setting.icon.OfficeSettings,
+      component: setting.component.OfficeSettings,
+      group: 'settings-editor',
+      feature: 'love',
+      role: AccountRole.Maintainer,
+      order: 4900
+    },
+    setting.ids.OfficeSettings
+  )
+
+  // Tokens belong to the account, not to a workspace: they are listed across every
+  // workspace the user is in, and creating one only needs the User role the account
+  // service checks. So this sits with the other per-account settings.
+  builder.createDoc(
+    setting.class.SettingsCategory,
+    core.space.Model,
+    {
+      name: 'apiTokens',
+      label: setting.string.ApiTokens,
+      icon: setting.icon.ApiToken,
+      component: setting.component.ApiTokens,
+      group: 'settings-account',
+      order: 1500,
+      role: AccountRole.User
+    },
+    setting.ids.ApiTokens
   )
   // Currently remove Support item from settings
   // builder.createDoc(
@@ -345,7 +505,7 @@ export function createModel (builder: Builder): void {
     workbench.class.Application,
     core.space.Model,
     {
-      label: setting.string.Setting,
+      label: setting.string.Settings,
       icon: setting.icon.Setting,
       alias: settingId,
       hidden: true,
@@ -383,8 +543,20 @@ export function createModel (builder: Builder): void {
     editor: setting.component.DateTypeEditor
   })
 
+  builder.mixin(contact.mixin.Employee, core.class.Class, view.mixin.TypeEditor, {
+    editor: setting.component.EmployeeRefEditor
+  })
+
+  builder.mixin(core.class.TypeMarkup, core.class.Class, view.mixin.ObjectEditor, {
+    editor: setting.component.MarkupTypeEditor
+  })
+
   builder.mixin(core.class.TypeNumber, core.class.Class, view.mixin.ObjectEditor, {
     editor: setting.component.NumberTypeEditor
+  })
+
+  builder.mixin(core.class.TypeIdentifier, core.class.Class, view.mixin.ObjectEditor, {
+    editor: setting.component.IdentifierTypeEditor
   })
 
   builder.mixin(core.class.RefTo, core.class.Class, view.mixin.ObjectEditor, {
@@ -406,24 +578,28 @@ export function createModel (builder: Builder): void {
     actions: [view.action.Delete]
   })
 
-  createAction(builder, {
-    action: view.actionImpl.ShowPopup,
-    actionProps: {
-      component: setting.component.CreateMixin,
-      fillProps: {
-        _object: 'value'
+  createAction(
+    builder,
+    {
+      action: view.actionImpl.ShowPopup,
+      actionProps: {
+        component: setting.component.CreateMixin,
+        fillProps: {
+          _object: 'value'
+        }
+      },
+      label: setting.string.CreateMixin,
+      input: 'focus',
+      icon: view.icon.Pin,
+      category: setting.category.Settings,
+      target: core.class.Class,
+      context: {
+        mode: ['context', 'browser'],
+        group: 'edit'
       }
     },
-    label: setting.string.CreateMixin,
-    input: 'focus',
-    icon: view.icon.Pin,
-    category: setting.category.Settings,
-    target: core.class.Class,
-    context: {
-      mode: ['context', 'browser'],
-      group: 'edit'
-    }
-  })
+    setting.action.CreateMixin
+  )
 
   createAction(
     builder,
@@ -621,6 +797,14 @@ export function createModel (builder: Builder): void {
 
   builder.mixin(core.class.Permission, core.class.Class, view.mixin.ObjectPresenter, {
     presenter: setting.component.PermissionPresenter
+  })
+
+  builder.mixin(core.class.AttributePermission, core.class.Class, view.mixin.ObjectPresenter, {
+    presenter: setting.component.AttributePermissionPresenter
+  })
+
+  builder.mixin(core.class.ClassPermission, core.class.Class, view.mixin.ObjectPresenter, {
+    presenter: setting.component.ClassPermissionPresenter
   })
 
   builder.createDoc(core.class.DomainIndexConfiguration, core.space.Model, {

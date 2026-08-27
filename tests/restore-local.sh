@@ -1,15 +1,7 @@
-
-export MINIO_ACCESS_KEY=minioadmin
-export MINIO_SECRET_KEY=minioadmin
-export MINIO_ENDPOINT=localhost:9000
-export MONGO_URL=mongodb://localhost:27017
-export ELASTIC_URL=http://localhost:9200
-export SERVER_SECRET=secret
+#!/usr/bin/env bash
 
 # Restore workspace contents in mongo/elastic
-./tool-local.sh backup-restore ./sanity-ws sanity-ws
-
-./tool-local.sh upgrade-workspace sanity-ws --indexes
+./tool-local.sh backup-restore ./sanity-ws sanity-ws --upgrade
 
 # Re-assign user to workspace.
 ./tool-local.sh assign-workspace user1 sanity-ws

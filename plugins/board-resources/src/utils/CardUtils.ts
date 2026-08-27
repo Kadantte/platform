@@ -1,17 +1,14 @@
 import { type Card } from '@hcengineering/board'
-import { type Employee, type PersonAccount } from '@hcengineering/contact'
-import {
+import { type Employee, getCurrentEmployee } from '@hcengineering/contact'
+import core, {
   type TxOperations as Client,
   type TxResult,
-  getCurrentAccount,
   type Ref,
   type Space,
   type AttachedData,
-  SortingOrder,
   type Status
 } from '@hcengineering/core'
 import { showPanel } from '@hcengineering/ui'
-import task, { makeRank } from '@hcengineering/task'
 import board from '../plugin'
 
 export async function createCard (
@@ -20,12 +17,11 @@ export async function createCard (
   status: Ref<Status>,
   attribues: Partial<AttachedData<Card>> & { kind: Card['kind'] }
 ): Promise<Ref<Card>> {
-  const sequence = await client.findOne(task.class.Sequence, { attachedTo: board.class.Card })
+  const sequence = await client.findOne(core.class.Sequence, { attachedTo: board.class.Card })
   if (sequence === undefined) {
     throw new Error('sequence object not found')
   }
 
-  const lastOne = await client.findOne(board.class.Card, {}, { sort: { rank: SortingOrder.Descending } })
   const incResult = await client.update(sequence, { $inc: { sequence: 1 } }, true)
   const number = (incResult as any).object.sequence
 
@@ -35,7 +31,7 @@ export async function createCard (
     startDate: null,
     dueDate: null,
     number,
-    rank: makeRank(lastOne?.rank, undefined),
+    rank: '',
     assignee: null,
     identifier: `CARD-${number}`,
     description: '',
@@ -77,9 +73,8 @@ export function canAddCurrentUser (card: Card): boolean {
   if (card.members == null) {
     return true
   }
-  const employee = (getCurrentAccount() as PersonAccount).person
 
-  return !card.members.includes(employee as Ref<Employee>)
+  return !card.members.includes(getCurrentEmployee())
 }
 
 export function hasCover (card: Card): boolean {
@@ -91,13 +86,12 @@ export function hasDate (card: Card): boolean {
 }
 
 export function addCurrentUser (card: Card, client: Client): Promise<TxResult> | undefined {
-  const employee = (getCurrentAccount() as PersonAccount).person
-
-  if (card.members?.includes(employee as Ref<Employee>) === true) {
+  const employee = getCurrentEmployee()
+  if (card.members?.includes(employee) === true) {
     return
   }
 
-  return client.update(card, { $push: { members: employee as Ref<Employee> } })
+  return client.update(card, { $push: { members: employee } })
 }
 
 export function archiveCard (card: Card, client: Client): Promise<TxResult> | undefined {

@@ -16,6 +16,7 @@
 <script lang="ts">
   import core, {
     AnyAttribute,
+    AssociationQuery,
     Class,
     Doc,
     DocumentQuery,
@@ -24,7 +25,9 @@
     Ref,
     SortingOrder,
     TxOperations,
-    getObjectValue
+    TypedSpace,
+    getObjectValue,
+    mergeQueries
   } from '@hcengineering/core'
   import notification from '@hcengineering/notification'
   import { createQuery, getClient, reduceCalls, updateAttribute } from '@hcengineering/presentation'
@@ -39,13 +42,19 @@
     mouseAttractor,
     resizeObserver
   } from '@hcengineering/ui'
-  import { AttributeModel, BuildModelKey, BuildModelOptions } from '@hcengineering/view'
+  import { AttributeModel, BuildModelKey, BuildModelOptions, ViewOptionModel, ViewOptions } from '@hcengineering/view'
   import { deepEqual } from 'fast-equals'
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, onMount } from 'svelte'
   import { showMenu } from '../actions'
   import view from '../plugin'
-  import { LoadingProps, buildConfigLookup, buildModel, restrictionStore } from '../utils'
+  import { LoadingProps, buildConfigAssociation, buildConfigLookup, buildModel, restrictionStore } from '../utils'
   import IconUpDown from './icons/UpDown.svelte'
+  import { getResultOptions, getResultQuery } from '../viewOptions'
+  import { canEditSpace } from '../visibilityTester'
+  import contact, { PermissionsStore } from '@hcengineering/contact'
+  import { Readable } from 'svelte/store'
+  import { getResource } from '@hcengineering/platform'
+  import { canChangeAttribute } from '../permissions'
 
   export let _class: Ref<Class<Doc>>
   export let query: DocumentQuery<Doc>
@@ -59,6 +68,8 @@
   export let tableId: string | undefined = undefined
   export let readonly = false
   export let showFooter = false
+  export let viewOptionsConfig: ViewOptionModel[] | undefined = undefined
+  export let viewOptions: ViewOptions | undefined = undefined
 
   export let totalQuery: DocumentQuery<Doc> | undefined = undefined
 
@@ -75,15 +86,25 @@
   const client = getClient()
   const hierarchy = client.getHierarchy()
 
+  let sortOrder = SortingOrder.Descending
+
+  let lookup = buildConfigLookup(hierarchy, _class, config, options?.lookup)
+  let associations = buildConfigAssociation(config)
+
   $: lookup = buildConfigLookup(hierarchy, _class, config, options?.lookup)
+  $: associations = buildConfigAssociation(config)
 
   let _sortKey = prefferedSorting
   let userSorting = false
-  $: if (!userSorting) {
+  $: if (!userSorting && !viewOptions?.orderBy) {
     _sortKey = prefferedSorting
   }
 
-  let sortOrder = SortingOrder.Descending
+  $: if (viewOptions?.orderBy) {
+    _sortKey = viewOptions.orderBy[0]
+    sortOrder = viewOptions.orderBy[1]
+  }
+
   let loading = 0
 
   let objects: Doc[] = []
@@ -117,18 +138,26 @@
       : { ...(options?.sort ?? {}), [sortKey]: sortOrder }
   }
 
+  let resultOptions = options
+  let resultQuery: DocumentQuery<Doc> = query
+
   const update = reduceCalls(async function (
     _class: Ref<Class<Doc>>,
     query: DocumentQuery<Doc>,
     sortKey: string | string[],
     sortOrder: SortingOrder,
     lookup: Lookup<Doc>,
+    associations: AssociationQuery[] | undefined,
     limit: number,
-    options?: FindOptions<Doc>
+    options: FindOptions<Doc> | undefined,
+    viewOptionsConfig: ViewOptionModel[] | undefined,
+    viewOptions: ViewOptions | undefined
   ) {
+    const p = await getResultQuery(hierarchy, query, viewOptionsConfig, viewOptions)
+    resultQuery = mergeQueries(p, query)
     loading += q.query(
       _class,
-      query,
+      resultQuery,
       (result) => {
         if (sortingFunction !== undefined) {
           const sf = sortingFunction
@@ -139,26 +168,41 @@
         objectsRecieved = true
         loading = 0
       },
-      { limit, ...options, sort: getSort(sortKey), lookup, total: false }
+      { limit, ...options, sort: getSort(sortKey), lookup, associations, total: false }
     )
       ? 1
       : 0
   })
-  $: void update(_class, query, _sortKey, sortOrder, lookup, limit, options)
+  $: void update(
+    _class,
+    query,
+    _sortKey,
+    sortOrder,
+    lookup,
+    associations,
+    limit,
+    resultOptions,
+    viewOptionsConfig,
+    viewOptions
+  )
+
+  $: void getResultOptions(options, viewOptionsConfig, viewOptions).then((p) => {
+    resultOptions = p
+  })
 
   $: dispatch('content', objects)
 
   const qSlow = createQuery()
   $: qSlow.query(
     _class,
-    query,
+    resultQuery,
     (result) => {
       total = result.total
       if (totalQuery === undefined) {
         gtotal = total
       }
     },
-    { limit: 1, ...options, sort: getSort(_sortKey), lookup, total: true }
+    { limit: 1, ...resultOptions, sort: getSort(_sortKey), lookup, associations, total: true }
   )
 
   const totalQueryQ = createQuery()
@@ -170,6 +214,7 @@
         gtotal = result.total === -1 ? 0 : result.total
       },
       {
+        ...resultOptions,
         lookup,
         limit: 1,
         total: true
@@ -189,6 +234,13 @@
     showMenu(ev, { object: items, baseMenuClass })
   }
 
+  const showHeaderContextMenu = (ev: MouseEvent): void => {
+    if (readonly) return
+    if (!enableChecking || objects.length === 0) return
+    const items = checked.length > 0 ? checked : objects
+    showMenu(ev, { object: items, baseMenuClass })
+  }
+
   function changeSorting (key: string | string[]): void {
     if (key === '') {
       return
@@ -200,9 +252,11 @@
     } else {
       sortOrder = sortOrder === SortingOrder.Ascending ? SortingOrder.Descending : SortingOrder.Ascending
     }
+    dispatch('sort', { key: _sortKey, order: sortOrder })
   }
 
   $: checkedSet = new Set<Ref<Doc>>(checked.map((it) => it._id))
+  $: allItemsSelected = objects?.length === checkedSet.size && objects?.length > 0
 
   export function check (docs: Doc[], value: boolean) {
     if (!enableChecking) return
@@ -236,15 +290,19 @@
     }
   }
 
-  const joinProps = (attribute: AttributeModel, object: Doc, readonly: boolean) => {
-    const readonlyParams = readonly
-      ? {
-          readonly: true,
-          editable: false,
-          disabled: true
-        }
-      : {}
-    if (attribute.collectionAttr) {
+  const joinProps = (attribute: AttributeModel, object: Doc, readonly: boolean, editable: boolean) => {
+    const readonlyParams =
+      readonly || (attribute?.attribute?.readonly ?? false)
+        ? {
+            readonly: true,
+            editable: false,
+            disabled: true
+          }
+        : {
+            readonly: !editable,
+            editable
+          }
+    if (attribute.collectionAttr || attribute.attribute?.type?._class === core.class.TypeIdentifier) {
       return { object, ...attribute.props, ...readonlyParams }
     }
     if (attribute.attribute?.type._class === core.class.EnumOf) {
@@ -262,7 +320,7 @@
     return getObjectValue(attribute.key, object)
   }
 
-  function onChange (value: any, doc: Doc, key: string, attribute: AnyAttribute) {
+  function onChange (value: any, doc: Doc, key: string, attribute: AnyAttribute): void {
     updateAttribute(client, doc, _class, { key, attr: attribute }, value)
   }
 
@@ -271,6 +329,7 @@
     if (attr === undefined) return
     if (attribute.collectionAttr) return
     if (attribute.isLookup) return
+    if (attribute.attribute?.readonly === true) return
     const key = attribute.castRequest ? attribute.key.substring(attribute.castRequest.length + 1) : attribute.key
     return (value: any) => {
       onChange(value, doc, key, attr)
@@ -311,6 +370,29 @@
       }
     }
   }
+
+  let permissionsStore: Readable<PermissionsStore> | undefined = undefined
+
+  onMount(async () => {
+    permissionsStore = await getResource(contact.store.Permissions)
+  })
+
+  function canChangeAttr (
+    object: Doc,
+    attr: AnyAttribute | undefined,
+    permissionsStore: PermissionsStore | undefined
+  ): boolean {
+    if (permissionsStore === undefined) return true
+    if (attr === undefined) return true
+    return canChangeAttribute(attr, object.space as Ref<TypedSpace>, permissionsStore, object._class)
+  }
+
+  async function canEdit (object: Doc): Promise<boolean> {
+    if (client.getHierarchy().isDerived(object._class, core.class.Space)) {
+      return await canEditSpace(object)
+    }
+    return true
+  }
 </script>
 
 {#if !model || isBuildingModel}
@@ -329,12 +411,12 @@
       <thead class="scroller-thead">
         <tr class="scroller-thead__tr">
           {#if enableChecking || showNotification}
-            <th>
+            <th on:contextmenu={showHeaderContextMenu}>
               {#if enableChecking && objects?.length > 0}
                 <div class="antiTable-cells__checkCell" class:checkall={checkedSet.size > 0}>
                   <CheckBox
-                    symbol={'minus'}
-                    checked={objects?.length === checkedSet.size && objects?.length > 0}
+                    symbol={allItemsSelected ? 'check' : 'minus'}
+                    checked={checkedSet.size > 0}
                     on:value={(event) => {
                       check(objects, event.detail)
                     }}
@@ -343,7 +425,7 @@
               {/if}
             </th>
           {/if}
-          {#each model as attribute}
+          {#each model.filter((m) => !m.displayProps?.grow) as attribute}
             <th
               class:w-full={attribute.displayProps?.grow === true}
               class:sortable={attribute.sortingKey}
@@ -424,25 +506,54 @@
                 {/if}
               </td>
             {/if}
-            {#if row < rowLimit}
-              {#each model as attribute, cell}
-                <td
-                  class:align-left={attribute.displayProps?.align === 'left'}
-                  class:align-center={attribute.displayProps?.align === 'center'}
-                  class:align-right={attribute.displayProps?.align === 'right'}
-                >
-                  <div class:antiTable-cells__firstCell={!cell}>
-                    <!-- {getOnChange(object, attribute) !== undefined} -->
-                    <svelte:component
-                      this={attribute.presenter}
-                      value={getValue(attribute, object)}
-                      onChange={getOnChange(object, attribute)}
-                      {...joinProps(attribute, object, readonly || $restrictionStore.readonly)}
-                    />
-                  </div>
-                </td>
-              {/each}
-            {/if}
+            {#await canEdit(object) then canEditObject}
+              {#if row < rowLimit}
+                {#each model.filter((m) => !m.displayProps?.grow) as attribute, cell}
+                  <td
+                    class:align-left={attribute.displayProps?.align === 'left'}
+                    class:align-center={attribute.displayProps?.align === 'center'}
+                    class:align-right={attribute.displayProps?.align === 'right'}
+                  >
+                    {#if !cell}
+                      <div class="antiTable-cells__firstCell">
+                        <!-- {getOnChange(object, attribute) !== undefined} -->
+                        <svelte:component
+                          this={attribute.presenter}
+                          value={getValue(attribute, object)}
+                          onChange={getOnChange(object, attribute)}
+                          label={attribute.label}
+                          attribute={attribute.attribute}
+                          {...joinProps(
+                            attribute,
+                            object,
+                            readonly ||
+                              $restrictionStore.readonly ||
+                              !canChangeAttr(object, attribute.attribute, $permissionsStore),
+                            canEditObject
+                          )}
+                        />
+                      </div>
+                    {:else}
+                      <svelte:component
+                        this={attribute.presenter}
+                        value={getValue(attribute, object)}
+                        onChange={getOnChange(object, attribute)}
+                        label={attribute.label}
+                        attribute={attribute.attribute}
+                        {...joinProps(
+                          attribute,
+                          object,
+                          readonly ||
+                            $restrictionStore.readonly ||
+                            !canChangeAttr(object, attribute.attribute, $permissionsStore),
+                          canEditObject
+                        )}
+                      />
+                    {/if}
+                  </td>
+                {/each}
+              {/if}
+            {/await}
           </tr>
         {/each}
       </tbody>
@@ -450,7 +561,7 @@
       <tbody>
         {#each Array(getLoadingLength(loadingProps, options)) as i, row}
           <tr class="antiTable-body__row" class:fixed={row === selection}>
-            {#each model as attribute, cell}
+            {#each model.filter((m) => !m.displayProps?.grow) as attribute, cell}
               {#if !cell}
                 {#if enableChecking}
                   <td>

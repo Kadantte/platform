@@ -16,7 +16,7 @@
 import { type DocUpdateMessageViewlet } from '@hcengineering/activity'
 import { calendarId } from '@hcengineering/calendar'
 import calendar from '@hcengineering/calendar-resources/src/plugin'
-import { type Ref } from '@hcengineering/core'
+import { type Doc, type Ref } from '@hcengineering/core'
 import { type NotificationGroup } from '@hcengineering/notification'
 import type { IntlString } from '@hcengineering/platform'
 import { mergeIds } from '@hcengineering/platform'
@@ -38,7 +38,8 @@ export default mergeIds(calendarId, calendar, {
     CalendarIntegrationIcon: '' as AnyComponent,
     CalendarEventPresenter: '' as AnyComponent,
     IntegrationConfigure: '' as AnyComponent,
-    CalendarWidget: '' as AnyComponent
+    CalendarWidget: '' as AnyComponent,
+    CalendarSettings: '' as AnyComponent
   },
   action: {
     SaveEventReminder: '' as Ref<Action>,
@@ -54,7 +55,6 @@ export default mergeIds(calendarId, calendar, {
   string: {
     ApplicationLabelCalendar: '' as IntlString,
     Event: '' as IntlString,
-    Reminder: '' as IntlString,
     Shift: '' as IntlString,
     State: '' as IntlString,
     CreatedReminder: '' as IntlString,
@@ -69,6 +69,7 @@ export default mergeIds(calendarId, calendar, {
   ids: {
     UpdateRemainderActivityViewlet: '' as Ref<DocUpdateMessageViewlet>,
     CalendarNotificationGroup: '' as Ref<NotificationGroup>,
-    CalendarWidget: '' as Ref<Widget>
+    CalendarWidget: '' as Ref<Widget>,
+    Settings: '' as Ref<Doc>
   }
 })

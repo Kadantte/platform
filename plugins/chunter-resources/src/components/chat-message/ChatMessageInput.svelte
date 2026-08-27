@@ -16,15 +16,14 @@
   import activity, { ActivityMessage } from '@hcengineering/activity'
   import { Analytics } from '@hcengineering/analytics'
   import { AttachmentRefInput } from '@hcengineering/attachment-resources'
-  import chunter, { ChatMessage, ChunterEvents, ThreadMessage, TypingInfo } from '@hcengineering/chunter'
-  import { Class, Doc, generateId, Ref, type CommitResult, getCurrentAccount } from '@hcengineering/core'
+  import chunter, { ChatMessage, ChunterEvents, ThreadMessage } from '@hcengineering/chunter'
+  import { Class, Doc, generateId, getCurrentAccount, Ref, type CommitResult } from '@hcengineering/core'
   import { createQuery, DraftController, draftsStore, getClient } from '@hcengineering/presentation'
   import { EmptyMarkup, isEmptyMarkup } from '@hcengineering/text'
   import { createEventDispatcher } from 'svelte'
   import { getObjectId } from '@hcengineering/view-resources'
   import { ThrottledCaller } from '@hcengineering/ui'
-  import { getSpace } from '@hcengineering/activity-resources'
-  import { PersonAccount } from '@hcengineering/contact'
+  import { getSpace, editingMessageStore } from '@hcengineering/activity-resources'
 
   import { getChannelSpace } from '../../utils'
   import ChannelTypingInfo from '../ChannelTypingInfo.svelte'
@@ -38,6 +37,9 @@
   export let collection: string = 'comments'
   export let autofocus = false
   export let withTypingInfo = false
+  export let onKeyDown: ((e: KeyboardEvent) => void) | undefined = undefined
+
+  import { setTyping, clearTyping } from '@hcengineering/presence-resources'
 
   type MessageDraft = Pick<ChatMessage, '_id' | 'message' | 'attachments'>
 
@@ -75,16 +77,6 @@
     createdMessageQuery.unsubscribe()
   }
 
-  const typingInfoQuery = createQuery()
-  let typingInfo: TypingInfo[] = []
-  $: if (withTypingInfo) {
-    typingInfoQuery.query(chunter.class.TypingInfo, { objectId: object._id, space: getSpace(object) }, (res) => {
-      typingInfo = res
-    })
-  } else {
-    typingInfoQuery.unsubscribe()
-  }
-
   function clear (): void {
     currentMessage = getDefault()
     _id = currentMessage._id
@@ -106,34 +98,20 @@
     }
   }
 
-  const me = getCurrentAccount() as PersonAccount
+  const acc = getCurrentAccount()
   const throttle = new ThrottledCaller(500)
 
   async function deleteTypingInfo (): Promise<void> {
     if (!withTypingInfo) return
-    const myTypingInfo = typingInfo.find((info) => info.person === me.person)
-    if (myTypingInfo === undefined) return
-    await client.remove(myTypingInfo)
+    void clearTyping(acc.primarySocialId, object._id)
   }
 
   async function updateTypingInfo (): Promise<void> {
     if (!withTypingInfo) return
-    const myTypingInfo = typingInfo.find((info) => info.person === me.person)
 
-    if (myTypingInfo === undefined) {
-      await client.createDoc(chunter.class.TypingInfo, getSpace(object), {
-        objectId: object._id,
-        objectClass: object._class,
-        person: me.person,
-        lastTyping: Date.now()
-      })
-    } else {
-      throttle.call(() => {
-        void client.update(myTypingInfo, {
-          lastTyping: Date.now()
-        })
-      })
-    }
+    throttle.call(() => {
+      void setTyping(acc.primarySocialId, object._id)
+    })
   }
 
   function onUpdate (event: CustomEvent): void {
@@ -159,7 +137,6 @@
       const objectId = await getObjectId(object, client.getHierarchy())
       Analytics.handleEvent(ChunterEvents.MessageCreated, { ok: false, objectId, objectClass: object._class })
       Analytics.handleError(err)
-      console.error(err)
     }
   }
 
@@ -172,7 +149,6 @@
       const objectId = await getObjectId(object, client.getHierarchy())
       Analytics.handleEvent(ChunterEvents.MessageEdited, { ok: false, objectId, objectClass: object._class })
       Analytics.handleError(err)
-      console.error(err)
     }
   }
 
@@ -239,12 +215,30 @@
   export function submit (): void {
     inputRef.submit()
   }
+
+  function handleKeyDown (event: KeyboardEvent): boolean {
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      if (inputRef.isEmptyDraft() && chatMessage == null) {
+        onKeyDown?.(event)
+      }
+    }
+
+    if (event.key === 'Escape') {
+      if ($editingMessageStore === undefined) return false
+      event.stopPropagation()
+      event.preventDefault()
+      editingMessageStore.set(undefined)
+    }
+    return false
+  }
 </script>
 
 <AttachmentRefInput
   {focusIndex}
   bind:this={inputRef}
   bind:content={inputContent}
+  docId={object._id}
+  docClass={object._class}
   {_class}
   space={getChannelSpace(object._class, object._id, object.space)}
   skipAttachmentsPreload={(currentMessage.attachments ?? 0) === 0}
@@ -257,8 +251,9 @@
   on:focus
   on:blur
   bind:loading
+  onKeyDown={handleKeyDown}
 />
 
 {#if withTypingInfo}
-  <ChannelTypingInfo {typingInfo} />
+  <ChannelTypingInfo {object} />
 {/if}

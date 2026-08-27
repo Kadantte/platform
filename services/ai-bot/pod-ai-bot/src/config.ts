@@ -21,7 +21,6 @@ interface Config {
   MongoURL: string
   ServerSecret: string
   ServiceID: string
-  SupportWorkspace: string
   FirstName: string
   LastName: string
   AvatarPath: string
@@ -32,9 +31,17 @@ interface Config {
   OpenAIModel: OpenAI.ChatModel
   OpenAIBaseUrl: string
   OpenAITranslateModel: OpenAI.ChatModel
+  OpenAISummaryModel: OpenAI.ChatModel
   MaxContentTokens: number
   MaxHistoryRecords: number
   Port: number
+  LoveEndpoint: string
+  DataLabApiKey: string
+  BillingUrl: string
+  DeepgramPollIntervalMinutes: number
+  DeepgramApiKey: string
+  DeepgramProjectId: string
+  DeepgramTag: string
 }
 
 const parseNumber = (str: string | undefined): number | undefined => (str !== undefined ? Number(str) : undefined)
@@ -46,20 +53,27 @@ const config: Config = (() => {
     MongoURL: process.env.MONGO_URL,
     ServerSecret: process.env.SERVER_SECRET,
     ServiceID: process.env.SERVICE_ID ?? 'ai-bot-service',
-    SupportWorkspace: process.env.SUPPORT_WORKSPACE,
     FirstName: process.env.FIRST_NAME,
     LastName: process.env.LAST_NAME,
     AvatarPath: process.env.AVATAR_PATH ?? './assets/avatar.png',
     AvatarName: process.env.AVATAR_NAME ?? 'huly_ai_bot_avatar',
-    AvatarContentType: process.env.AVATAR_CONTENT_TYPE ?? '.png',
+    AvatarContentType: process.env.AVATAR_CONTENT_TYPE ?? 'image/png',
     Password: process.env.PASSWORD ?? 'password',
     OpenAIKey: process.env.OPENAI_API_KEY ?? '',
     OpenAIModel: (process.env.OPENAI_MODEL ?? 'gpt-4o-mini') as OpenAI.ChatModel,
     OpenAITranslateModel: (process.env.OPENAI_TRANSLATE_MODEL ?? 'gpt-4o-mini') as OpenAI.ChatModel,
+    OpenAISummaryModel: (process.env.OPENAI_SUMMARY_MODEL ?? 'gpt-4o-mini') as OpenAI.ChatModel,
     OpenAIBaseUrl: process.env.OPENAI_BASE_URL ?? '',
     MaxContentTokens: parseNumber(process.env.MAX_CONTENT_TOKENS) ?? 128 * 100,
     MaxHistoryRecords: parseNumber(process.env.MAX_HISTORY_RECORDS) ?? 500,
-    Port: parseNumber(process.env.PORT) ?? 4010
+    Port: parseNumber(process.env.PORT) ?? 4010,
+    LoveEndpoint: process.env.LOVE_ENDPOINT ?? '',
+    DataLabApiKey: process.env.DATALAB_API_KEY ?? '',
+    BillingUrl: process.env.BILLING_URL ?? '',
+    DeepgramPollIntervalMinutes: parseNumber(process.env.DEEPGRAM_POLL_INTERVAL_MINUTES) ?? 60,
+    DeepgramApiKey: process.env.DEEPGRAM_API_KEY ?? '',
+    DeepgramProjectId: process.env.DEEPGRAM_PROJECT_ID ?? '',
+    DeepgramTag: process.env.DEEPGRAM_TAG ?? ''
   }
 
   const missingEnv = (Object.keys(params) as Array<keyof Config>).filter((key) => params[key] === undefined)

@@ -15,9 +15,10 @@
 import { type StatusCategory, type Client, type Doc, type Ref, type Space } from '@hcengineering/core'
 import type { Asset, IntlString, Metadata, Resource } from '@hcengineering/platform'
 import { mergeIds } from '@hcengineering/platform'
-import { type ProjectType } from '@hcengineering/task'
+import type { ObjectSearchCategory, ObjectSearchFactory } from '@hcengineering/presentation/src/types'
+import { type ProjectType, type TaskType } from '@hcengineering/task'
 import tracker, { trackerId, type IssueDraft, type Issue } from '@hcengineering/tracker'
-import { type AnyComponent, type Location } from '@hcengineering/ui'
+import { type AnyComponent, type Location } from '@hcengineering/ui/src/types'
 import {
   type CreateAggregationManagerFunc,
   type GetAllValuesFunc,
@@ -28,14 +29,20 @@ import {
   type Viewlet,
   type ViewletDescriptor
 } from '@hcengineering/view'
+import type { ValueFormatter } from '@hcengineering/converter'
 
 export default mergeIds(trackerId, tracker, {
   viewlet: {
     SubIssues: '' as Ref<Viewlet>,
     List: '' as Ref<ViewletDescriptor>,
     Kanban: '' as Ref<ViewletDescriptor>,
+    Gantt: '' as Ref<ViewletDescriptor>,
     MilestoneIssuesList: '' as Ref<Viewlet>,
     ComponentIssuesList: '' as Ref<Viewlet>
+  },
+  completion: {
+    IssueQuery: '' as Resource<ObjectSearchFactory>,
+    IssueCategory: '' as Ref<ObjectSearchCategory>
   },
   string: {
     More: '' as IntlString,
@@ -291,6 +298,7 @@ export default mergeIds(trackerId, tracker, {
     SevenHoursLength: '' as IntlString,
     EightHoursLength: '' as IntlString,
     HourLabel: '' as IntlString,
+    MinuteLabel: '' as IntlString,
     Saved: '' as IntlString,
     CreatedIssue: '' as IntlString,
     CreatedSubIssue: '' as IntlString,
@@ -301,11 +309,228 @@ export default mergeIds(trackerId, tracker, {
     PreviousAssigned: '' as IntlString,
     EditRelatedTargets: '' as IntlString,
     RelatedIssueTargetDescription: '' as IntlString,
-    RoleLabel: '' as IntlString
+
+    Day: '' as IntlString,
+    Gantt: '' as IntlString,
+    Month: '' as IntlString,
+    Quarter: '' as IntlString,
+    Week: '' as IntlString,
+    GanttShowIssueCode: '' as IntlString,
+    GanttShowTitle: '' as IntlString,
+    GanttShowStatus: '' as IntlString,
+    GanttToday: '' as IntlString,
+    GanttJumpToStart: '' as IntlString,
+    GanttJumpToEnd: '' as IntlString,
+    GanttJumpToDate: '' as IntlString,
+    // Zoom dropdown + numeric range input replacing the 4
+    // separate preset buttons in the Gantt toolbar center cluster.
+    GanttZoomDay: '' as IntlString,
+    GanttZoomWeek: '' as IntlString,
+    GanttZoomMonth: '' as IntlString,
+    GanttZoomQuarter: '' as IntlString,
+    GanttZoomCustom: '' as IntlString,
+    GanttZoomLabel: '' as IntlString,
+    GanttZoomVisibleDays: '' as IntlString,
+    GanttZoomDaysSuffix: '' as IntlString,
+    GanttZoomDaysAria: '' as IntlString,
+    GanttPreviousPeriod: '' as IntlString,
+    GanttNextPeriod: '' as IntlString,
+    GanttScrollLeftToBar: '' as IntlString,
+    GanttScrollRightToBar: '' as IntlString,
+    GanttExpand: '' as IntlString,
+    GanttCollapse: '' as IntlString,
+    GanttExpandAll: '' as IntlString,
+    GanttCollapseAll: '' as IntlString,
+    GanttCornerNoOpInSwimlane: '' as IntlString,
+    ModeSelectorDisabledByFilter: '' as IntlString,
+    ShowQuickModeSelector: '' as IntlString,
+    SearchScopeLabel: '' as IntlString,
+    SearchScopeTitle: '' as IntlString,
+    SearchScopeTitleDescription: '' as IntlString,
+    SearchScopeAll: '' as IntlString,
+    SearchHighlight: '' as IntlString,
+    SearchEmptyTitle: '' as IntlString,
+    SearchEmptyActiveFilters: '' as IntlString,
+    SearchEmptyClearFilters: '' as IntlString,
+    SearchEmptyAllProjects: '' as IntlString,
+    GanttTreeBreadcrumb: '' as IntlString,
+    // Off-viewport dependency-arrow indicators
+    GanttArrowIndicatorSourceAbove: '' as IntlString,
+    GanttArrowIndicatorSourceBelow: '' as IntlString,
+    GanttArrowIndicatorTargetAbove: '' as IntlString,
+    GanttArrowIndicatorTargetBelow: '' as IntlString,
+    // Dependency arrows + DependencyEditor popup
+    DependencyKindFS: '' as IntlString,
+    DependencyKindSS: '' as IntlString,
+    DependencyKindFF: '' as IntlString,
+    DependencyKindSF: '' as IntlString,
+    DependencyLag: '' as IntlString,
+    DependencyKind: '' as IntlString,
+    DependencyDelete: '' as IntlString,
+    DependencyDeleteConfirm: '' as IntlString,
+    DependencyCycle: '' as IntlString,
+    DependencyEditTitle: '' as IntlString,
+    // Visual DependencyEditor
+    DependencyKindHintFS: '' as IntlString,
+    DependencyKindHintSS: '' as IntlString,
+    DependencyKindHintFF: '' as IntlString,
+    DependencyKindHintSF: '' as IntlString,
+    DependencyPickKind: '' as IntlString,
+    DependencyChangeKind: '' as IntlString,
+    GanttShowPredecessors: '' as IntlString,
+    Predecessors: '' as IntlString,
+    NoPredecessors: '' as IntlString,
+    // Cascade simulation confirmation + error banners
+    CascadeConfirmTitle: '' as IntlString,
+    CascadeConfirmConfirm: '' as IntlString,
+    CascadeConfirmCancel: '' as IntlString,
+    CascadeBannerCycle: '' as IntlString,
+    CascadeBannerOverflow: '' as IntlString,
+    CascadeBannerBypass: '' as IntlString,
+    CascadeLockedSuccessors: '' as IntlString,
+    CascadeSkippedUnscheduled: '' as IntlString,
+    // Cascade popup color legend
+    CascadeLegendPrimary: '' as IntlString,
+    CascadeLegendPush: '' as IntlString,
+    CascadeLegendPull: '' as IntlString,
+    CascadeLegendOldNew: '' as IntlString,
+    // Issue-editor dependencies panel
+    Dependencies: '' as IntlString,
+    GanttSuccessors: '' as IntlString,
+    // Critical path + slack visualization
+    CriticalPath: '' as IntlString,
+    CriticalPathOn: '' as IntlString,
+    SlackColumn: '' as IntlString,
+    Slack: '' as IntlString,
+    CriticalPathCycle: '' as IntlString,
+    CriticalPathBadge: '' as IntlString,
+    // Export + keyboard help
+    GanttHelpTitle: '' as IntlString,
+    GanttHelpEsc: '' as IntlString,
+    GanttExport: '' as IntlString,
+    GanttExportFailed: '' as IntlString,
+    // Fullscreen + PNG/PDF export buttons
+    GanttFullscreen: '' as IntlString,
+    GanttExportPng: '' as IntlString,
+    GanttExportPdf: '' as IntlString,
+    //  / Refactor D — hamburger "More actions" menu in the toolbar.
+    GanttMoreActions: '' as IntlString,
+    // "…" trigger for the toolbar tiers that did not fit into the header row.
+    GanttToolbarMore: '' as IntlString,
+    GanttSavedViewLoad: '' as IntlString,
+    GanttSavedViewLoadGroup: '' as IntlString,
+    GanttSavedViewLoadDefault: '' as IntlString,
+    GanttSavedViewMine: '' as IntlString,
+    GanttSavedViewShared: '' as IntlString,
+    // Saved Gantt-Views
+    GanttSavedViews: '' as IntlString,
+    GanttSavedView: '' as IntlString,
+    GanttSavedViewNew: '' as IntlString,
+    GanttSavedViewNamePlaceholder: '' as IntlString,
+    GanttSavedViewFixTimeWindow: '' as IntlString,
+    GanttSavedViewFixTimeWindowHint: '' as IntlString,
+    GanttSavedViewPublic: '' as IntlString,
+    GanttSavedViewSave: '' as IntlString,
+    GanttSavedViewUpdate: '' as IntlString,
+    GanttSavedViewModified: '' as IntlString,
+    GanttSavedViewDelete: '' as IntlString,
+    GanttSavedViewEmpty: '' as IntlString,
+    GanttSavedViewSelect: '' as IntlString,
+    GanttSavedViewDefault: '' as IntlString,
+    // Mobile-Friendly Gantt
+    GanttMobileMenu: '' as IntlString,
+    GanttMobileOpenSidebar: '' as IntlString,
+    GanttMobileCloseSidebar: '' as IntlString,
+    GanttMobileReadOnly: '' as IntlString,
+    // Sidebar inline-grid columns
+    GanttSidebarColumnsExtended: '' as IntlString,
+    GanttSortBreaksHierarchy: '' as IntlString,
+    GanttSidebarColIdentifier: '' as IntlString,
+    GanttSidebarColTitle: '' as IntlString,
+    GanttSidebarColStatus: '' as IntlString,
+    GanttSidebarColPriority: '' as IntlString,
+    GanttSidebarColAssignee: '' as IntlString,
+    GanttSidebarColEstimation: '' as IntlString,
+    GanttSidebarColComponent: '' as IntlString,
+    GanttSidebarColMilestone: '' as IntlString,
+    GanttSidebarColPredecessors: '' as IntlString,
+    GanttSidebarColSlack: '' as IntlString,
+    GanttSidebarColStartDate: '' as IntlString,
+    GanttSidebarColDueDate: '' as IntlString,
+    GanttSidebarColDeadline: '' as IntlString,
+    GanttSidebarColProgress: '' as IntlString,
+    GanttSidebarColModifiedOn: '' as IntlString,
+    GanttSidebarColCreatedOn: '' as IntlString,
+    // Per-column visibility toggles for the extended sidebar
+    GanttSidebarShowStatus: '' as IntlString,
+    GanttSidebarShowPriority: '' as IntlString,
+    GanttSidebarShowAssignee: '' as IntlString,
+    GanttSidebarShowEstimation: '' as IntlString,
+    GanttSidebarShowStartDate: '' as IntlString,
+    GanttSidebarShowDueDate: '' as IntlString,
+    GanttSidebarShowDeadline: '' as IntlString,
+    GanttSidebarShowProgress: '' as IntlString,
+    // Filter bar + group-by swimlanes
+    GanttGroupBy: '' as IntlString,
+    GanttGroupByNone: '' as IntlString,
+    GanttGroupByStatus: '' as IntlString,
+    GanttGroupByPriority: '' as IntlString,
+    GanttGroupByAssignee: '' as IntlString,
+    GanttGroupByComponent: '' as IntlString,
+    GanttGroupByMilestone: '' as IntlString,
+    GanttGroupByLabel: '' as IntlString,
+    GanttGroupOverridesHierarchy: '' as IntlString,
+    // Bar color-by
+    GanttColorBy: '' as IntlString,
+    GanttColorByStatus: '' as IntlString,
+    GanttColorByPriority: '' as IntlString,
+    GanttColorByAssignee: '' as IntlString,
+    GanttColorByComponent: '' as IntlString,
+    GanttColorByMilestone: '' as IntlString,
+    GanttColorByNone: '' as IntlString,
+    GanttUnassigned: '' as IntlString,
+    GanttNoComponent: '' as IntlString,
+    GanttNoMilestone: '' as IntlString,
+    GanttNoLabel: '' as IntlString,
+    GanttUnknownGroup: '' as IntlString,
+    GanttAllIssues: '' as IntlString,
+    GanttFilter: '' as IntlString,
+    GanttFilterClear: '' as IntlString,
+    GanttFilterByStatus: '' as IntlString,
+    GanttFilterByPriority: '' as IntlString,
+    GanttFilterByAssignee: '' as IntlString,
+    GanttFilterEmpty: '' as IntlString,
+    // Undo / Redo
+    GanttUndo: '' as IntlString,
+    GanttRedo: '' as IntlString,
+    GanttUndoTooltip: '' as IntlString,
+    GanttRedoTooltip: '' as IntlString,
+    GanttUndoEmpty: '' as IntlString,
+    GanttRedoEmpty: '' as IntlString,
+    GanttUndoConflict: '' as IntlString,
+    GanttUndoConflictHint: '' as IntlString,
+    GanttUndoFailed: '' as IntlString,
+    GanttUndoDescMove: '' as IntlString,
+    GanttUndoDescResize: '' as IntlString,
+    GanttUndoDescCascade: '' as IntlString,
+    GanttUndoDescCreateDep: '' as IntlString,
+    GanttUndoDescDeleteDep: '' as IntlString,
+    GanttUndoDescEditDep: '' as IntlString,
+    // Bulk-Select + Bulk-Drag
+    GanttBulkSelectedCount: '' as IntlString,
+    GanttBulkBoundaryHit: '' as IntlString,
+    GanttBulkClearSelection: '' as IntlString,
+    // Activity-Log
+    AddedRelation: '' as IntlString,
+    RemovedRelation: '' as IntlString,
+    UpdatedRelation: '' as IntlString,
+    // Customize-View overlay + progress toggles
+    GanttShowPastDueOverlay: '' as IntlString,
+    GanttShowBlockedOverlay: '' as IntlString,
+    GanttShowSubIssueProgress: '' as IntlString
   },
   component: {
     NopeComponent: '' as AnyComponent,
-    Inbox: '' as AnyComponent,
     MyIssues: '' as AnyComponent,
     Views: '' as AnyComponent,
     Issues: '' as AnyComponent,
@@ -339,9 +564,11 @@ export default mergeIds(trackerId, tracker, {
     LeadPresenter: '' as AnyComponent,
     SetDueDateActionPopup: '' as AnyComponent,
     SetParentIssueActionPopup: '' as AnyComponent,
+    LinkSubIssueActionPopup: '' as AnyComponent,
     EditComponent: '' as AnyComponent,
     IssuesView: '' as AnyComponent,
     KanbanView: '' as AnyComponent,
+    GanttView: '' as AnyComponent,
     ProjectComponents: '' as AnyComponent,
     IssuePreview: '' as AnyComponent,
     RelationsPopup: '' as AnyComponent,
@@ -368,7 +595,13 @@ export default mergeIds(trackerId, tracker, {
     SubIssuesSelector: '' as AnyComponent,
     IconWithEmoji: '' as Asset,
     IssueStatusIcon: '' as AnyComponent,
-    MilestoneStatusIcon: '' as AnyComponent
+    MilestoneStatusIcon: '' as AnyComponent,
+    // Notification on Dependency-Shift.
+    DependencyShiftedPresenter: '' as AnyComponent,
+    // Activity-Log
+    RelationActivityPresenter: '' as AnyComponent,
+    // Predecessor column in the Tracker list view.
+    PredecessorsColumn: '' as AnyComponent
   },
   metadata: {
     CreateIssueDraft: '' as Metadata<IssueDraft>
@@ -394,7 +627,9 @@ export default mergeIds(trackerId, tracker, {
     IsProjectJoined: '' as Resource<(space: Space) => Promise<boolean>>,
     IssueChatTitleProvider: '' as Resource<(object: Doc) => string>,
     GetIssueStatusCategories: '' as Resource<(project: ProjectType) => Array<Ref<StatusCategory>>>,
-    GetIssueIdByIdentifier: '' as Resource<(id: string) => Promise<Ref<Issue> | undefined>>
+    GetIssueIdByIdentifier: '' as Resource<(id: string) => Promise<Ref<Issue> | undefined>>,
+    OpenIssuesOfTaskType: '' as Resource<(taskType: TaskType) => Promise<void>>,
+    FormatIssueMarkdownValue: '' as Resource<ValueFormatter>
   },
   aggregation: {
     CreateComponentAggregationManager: '' as CreateAggregationManagerFunc,
